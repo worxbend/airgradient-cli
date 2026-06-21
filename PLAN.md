@@ -163,6 +163,15 @@ Completed in iteration 18:
 - Expanded binary PTY HTTP coverage so a below-floor refresh-hook value does not trigger an early second `/measures/current` request.
 - Verified on 2026-06-21: `cargo deny check`, `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test` pass.
 
+Completed in iteration 19:
+
+- Added `scripts/release-dry-run.sh`, a maintainer dry-run command that builds or stages the Linux release artifact, packages `airgradient-cli` with the checked-in `LICENSE`, and writes `SHA256SUMS`.
+- Standardized the first-release artifact shape around `airgradient-cli-v<version>-x86_64-unknown-linux-gnu.tar.gz` plus `SHA256SUMS`, with checksum coverage over the staged tarball.
+- Added `tests/release_dry_run.rs` covering skip-build staging, archive contents, checksum manifest entries, and explicit missing-binary failures.
+- Wired the release artifact dry run into GitHub Actions as validation-only behavior, without upload, signing, tagging, or release publication.
+- Updated README, `docs/release-boundary.md`, and `docs/release-checklist.md` to document the release rehearsal workflow and the versioned tarball artifact contract.
+- Targeted verification on 2026-06-21: `cargo test --test release_dry_run` passes, and manual skip-build probes produced the expected documented tarball/checksum for `x86_64-unknown-linux-gnu`.
+
 ## Known Gaps and Risks
 
 - Medium: pseudo-terminal integration tests are skippable when PTY support is unavailable, so some CI/platform combinations may still rely on the runtime harness instead of exercising crossterm through a real terminal.
@@ -177,7 +186,10 @@ Completed in iteration 18:
 - Medium: first-release scope, version/tag expectations, checksum policy, signing non-scope, and release checklist are now documented, but the project still has no release workflow, artifact publishing automation, checksum-generation helper, or real-device validation record.
 - Medium: Rust and cargo-deny are now pinned, but future updates need a documented cadence so security/tooling updates are deliberate instead of stale.
 - Medium: duplicate-version deny exceptions are exact and rationalized, but they can become stale release-policy noise if upstream dependency convergence is not periodically checked.
-- Medium: `docs/release-boundary.md` makes `SHA256SUMS` a release blocker, but there is no script or CI dry-run that proves maintainers can build the named artifacts and generate the expected checksum file correctly.
+- Medium: the release dry-run script accepts arbitrary target triples, including non-Linux targets when `--skip-build` is used, even though the first-release boundary is Linux-only and currently documents `x86_64-unknown-linux-gnu`.
+- Medium: the release dry-run output directory is not required to be empty and is not cleaned, so stale tarballs from earlier rehearsals can remain next to the newly generated artifact and confuse manual publication.
+- Medium: README says local release validation should follow CI order, but the listed local commands omit the CI dry-run and PTY summary step; the release checklist documents the dry run separately, so the validation story is currently split.
+- Low: `--skip-build` only checks that the supplied binary path exists; it does not verify executable permissions on Unix. This is acceptable for the current test helper path but weaker than the release artifact contract.
 
 ## Compatibility Targets
 
@@ -211,27 +223,32 @@ Must preserve:
 
 ### Release and CI Readiness
 
-1. Add a release artifact dry-run script.
-   - Build or stage the documented Linux artifact filenames for the supported first-release targets.
-   - Include or stage the checked-in `LICENSE` file according to the release-boundary rules.
-   - Generate `SHA256SUMS` over the exact files the release docs say must be covered.
-   - Add a maintainer command or CI dry-run that validates the script without publishing artifacts.
+1. Harden the release artifact dry-run contract.
+   - Reject unsupported target triples up front; the first-release dry run should allow only documented Linux targets, currently `x86_64-unknown-linux-gnu`.
+   - Add tests proving non-Linux targets and unsupported Linux targets fail before staging artifacts, including the `--skip-build` path.
+   - Decide whether the output directory must be empty, cleaned, or target-version scoped; prevent stale tarballs from being mistaken for current release artifacts.
+   - Verify or enforce executable permissions for `--skip-build` binaries on Unix so test fixture shortcuts cannot produce a non-executable packaged binary.
 
-2. Add a tool-update policy.
+2. Align release validation documentation with CI.
+   - Update README and `docs/release-checklist.md` so the local release-validation order includes `cargo deny check`, the release dry run, formatting, Clippy, tests, and PTY coverage reporting exactly as CI presents them.
+   - Clarify that the dry run is validation-only and may be run with a temporary output directory in CI, while maintainers should use a clean release staging directory.
+   - Add a small docs consistency check or release checklist item that prevents drift between CI, README, and release-boundary dry-run commands.
+
+3. Add a tool-update policy.
    - Document how and when to update Rust 1.96.0 and cargo-deny 0.19.9 pins.
    - Require the full validation suite after tool updates because rustfmt, Clippy, and cargo-deny defaults can change release outcomes.
    - Keep README, `rust-toolchain.toml`, and GitHub Actions pins synchronized.
 
-3. Tighten dependency-policy maintenance.
+4. Tighten dependency-policy maintenance.
    - Periodically re-run `cargo tree -d --target all` and prune exact duplicate-version skips when upstream dependencies converge.
    - Investigate whether `comfy-table`/`ratatui`/direct `crossterm` usage can be aligned to one `crossterm` line in a future dependency update.
    - Keep advisory ignores and license exceptions empty unless a specific release decision adds a narrowly documented exception.
 
-4. Decide shell-completion scope.
+5. Decide shell-completion scope.
    - Either keep completions explicitly out of the first release or add generation and artifact packaging.
    - Avoid documenting completion artifacts until generation is implemented and tested.
 
-5. Keep release-boundary docs synchronized.
+6. Keep release-boundary docs synchronized.
    - Treat `README.md`, `docs/release-boundary.md`, `docs/release-checklist.md`, `Cargo.toml`, `rust-toolchain.toml`, `.github/workflows/ci.yml`, and release notes as one release contract.
    - Add a lightweight checklist review before release so artifact names, checksum policy, signing language, license inclusion, PTY coverage state, and real-device validation status do not drift.
 

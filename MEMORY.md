@@ -32,3 +32,5 @@
 [pattern] Exact duplicate-version deny exceptions with package/version rationale keep new duplicates visible while allowing known transitive splits to pass temporarily.
 [pattern] Reproducible release validation needs both CI-pinned tools and a checked-in local toolchain pin so maintainer commands exercise the same compiler, formatter, linter, and policy gate.
 [pattern] Release docs are stronger when they name non-promises, blockers, accepted risks, and artifact integrity policy instead of only listing happy-path steps.
+[anti-pattern] Release dry-run scripts that accept arbitrary target triples can undermine a documented platform boundary even when CI exercises only the intended target.
+[learning] Release staging commands should define stale-output behavior explicitly; leftover artifacts can make a correct checksum manifest look like an incomplete release set.

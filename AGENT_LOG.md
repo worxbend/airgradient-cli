@@ -1540,3 +1540,83 @@ A  docs/release-checklist.md
 M  src/tui/runtime.rs
 M  tests/common/pty.rs
 M  tests/tui_fetch_contract.rs
+2026-06-21T17:15:40Z iteration 19 started remaining=6380s
+2026-06-21T17:15:40Z iteration 19 preplanner effective budgets untracked_scan_max_bytes=536870912 untracked_scan_max_count=10000 snapshot_copy_max_bytes=536870912 snapshot_copy_max_count=10000 snapshot_copy_max_file_bytes=134217728
+2026-06-21T17:15:40Z iteration 19 disposable preplanner repo created path=/tmp/agent-loop-preplanner-repo-0n1829t7/repo copied_entries=43
+2026-06-21T17:15:40Z iteration 19 ideator phase started count=3
+2026-06-21T17:15:40Z iteration 19 ideator phase concurrency workers=3
+2026-06-21T17:15:40Z iteration 19 ideator 1 role="the pragmatist" started
+2026-06-21T17:15:40Z iteration 19 ideator 2 role="the architect" started
+2026-06-21T17:15:40Z iteration 19 ideator 3 role="the contrarian" started
+2026-06-21T17:15:48Z iteration 19 ideator 2 role="the architect" completed status=0
+2026-06-21T17:15:48Z iteration 19 ideator 1 role="the pragmatist" completed status=0
+2026-06-21T17:15:51Z iteration 19 ideator 3 role="the contrarian" completed status=0
+2026-06-21T17:15:51Z iteration 19 ideator phase completed approaches=3
+2026-06-21T17:15:51Z iteration 19 selector started approaches=3
+2026-06-21T17:16:03Z iteration 19 selector completed status=0
+2026-06-21T17:16:03Z iteration 19 disposable preplanner repo cleanup path=/tmp/agent-loop-preplanner-repo-0n1829t7/repo
+2026-06-21T17:16:03Z iteration 19 selector rejected alternative role="the architect" approach="Release Contract Dry-Run First: treat the next iteration as a rehearsal of the documented first-release promise, using the release boundary and checklist as the source of truth..." reason="Not rejected on substance; its release-contract framing is selected, but the Planner should make the rehearsal more explicitly maintainer-operational rather than only documentation-driven."
+2026-06-21T17:16:03Z iteration 19 selector rejected alternative role="the pragmatist" approach="Release Rehearsal First: treat the next iteration as a maintainer dry run of the documented first-release contract, starting from the release boundary and working backward only..." reason="Not selected as-is because it is slightly broader about working backward from exposed gaps; the Planner should constrain follow-up changes to what blocks the documented dry run."
+2026-06-21T17:16:03Z iteration 19 selector rejected alternative role="the contrarian" approach="Release Rehearsal First: treat the next iteration as a production release simulation rather than another feature-hardening pass, proving that a maintainer can produce exactly th..." reason="Not selected as-is because the adversarial clean-tree framing is useful but should not imply a full production release simulation or target-environment guarantee beyond the documented manual dry-run scope."
+2026-06-21T17:16:03Z iteration 19 selector alternatives persisted count=3
+2026-06-21T17:16:03Z iteration 19 selector structured alternatives persisted count=3
+2026-06-21T17:16:03Z iteration 19 planner started
+2026-06-21T17:16:34Z iteration 19 plan: 5 task(s) in 3 phase(s). This slice focuses iteration 19 on proving the documented manual Linux release contract can be rehearsed from the repository. The script is the dependency; tests, CI wiring, and docs can proceed independently once its interface exists; final validation must run after all changes land.
+2026-06-21T17:16:34Z iteration 19 phase 1 started parallel=False tasks=1
+2026-06-21T17:18:25Z iteration 19 task t1 ('Add release artifact dry-run script') status=0
+2026-06-21T17:18:25Z iteration 19 phase 2 started parallel=True tasks=3
+2026-06-21T17:18:58Z iteration 19 task t3 ('Wire dry run into CI validation') status=0
+2026-06-21T17:20:15Z iteration 19 task t4 ('Document release rehearsal workflow') status=0
+2026-06-21T17:20:17Z iteration 19 task t2 ('Add release dry-run tests') status=0
+2026-06-21T17:20:17Z iteration 19 phase 3 started parallel=False tasks=1
+2026-06-21T17:21:20Z iteration 19 task t5 ('Run release validation gates') status=0
+2026-06-21T17:21:20Z iteration 19 reviewer started
+
+## Reviewer Summary: Iteration 19
+
+Date: 2026-06-21
+Reviewer stance: fresh senior review; implementation inspected through actual diffs, full changed-file context, the new release script and tests, CI, release docs, and targeted command execution.
+
+### What Was Done
+
+- Added `scripts/release-dry-run.sh`, an executable dry-run script that builds or stages a release binary, packages `airgradient-cli` with `LICENSE`, and writes `SHA256SUMS`.
+- Added `tests/release_dry_run.rs` covering skip-build staging, archive contents, checksum manifest entries, and explicit missing-binary errors.
+- Wired the dry run into GitHub Actions as validation-only behavior.
+- Updated README and release docs to define the first-release artifact as `airgradient-cli-v<version>-x86_64-unknown-linux-gnu.tar.gz` plus `SHA256SUMS`.
+
+### Verification
+
+- `cargo test --test release_dry_run` passed.
+- Manual skip-build probe for `x86_64-unknown-linux-gnu` produced the documented tarball, included `airgradient-cli` and `LICENSE`, and generated `SHA256SUMS`.
+- Manual skip-build probe for `x86_64-pc-windows-msvc` also produced a tarball, exposing that target validation is missing.
+
+### Findings
+
+- Medium: `scripts/release-dry-run.sh` accepts arbitrary target triples, including non-Linux targets in `--skip-build` mode, despite the first-release boundary documenting only Linux and currently only `x86_64-unknown-linux-gnu`.
+- Medium: the dry-run output directory is not cleaned or required to be empty, so stale tarballs can remain alongside the new artifact and confuse manual publication.
+- Medium: README says local release validation should follow CI order, but the listed command block omits the CI dry-run and PTY summary step; release rehearsal is documented separately, which creates a split validation story.
+- Low: `--skip-build` checks that the supplied binary path exists but does not verify executable permissions on Unix.
+
+### Top Improvement Proposals
+
+1. Add an explicit release target allowlist to the dry-run script and test unsupported non-Linux and unsupported Linux targets.
+2. Decide and enforce output-directory semantics: clean staging directory, fail-on-stale-artifacts, or version/target-scoped subdirectories.
+3. Align README, release checklist, release boundary, and CI so the validation order and dry-run command are one coherent maintainer workflow.
+4. Check Unix executable permissions for `--skip-build` binaries before packaging.
+5. Continue next with tool-update policy, dependency skip pruning, PTY summary cost review, and real-device validation recording.
+2026-06-21T17:24:08Z iteration 19 reviewer completed status=0
+2026-06-21T17:24:08Z iteration 19 memory updated
+2026-06-21T17:24:08Z iteration 19 completed validation_status=0
+2026-06-21T17:24:08Z iteration 19 checkpoint started
+2026-06-21T17:24:08Z iteration 19 checkpoint status before commit:
+M  .github/workflows/ci.yml
+M  AGENT_LOG.md
+M  ALTERNATIVES.jsonl
+M  MEMORY.md
+M  PLAN.md
+M  README.md
+M  SCORES.jsonl
+M  docs/release-boundary.md
+M  docs/release-checklist.md
+A  scripts/release-dry-run.sh
+A  tests/release_dry_run.rs

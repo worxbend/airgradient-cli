@@ -23,6 +23,9 @@ jobs:
       - name: Check dependency policy
         run: cargo deny check
 
+      - name: Run release artifact dry run
+        run: scripts/release-dry-run.sh --target x86_64-unknown-linux-gnu --output-dir "${RUNNER_TEMP}/release-dry-run"
+
       - name: Check formatting
         run: cargo fmt --check
 

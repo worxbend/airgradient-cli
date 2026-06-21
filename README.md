@@ -20,22 +20,34 @@ directory.
 
 The first public releases are manual, binary-only Linux releases unless release
 automation is explicitly added later. GitHub Actions is currently a validation
-gate only; it does not build, upload, checksum, sign, or publish release
-artifacts. `Cargo.toml` intentionally keeps `publish = false`, so the package is
-not intended for crates.io publishing yet. Future crates.io publishing requires
-an explicit packaging decision before removing `publish = false`.
+gate only; it does not upload, sign, publish, or create GitHub releases.
+`Cargo.toml` intentionally keeps `publish = false`, so the package is not
+intended for crates.io publishing yet. Future crates.io publishing requires an
+explicit packaging decision before removing `publish = false`.
 
 The repository license is MIT. Every release artifact bundle or release
 attachment set must include the checked-in `LICENSE` file.
 
-Linux release artifacts use target-explicit filenames:
-`airgradient-cli-x86_64-unknown-linux-gnu` and
-`airgradient-cli-aarch64-unknown-linux-gnu`. Each Linux binary release must
-publish a SHA-256 checksum file named `SHA256SUMS` covering the shipped binary
-artifacts and the included license file when the license is packaged as a
-separate release attachment. Detached cryptographic signatures are intentionally
-out of scope for the first release; releases must not describe artifacts as
-signed.
+Rehearse the Linux release artifact locally before publishing anything:
+
+```sh
+scripts/release-dry-run.sh --target x86_64-unknown-linux-gnu --output-dir dist
+```
+
+The default target is `x86_64-unknown-linux-gnu`, so the explicit `--target`
+matches the documented first-release scope. The dry run reads the crate version
+from `Cargo.toml`, builds with Cargo, and stages `dist/` outputs without
+tagging, creating a GitHub release, uploading, signing, generating shell
+completions, or producing package-manager recipes, macOS binaries, or Windows
+binaries. Expected outputs are:
+
+- `dist/airgradient-cli-v<version>-x86_64-unknown-linux-gnu.tar.gz`
+- `dist/SHA256SUMS`
+
+The `.tar.gz` bundle must contain the built `airgradient-cli` executable and
+the checked-in `LICENSE`. `SHA256SUMS` is generated over the staged release
+artifact file. Detached cryptographic signatures are intentionally out of scope
+for the first release; releases must not describe artifacts as signed.
 
 The repository does not currently generate or package shell completions, so
 release artifacts and release notes should not list completions unless

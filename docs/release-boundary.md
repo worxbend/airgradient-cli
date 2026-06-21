@@ -1,6 +1,6 @@
 # Release Boundary Audit
 
-Iteration 18 defines the first public release boundary for `airgradient-cli`.
+Iteration 19 defines the first public release boundary for `airgradient-cli`.
 This document is a maintainer-facing audit, not release automation.
 
 ## Intended First Release
@@ -11,18 +11,24 @@ not currently support crates.io publishing because `Cargo.toml` has
 completion, or multi-platform release automation.
 
 The release owner is a human maintainer. GitHub Actions is currently a
-validation gate only: it runs dependency policy, formatting, Clippy, tests, and
-a PTY coverage summary. It does not build, upload, sign, checksum, or publish
-release artifacts.
+validation gate only: it runs dependency policy, formatting, Clippy, tests, the
+release artifact dry run, and a PTY coverage summary. It does not upload, sign,
+publish artifacts, or create GitHub releases.
 
 ## Shipped Promises
 
 - Binary scope: ship the `airgradient-cli` executable for Linux only.
-- Primary artifact names: use target-explicit filenames:
-  - `airgradient-cli-x86_64-unknown-linux-gnu`
-  - `airgradient-cli-aarch64-unknown-linux-gnu`
-- License inclusion: include the checked-in `LICENSE` file with every release
-  artifact bundle or release attachment set. The project license is MIT.
+- Release rehearsal: run the dry-run script before publishing:
+  `scripts/release-dry-run.sh --target x86_64-unknown-linux-gnu --output-dir dist`
+- Primary artifact name: use the versioned, target-explicit tarball filename:
+  `airgradient-cli-v<version>-x86_64-unknown-linux-gnu.tar.gz`.
+- Staged dry-run outputs:
+  - `dist/airgradient-cli-v<version>-x86_64-unknown-linux-gnu.tar.gz`
+  - `dist/SHA256SUMS`
+- License inclusion: include the checked-in `LICENSE` file in the release
+  artifact bundle. The project license is MIT.
+- Checksum generation: generate `SHA256SUMS` over the staged release artifact
+  file.
 - Validation gate: run the pinned local/CI checks before release:
   - `cargo deny check`
   - `cargo fmt --check`
@@ -58,8 +64,8 @@ release artifacts.
 - No shell completions are shipped. Completion artifacts remain out of scope
   until generation and packaging are implemented and tested.
 - GitHub Actions does not own release publication.
-- No automatic release workflow, artifact upload workflow, or generated release
-  notes are promised.
+- No automatic release workflow, artifact upload workflow, signing workflow,
+  shell-completion generation, or generated release notes are promised.
 - No hardware-compatibility guarantee beyond the documented HTTP/config/parser
   contracts is promised until real-device validation is recorded.
 
@@ -68,19 +74,25 @@ release artifacts.
 Decision: publish checksums, do not publish signatures for the first release.
 
 Each Linux binary release must include a SHA-256 checksum file named
-`SHA256SUMS` covering the shipped binary artifacts and the included license
-file when the license is packaged as a separate release attachment. Detached
-cryptographic signatures are intentionally out of scope for the first release.
+`SHA256SUMS` covering the shipped `.tar.gz` release artifact. The rehearsed
+artifact is `airgradient-cli-v<version>-x86_64-unknown-linux-gnu.tar.gz`, and
+the archive must contain both `airgradient-cli` and the checked-in `LICENSE`.
+Detached cryptographic signatures are intentionally out of scope for the first
+release.
 
-Release blocker: if the maintainer cannot produce and publish `SHA256SUMS`,
-the release must not be cut. Missing detached signatures are an accepted risk
-for the first release and must not be described as signed artifacts.
+Release blocker: if the maintainer cannot run the dry run and produce
+`SHA256SUMS`, the release must not be cut. Missing detached signatures are an
+accepted risk for the first release and must not be described as signed
+artifacts.
 
 ## Release-Blocking Gaps
 
 - Real-device validation: no real AirGradient hardware validation record is
   present. The first release must either record a real-device run or explicitly
   waive it in release notes as a known validation gap.
+- Release rehearsal: `scripts/release-dry-run.sh --target
+  x86_64-unknown-linux-gnu --output-dir dist` must succeed before any manual
+  release upload.
 - Checksum publication: `SHA256SUMS` must be generated and included with the
   release.
 
