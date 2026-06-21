@@ -144,6 +144,15 @@ Completed in iteration 16:
 - Marked the crate `publish = false`, making the current package metadata consistent with local/binary release guidance rather than accidental crates.io publishing.
 - Verified on 2026-06-21: `cargo deny check`, `cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --all-features -- -D warnings` pass.
 
+Completed in iteration 17:
+
+- Added an MIT `LICENSE` file and matching `license = "MIT"` package metadata.
+- Kept `publish = false` and documented the current release scope as binary-only and manually released, with crates.io publishing deferred until an explicit packaging decision.
+- Added `rust-toolchain.toml` pinning Rust 1.96.0 with `rustfmt` and `clippy`, aligning local validation with CI.
+- Pinned GitHub Actions validation to Rust 1.96.0 and cargo-deny 0.19.9 instead of moving stable/latest installer behavior.
+- Documented release validation order and tool versions in README.
+- Verified on 2026-06-21: `cargo deny check`, `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test` pass.
+
 ## Known Gaps and Risks
 
 - Medium: pseudo-terminal integration tests are skippable when PTY support is unavailable, so some CI/platform combinations may still rely on the runtime harness instead of exercising crossterm through a real terminal.
@@ -155,10 +164,9 @@ Completed in iteration 16:
 - Medium: parser priority is correct for key-list precedence and top-level-over-nested precedence, but same-alias duplicate fields inside one JSON object still depend on `serde_json::Map` iteration order. This is acceptable for malformed duplicate-ish payloads, but real-device validation should confirm no important duplicate field variants conflict.
 - Medium: non-object top-level config JSON is a documented hard repair boundary because unknown-field preservation requires an object.
 - Medium: sensor upper bounds are practical guardrails, not hardware-validated limits; revisit them after real-device validation.
-- High: the project still has no explicit repository/crate license. Because the crate is private (`publish = false`) and cargo-deny ignores private workspace license checks, dependency licenses are gated but the project's own redistribution terms remain undefined for binary releases.
-- Medium: the cargo-deny gate is enforced in CI, but the installed cargo-deny version is not pinned. Future cargo-deny default or schema changes can break CI unexpectedly or subtly change the release gate.
-- Medium: `publish = false` prevents accidental crates.io publishing, but the release scope is not yet explicit enough: decide whether this project is binary-only/manual-release or whether crates.io publishing should eventually be supported with license metadata.
-- Medium: installation and release binary basics plus dependency policy are documented, but there is still no release workflow, artifact publishing automation, or real-device validation record.
+- Medium: `publish = false` and the README now define the current binary-only/manual-release stance, but there is still no release workflow, artifact publishing automation, version-tag policy, checksum/signing policy, or real-device validation record.
+- Medium: Rust and cargo-deny are now pinned, but future updates need a documented cadence so security/tooling updates are deliberate instead of stale.
+- Medium: duplicate-version deny exceptions are exact and rationalized, but they can become stale release-policy noise if upstream dependency convergence is not periodically checked.
 
 ## Compatibility Targets
 
@@ -192,25 +200,25 @@ Must preserve:
 
 ### Release and CI Readiness
 
-1. Define the project license and release scope.
-   - Choose and add an explicit repository license file.
-   - Add matching `license` or `license-file` metadata to `Cargo.toml`, or document clearly why the crate is binary-only and intentionally private.
-   - Decide whether `publish = false` is a permanent binary-release stance or temporary until crates.io packaging is ready.
+1. Define release automation and artifact integrity.
+   - Decide whether first releases are manual-only or produced by GitHub Actions.
+   - If automated, add a release workflow for Linux artifacts named according to the documented target triples.
+   - Add a release checklist covering version bump, tag naming, `cargo deny check`, format, Clippy, tests, PTY coverage state, artifact naming, and license inclusion.
+   - Decide whether to publish checksums and/or signatures for binary artifacts, and document the chosen policy.
 
-2. Make the dependency gate reproducible.
-   - Pin the cargo-deny version used in CI, or add a documented update path for the moving installer.
-   - Consider adding a toolchain file or otherwise documenting the Rust/cargo-deny versions used for release validation.
-   - Keep local and CI commands aligned: `cargo deny check`, `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test`.
+2. Add a tool-update policy.
+   - Document how and when to update Rust 1.96.0 and cargo-deny 0.19.9 pins.
+   - Require the full validation suite after tool updates because rustfmt, Clippy, and cargo-deny defaults can change release outcomes.
+   - Keep README, `rust-toolchain.toml`, and GitHub Actions pins synchronized.
 
 3. Tighten dependency-policy maintenance.
    - Periodically re-run `cargo tree -d --target all` and prune exact duplicate-version skips when upstream dependencies converge.
    - Investigate whether `comfy-table`/`ratatui`/direct `crossterm` usage can be aligned to one `crossterm` line in a future dependency update.
    - Keep advisory ignores and license exceptions empty unless a specific release decision adds a narrowly documented exception.
 
-4. Define release automation scope.
-   - Decide whether release artifacts are produced manually or by GitHub Actions.
-   - If automated, add a release workflow that names Linux artifacts according to the documented target triples.
-   - Decide whether shell completion generation is in scope before documenting completion artifacts.
+4. Decide shell-completion scope.
+   - Either keep completions explicitly out of the first release or add generation and artifact packaging.
+   - Avoid documenting completion artifacts until generation is implemented and tested.
 
 ### Test Infrastructure Hygiene
 

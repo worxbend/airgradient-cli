@@ -1370,3 +1370,87 @@ M  PLAN.md
 M  README.md
 M  SCORES.jsonl
 A  deny.toml
+2026-06-21T17:00:09Z iteration 17 started remaining=7311s
+2026-06-21T17:00:09Z iteration 17 preplanner effective budgets untracked_scan_max_bytes=536870912 untracked_scan_max_count=10000 snapshot_copy_max_bytes=536870912 snapshot_copy_max_count=10000 snapshot_copy_max_file_bytes=134217728
+2026-06-21T17:00:09Z iteration 17 disposable preplanner repo created path=/tmp/agent-loop-preplanner-repo-ane6k5o_/repo copied_entries=39
+2026-06-21T17:00:09Z iteration 17 ideator phase started count=3
+2026-06-21T17:00:09Z iteration 17 ideator phase concurrency workers=3
+2026-06-21T17:00:09Z iteration 17 ideator 1 role="the pragmatist" started
+2026-06-21T17:00:09Z iteration 17 ideator 2 role="the architect" started
+2026-06-21T17:00:09Z iteration 17 ideator 3 role="the contrarian" started
+2026-06-21T17:00:18Z iteration 17 ideator 2 role="the architect" completed status=0
+2026-06-21T17:00:18Z iteration 17 ideator 3 role="the contrarian" completed status=0
+2026-06-21T17:00:19Z iteration 17 ideator 1 role="the pragmatist" completed status=0
+2026-06-21T17:00:19Z iteration 17 ideator phase completed approaches=3
+2026-06-21T17:00:19Z iteration 17 selector started approaches=3
+2026-06-21T17:00:30Z iteration 17 selector completed status=0
+2026-06-21T17:00:30Z iteration 17 disposable preplanner repo cleanup path=/tmp/agent-loop-preplanner-repo-ane6k5o_/repo
+2026-06-21T17:00:30Z iteration 17 selector rejected alternative role="the architect" approach="Release-Contract First: stabilize the project\u2019s external redistribution and validation contract before adding more runtime behavior. Treat the next iteration as a release-readin..." reason="Strong direction, but selected as-is it risks bundling too many architecture concerns together, including test-hook boundaries, before the most blocking release-contract decisions are closed."
+2026-06-21T17:00:30Z iteration 17 selector rejected alternative role="the contrarian" approach="Freeze Features, Prove Release Legitimacy: treat iteration 17 as a release-governance pass rather than another hardening sprint, forcing decisions on license, release scope, and..." reason="Useful emphasis on freezing feature work, but too stark as a planning guide; the next iteration should not merely force governance decisions, it should translate them into a minimal durable release contract."
+2026-06-21T17:00:30Z iteration 17 selector rejected alternative role="the pragmatist" approach="Release Contract First: stabilize the project\u2019s legal, packaging, and CI validation contract before adding more runtime features. Treat the next iteration as a release-readiness..." reason="Closest to the selected strategy, but the synthesis sharpens the scope around the minimum decisions needed now and avoids drifting into a full artifact or release-program design before the basic legal and metadata posture is settled."
+2026-06-21T17:00:30Z iteration 17 selector alternatives persisted count=3
+2026-06-21T17:00:30Z iteration 17 selector structured alternatives persisted count=3
+2026-06-21T17:00:30Z iteration 17 planner started
+2026-06-21T17:00:53Z iteration 17 plan: 4 task(s) in 3 phase(s). This iteration closes the highest-priority release-governance gap first: explicit license, crate publishing stance, and reproducible validation tooling. The CI/tooling work and README documentation can proceed in parallel after the license metadata exists because they touch separate files but should describe the same release contract.
+2026-06-21T17:00:53Z iteration 17 phase 1 started parallel=False tasks=1
+2026-06-21T17:01:28Z iteration 17 task t1 ('Add project license metadata') status=0
+2026-06-21T17:01:28Z iteration 17 phase 2 started parallel=True tasks=2
+2026-06-21T17:02:59Z iteration 17 task t2 ('Pin validation tooling in CI') status=0
+2026-06-21T17:03:02Z iteration 17 task t3 ('Document release scope') status=0
+2026-06-21T17:03:02Z iteration 17 phase 3 started parallel=False tasks=1
+2026-06-21T17:03:37Z iteration 17 task t4 ('Validate release contract changes') status=0
+2026-06-21T17:03:37Z iteration 17 reviewer started
+
+## Reviewer Summary: Iteration 17
+
+Date: 2026-06-21
+Reviewer stance: fresh senior review; implementation inspected through `git diff`, full changed-file context for CI, Cargo metadata, README, new `LICENSE`, new `rust-toolchain.toml`, current PLAN/MEMORY state, and local validation commands.
+
+### What Was Done
+
+- Added an MIT `LICENSE` file with 2026 AirGradient CLI authors copyright text.
+- Added matching `license = "MIT"` package metadata while retaining `publish = false`.
+- Documented the current release scope as binary-only and manually released, with crates.io publishing deferred until a future explicit packaging decision.
+- Added `rust-toolchain.toml` pinning Rust 1.96.0 with `rustfmt` and `clippy`.
+- Updated GitHub Actions to use Rust 1.96.0 and cargo-deny 0.19.9 instead of moving stable/latest tool behavior.
+- Documented pinned release-validation versions and local validation command order in README.
+
+### Verification
+
+- `cargo deny --version` reports `cargo-deny 0.19.9`.
+- `cargo --version` reports `cargo 1.96.0 (30a34c682 2026-05-25)`.
+- `cargo deny check` passed.
+- `cargo fmt --check` passed.
+- `cargo clippy --all-targets --all-features -- -D warnings` passed.
+- `cargo test` passed: 99 library tests, 28 CLI integration tests, 12 sensor parsing tests, 13 TUI fetch contract tests, 9 PTY smoke/helper tests, and 18 TUI render tests.
+
+### Findings
+
+- Medium: the implementation did not update `PLAN.md` during the iteration even though the task required release-scope planning to stay current. The review pass repaired this by marking iteration 17 complete and reprioritizing next work.
+- Medium: the release contract now covers license, binary-only scope, and pinned validation tools, but it still stops before actual artifact production. There is no release workflow, tag/version checklist, checksum/signing policy, or artifact publishing automation.
+- Medium: pinning Rust and cargo-deny improves reproducibility, but the project now needs a maintenance policy for updating those pins so release validation does not silently go stale.
+- Medium: duplicate-version cargo-deny skips remain exact and rationalized, but they still require periodic pruning as dependency graphs converge.
+- Medium: previously known runtime/test risks remain outside this iteration's release-contract work: skippable PTY coverage, production-visible TUI interval test hook, target-scoped local EIO mappings, wall-clock PTY timing tests, and missing real-device validation record.
+
+### Top Improvement Proposals
+
+1. Define first-release artifact mechanics: manual versus GitHub Actions release, tag/version checklist, target names, license inclusion, and checksum/signing policy.
+2. Add a tool-update policy that keeps `rust-toolchain.toml`, CI Rust pin, cargo-deny pin, and README release-validation docs synchronized.
+3. Re-run `cargo tree -d --target all` periodically and prune duplicate-version deny exceptions when upstream dependencies align.
+4. Reassess the public TUI interval test hook before release; either accept it explicitly as a diagnostic escape hatch with a safety floor or hide it behind a test-only seam.
+5. Record a real-device validation run covering parser field names, sensor bounds, endpoint compatibility, and shared desktop config behavior.
+2026-06-21T17:05:56Z iteration 17 reviewer completed status=0
+2026-06-21T17:05:56Z iteration 17 memory updated
+2026-06-21T17:05:56Z iteration 17 completed validation_status=0
+2026-06-21T17:05:56Z iteration 17 checkpoint started
+2026-06-21T17:05:56Z iteration 17 checkpoint status before commit:
+M  .github/workflows/ci.yml
+M  AGENT_LOG.md
+M  ALTERNATIVES.jsonl
+M  Cargo.toml
+A  LICENSE
+M  MEMORY.md
+M  PLAN.md
+M  README.md
+M  SCORES.jsonl
+A  rust-toolchain.toml

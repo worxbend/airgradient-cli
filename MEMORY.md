@@ -30,3 +30,4 @@
 [anti-pattern] Renaming raw errno literals as mappings is not the same as grounding portability in platform-provided constants or narrowly documented target assumptions.
 [learning] A passing dependency-license gate can still leave redistribution terms undefined when the workspace crate is private and has no explicit project license.
 [pattern] Exact duplicate-version deny exceptions with package/version rationale keep new duplicates visible while allowing known transitive splits to pass temporarily.
+[pattern] Reproducible release validation needs both CI-pinned tools and a checked-in local toolchain pin so maintainer commands exercise the same compiler, formatter, linter, and policy gate.

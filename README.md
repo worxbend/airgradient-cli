@@ -18,11 +18,31 @@ cargo install --path .
 This installs the expected binary name, `airgradient-cli`, into Cargo's binary
 directory.
 
+This repository is currently maintained as a binary-only, manually released
+crate. `Cargo.toml` intentionally keeps `publish = false`, so the package is
+not intended for crates.io publishing yet. Future crates.io publishing requires
+an explicit packaging decision before removing `publish = false`.
+
+The repository license is MIT. Binary redistribution should keep the checked-in
+MIT license text with the release artifacts.
+
 Linux release artifacts should make the target platform clear in the filename,
 for example `airgradient-cli-x86_64-unknown-linux-gnu` or
 `airgradient-cli-aarch64-unknown-linux-gnu`. The repository does not currently
 ship shell completions, so release artifacts should not list completions unless
 completion generation support is added first.
+
+## Release Validation
+
+Release validation is pinned to Rust 1.96.0 and cargo-deny 0.19.9. Maintainers
+should run the local checks in the same order as CI:
+
+```sh
+cargo deny check
+cargo fmt --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test
+```
 
 ## Dependency Policy
 
