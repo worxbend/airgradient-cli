@@ -1620,3 +1620,84 @@ M  docs/release-boundary.md
 M  docs/release-checklist.md
 A  scripts/release-dry-run.sh
 A  tests/release_dry_run.rs
+2026-06-21T17:24:08Z iteration 20 started remaining=5871s
+2026-06-21T17:24:08Z iteration 20 preplanner effective budgets untracked_scan_max_bytes=536870912 untracked_scan_max_count=10000 snapshot_copy_max_bytes=536870912 snapshot_copy_max_count=10000 snapshot_copy_max_file_bytes=134217728
+2026-06-21T17:24:08Z iteration 20 disposable preplanner repo created path=/tmp/agent-loop-preplanner-repo-cqij59se/repo copied_entries=45
+2026-06-21T17:24:08Z iteration 20 ideator phase started count=3
+2026-06-21T17:24:08Z iteration 20 ideator phase concurrency workers=3
+2026-06-21T17:24:08Z iteration 20 ideator 1 role="the pragmatist" started
+2026-06-21T17:24:08Z iteration 20 ideator 2 role="the architect" started
+2026-06-21T17:24:08Z iteration 20 ideator 3 role="the contrarian" started
+2026-06-21T17:24:16Z iteration 20 ideator 2 role="the architect" completed status=0
+2026-06-21T17:24:17Z iteration 20 ideator 3 role="the contrarian" completed status=0
+2026-06-21T17:24:17Z iteration 20 ideator 1 role="the pragmatist" completed status=0
+2026-06-21T17:24:17Z iteration 20 ideator phase completed approaches=3
+2026-06-21T17:24:17Z iteration 20 selector started approaches=3
+2026-06-21T17:24:27Z iteration 20 selector completed status=0
+2026-06-21T17:24:27Z iteration 20 disposable preplanner repo cleanup path=/tmp/agent-loop-preplanner-repo-cqij59se/repo
+2026-06-21T17:24:27Z iteration 20 selector rejected alternative role="the architect" approach="Release-Contract Gatekeeping: treat the next iteration as a boundary-hardening pass where the documented first-release promise is the source of truth, and every code or docs cha..." reason="Strong framing, but selected as part of a hybrid because it under-emphasizes explicit negative policy decisions such as what the dry run must reject."
+2026-06-21T17:24:27Z iteration 20 selector rejected alternative role="the contrarian" approach="Contract-First Release Gate: treat the release dry-run as a policy boundary before a packaging helper. The next planner should start by defining what the release contract refuse..." reason="Useful emphasis on refusals, but too rigid as-is; the Planner still needs room for pragmatic maintainer workflows like clean temporary staging without turning conservatism into permanent architecture."
+2026-06-21T17:24:27Z iteration 20 selector rejected alternative role="the pragmatist" approach="Release Contract First: treat the next iteration as a boundary-enforcement pass, starting from the documented first-release promises and tightening the dry-run behavior, validat..." reason="Closest to the needed execution posture, but selected as part of a hybrid because the iteration should be guided by the broader release contract, not only the immediate script and documentation cleanup."
+2026-06-21T17:24:27Z iteration 20 selector alternatives persisted count=3
+2026-06-21T17:24:27Z iteration 20 selector structured alternatives persisted count=3
+2026-06-21T17:24:27Z iteration 20 planner started
+2026-06-21T17:24:56Z iteration 20 plan: 4 task(s) in 2 phase(s). This slice focuses iteration 20 on mechanically enforcing the manual Linux-only first-release boundary. Phase 1 can run in parallel because script/tests and docs touch disjoint files while sharing an explicit contract. Phase 2 follows after that contract is set, then aligns CI presentation and adds a small drift guard without expanding release automation.
+2026-06-21T17:24:56Z iteration 20 phase 1 started parallel=True tasks=2
+2026-06-21T17:26:33Z iteration 20 task t2 ('Document release validation contract') status=0
+2026-06-21T17:27:17Z iteration 20 task t1 ('Harden release dry-run enforcement') status=0
+2026-06-21T17:27:17Z iteration 20 phase 2 started parallel=True tasks=2
+2026-06-21T17:28:09Z iteration 20 task t3 ('Align CI validation presentation') status=0
+2026-06-21T17:29:39Z iteration 20 task t4 ('Add release-contract drift check') status=0
+2026-06-21T17:29:39Z iteration 20 reviewer started
+
+## Reviewer Summary: Iteration 20
+
+Date: 2026-06-21
+Reviewer stance: fresh senior review; implementation inspected through actual diffs, full changed-file context, the untracked drift-check test, CI, release docs, script behavior, and targeted command execution.
+
+### What Was Done
+
+- Hardened `scripts/release-dry-run.sh` to accept only `x86_64-unknown-linux-gnu`, rejecting unsupported targets before build, staging, or artifact writes, including `--skip-build`.
+- Required the dry-run output directory to be absent or empty, preventing stale tarballs from sitting next to the current artifact and checksum.
+- Added Unix executable-permission validation for `--skip-build` binaries.
+- Expanded `tests/release_dry_run.rs` to cover unsupported target rejection, stale output directories, and non-executable skip-build binaries.
+- Aligned README, release boundary/checklist docs, and CI wording around validation-only dry runs, temporary CI staging, clean maintainer staging, local validation order, and PTY summary states.
+- Added `tests/release_contract_docs.rs`, a lightweight string-level drift check for release target, artifact naming, checksum, dry-run, CI, and PTY summary contract anchors.
+
+### Verification
+
+- `cargo test --test release_dry_run --test release_contract_docs` passed.
+- `cargo fmt --check` passed.
+- `scripts/release-dry-run.sh --help` executes and prints the existing usage text.
+
+### Findings
+
+- High: `tests/release_contract_docs.rs` is untracked. The drift check passes locally because the file exists in this working tree, but it will not run in CI or future checkouts unless added before checkpoint/commit.
+- Medium: the drift check is intentionally string-based. It is useful as a cheap contract anchor, but it cannot prove semantic equivalence between README, docs, CI, and the script.
+- Low: the script help text does not mention the single supported target, empty-output-directory requirement, or skip-build executable check. The README/checklist are clear, but direct script users get a weaker contract summary.
+- Low: only targeted release tests and formatting were run during review, not the full release validation suite.
+
+### Top Improvement Proposals
+
+1. Ensure `tests/release_contract_docs.rs` is tracked so the release-contract drift check is actually part of CI and future repository states.
+2. Run the full release validation sequence after this iteration: `cargo deny check`, dry run in a fresh temp directory, `cargo fmt --check`, Clippy, `cargo test`, and PTY coverage summary recording.
+3. Decide whether script usage should document the single-target and clean-staging constraints; if yes, add assertions around `--help` so usage text does not drift behind the release docs.
+4. Keep the release drift check focused on stable contract strings and avoid coupling it too tightly to cosmetic CI step names.
+5. Continue with tool-update policy, duplicate-dependency exception pruning, CI PTY summary cost review, and real-device validation recording.
+2026-06-21T17:32:14Z iteration 20 reviewer completed status=0
+2026-06-21T17:32:14Z iteration 20 memory updated
+2026-06-21T17:32:14Z iteration 20 completed validation_status=0
+2026-06-21T17:32:14Z iteration 20 checkpoint started
+2026-06-21T17:32:14Z iteration 20 checkpoint status before commit:
+M  .github/workflows/ci.yml
+M  AGENT_LOG.md
+M  ALTERNATIVES.jsonl
+M  MEMORY.md
+M  PLAN.md
+M  README.md
+M  SCORES.jsonl
+M  docs/release-boundary.md
+M  docs/release-checklist.md
+M  scripts/release-dry-run.sh
+A  tests/release_contract_docs.rs
+M  tests/release_dry_run.rs

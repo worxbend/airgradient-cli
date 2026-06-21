@@ -56,6 +56,9 @@ done
 
 [[ -n "$TARGET" ]] || fail "unsupported invocation: --target must not be empty"
 [[ -n "$OUTPUT_DIR" ]] || fail "unsupported invocation: --output-dir must not be empty"
+if [[ "$TARGET" != "$DEFAULT_TARGET" ]]; then
+  fail "unsupported target '$TARGET': first-release dry run supports only $DEFAULT_TARGET"
+fi
 if [[ "$SKIP_BUILD" == false && -n "$BINARY_OVERRIDE" ]]; then
   fail "unsupported invocation: --binary requires --skip-build"
 fi
@@ -69,6 +72,13 @@ cd "$REPO_ROOT"
 
 [[ -f "LICENSE" ]] || fail "missing checked-in LICENSE at $REPO_ROOT/LICENSE"
 [[ -f "Cargo.toml" ]] || fail "missing Cargo.toml at $REPO_ROOT/Cargo.toml"
+
+if [[ -e "$OUTPUT_DIR" && ! -d "$OUTPUT_DIR" ]]; then
+  fail "output path exists but is not a directory: $OUTPUT_DIR"
+fi
+if [[ -d "$OUTPUT_DIR" ]] && find "$OUTPUT_DIR" -mindepth 1 -print -quit | grep -q .; then
+  fail "output directory must be absent or empty before release dry run: $OUTPUT_DIR"
+fi
 
 VERSION="$(
   awk -F '=' '
@@ -97,6 +107,7 @@ fi
 if [[ "$SKIP_BUILD" == true ]]; then
   BINARY_PATH="$BINARY_OVERRIDE"
   [[ -f "$BINARY_PATH" ]] || fail "missing binary for --skip-build: $BINARY_PATH"
+  [[ -x "$BINARY_PATH" ]] || fail "binary for --skip-build is not executable: $BINARY_PATH"
 else
   cargo build --release --target "$TARGET"
   BINARY_PATH="target/$TARGET/release/$BIN_NAME"

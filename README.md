@@ -34,12 +34,16 @@ Rehearse the Linux release artifact locally before publishing anything:
 scripts/release-dry-run.sh --target x86_64-unknown-linux-gnu --output-dir dist
 ```
 
-The default target is `x86_64-unknown-linux-gnu`, so the explicit `--target`
-matches the documented first-release scope. The dry run reads the crate version
-from `Cargo.toml`, builds with Cargo, and stages `dist/` outputs without
-tagging, creating a GitHub release, uploading, signing, generating shell
-completions, or producing package-manager recipes, macOS binaries, or Windows
-binaries. Expected outputs are:
+The only supported first-release dry-run target is
+`x86_64-unknown-linux-gnu`. The dry run rejects every other target before
+building, staging, or writing artifacts, including when `--skip-build` is used.
+Use a new or empty staging directory for local rehearsal so stale files cannot
+be mistaken for the current release. CI may use a temporary output directory for
+the same validation-only check. The dry run reads the crate version from
+`Cargo.toml`, builds with Cargo, and stages outputs without tagging, creating a
+GitHub release, uploading, signing, publishing, generating shell completions, or
+producing package-manager recipes, macOS binaries, or Windows binaries.
+Expected outputs are:
 
 - `dist/airgradient-cli-v<version>-x86_64-unknown-linux-gnu.tar.gz`
 - `dist/SHA256SUMS`
@@ -62,14 +66,15 @@ should run the local checks in the same order as CI:
 
 ```sh
 cargo deny check
+scripts/release-dry-run.sh --target x86_64-unknown-linux-gnu --output-dir dist
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test
 ```
 
-Before cutting a release, record whether PTY-backed TUI tests exercised a real
-pseudo-terminal or were conditionally skipped because PTY support was
-unavailable. Also record real-device validation status; if no real AirGradient
+After `cargo test`, record the PTY coverage summary: real pseudo-terminal
+coverage exercised, PTY unavailable and conditionally skipped, or infrastructure
+failure. Also record real-device validation status; if no real AirGradient
 hardware run was performed, release notes must explicitly waive that validation
 gap.
 

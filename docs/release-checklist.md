@@ -9,6 +9,8 @@ maintainer action.
 - [ ] Confirm the release is a binary-only Linux release.
 - [ ] Confirm GitHub Actions is being used only as a validation gate, not as the
   release publisher.
+- [ ] Confirm the only supported first-release dry-run target is
+  `x86_64-unknown-linux-gnu`.
 - [ ] Confirm no crates.io package, macOS binary, Windows binary, installer,
   package-manager recipe, or shell completion artifact is being promised.
 
@@ -25,15 +27,19 @@ Run the release validation commands in this order:
 
 ```sh
 cargo deny check
+scripts/release-dry-run.sh --target x86_64-unknown-linux-gnu --output-dir dist
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test
+# Record the PTY coverage summary.
 ```
 
 - [ ] Confirm all validation commands pass with Rust 1.96.0 and cargo-deny
   0.19.9.
-- [ ] Record the PTY summary status: real pseudo-terminal coverage exercised, or
-  conditionally skipped because usable PTY support was unavailable.
+- [ ] Confirm the dry run refuses unsupported targets before any build,
+  staging, or artifact write, including the `--skip-build` path.
+- [ ] Record the PTY summary status: real pseudo-terminal coverage exercised,
+  PTY unavailable and conditionally skipped, or infrastructure failure.
 - [ ] Record real-device validation status. If no real AirGradient hardware run
   was performed, add an explicit release-note waiver for this validation gap.
 
@@ -45,6 +51,8 @@ Run the release artifact dry run before any manual GitHub release upload:
 scripts/release-dry-run.sh --target x86_64-unknown-linux-gnu --output-dir dist
 ```
 
+- [ ] Use a new or empty staging directory for local rehearsal. CI may use a
+  temporary output directory for the same validation-only dry run.
 - [ ] Confirm the dry run creates
   `dist/airgradient-cli-v<version>-x86_64-unknown-linux-gnu.tar.gz`.
 - [ ] Confirm the archive contains the built `airgradient-cli` executable and
@@ -52,8 +60,8 @@ scripts/release-dry-run.sh --target x86_64-unknown-linux-gnu --output-dir dist
 - [ ] Confirm `dist/SHA256SUMS` exists and every checksum entry names a real
   staged release artifact file.
 - [ ] Confirm the dry run remains validation-only: no git tag, GitHub release,
-  upload, signing, package-manager recipe, shell completion artifact, macOS
-  binary, or Windows binary is produced.
+  upload, signing, publishing, package-manager recipe, shell completion
+  artifact, macOS binary, or Windows binary is produced.
 
 ## Artifacts
 

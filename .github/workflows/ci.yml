@@ -20,22 +20,24 @@ jobs:
         with:
           tool: cargo-deny@0.19.9
 
-      - name: Check dependency policy
+      - name: Validate dependency policy
         run: cargo deny check
 
-      - name: Run release artifact dry run
-        run: scripts/release-dry-run.sh --target x86_64-unknown-linux-gnu --output-dir "${RUNNER_TEMP}/release-dry-run"
+      - name: Validate release dry run (validation-only)
+        run: |
+          output_dir="$(mktemp -d "${RUNNER_TEMP}/release-dry-run.XXXXXX")"
+          scripts/release-dry-run.sh --target x86_64-unknown-linux-gnu --output-dir "${output_dir}"
 
-      - name: Check formatting
+      - name: Validate formatting
         run: cargo fmt --check
 
-      - name: Run Clippy
+      - name: Validate Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
-      - name: Run tests
+      - name: Validate tests
         run: cargo test
 
-      - name: Report PTY-backed TUI coverage
+      - name: Report PTY coverage summary
         run: |
           set -o pipefail
 
@@ -47,22 +49,22 @@ jobs:
           set -e
 
           {
-            echo "### PTY-backed TUI coverage"
+            echo "### PTY coverage summary"
             echo
             if [ "${test_exit_code}" -ne 0 ]; then
               if grep -Eq "PTY test infrastructure (failed|error)" "${output_file}"; then
-                echo "Result: PTY test infrastructure failed."
+                echo "Result: PTY infrastructure failure."
                 echo
                 grep -E "PTY test infrastructure (failed|error)" "${output_file}" | sed 's/^/- /'
               else
                 echo "Result: PTY integration tests failed."
               fi
             elif grep -q "conditional PTY .* coverage skipped" "${output_file}"; then
-              echo "Result: PTY-unavailable skip; no real pseudo-terminal coverage ran on this runner."
+              echo "Result: PTY unavailable and conditionally skipped."
               echo
               grep "conditional PTY .* coverage skipped" "${output_file}" | sed 's/^/- /'
             else
-              echo "Result: exercised with a usable pseudo-terminal."
+              echo "Result: real pseudo-terminal coverage exercised."
             fi
           } >> "${GITHUB_STEP_SUMMARY}"
 

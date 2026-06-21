@@ -11,15 +11,21 @@ not currently support crates.io publishing because `Cargo.toml` has
 completion, or multi-platform release automation.
 
 The release owner is a human maintainer. GitHub Actions is currently a
-validation gate only: it runs dependency policy, formatting, Clippy, tests, the
-release artifact dry run, and a PTY coverage summary. It does not upload, sign,
-publish artifacts, or create GitHub releases.
+validation gate only: it runs dependency policy, the release artifact dry run,
+formatting, Clippy, tests, and a PTY coverage summary. It does not upload, sign,
+publish artifacts, tag commits, or create GitHub releases.
 
 ## Shipped Promises
 
 - Binary scope: ship the `airgradient-cli` executable for Linux only.
 - Release rehearsal: run the dry-run script before publishing:
   `scripts/release-dry-run.sh --target x86_64-unknown-linux-gnu --output-dir dist`
+- Dry-run target boundary: the only supported first-release dry-run target is
+  `x86_64-unknown-linux-gnu`; every other target is refused before any build,
+  staging, or artifact write, including the `--skip-build` path.
+- Staging-directory hygiene: maintainers must use a new or empty output
+  directory for dry-run artifacts. CI may use a temporary output directory for
+  this validation-only rehearsal.
 - Primary artifact name: use the versioned, target-explicit tarball filename:
   `airgradient-cli-v<version>-x86_64-unknown-linux-gnu.tar.gz`.
 - Staged dry-run outputs:
@@ -31,9 +37,11 @@ publish artifacts, or create GitHub releases.
   file.
 - Validation gate: run the pinned local/CI checks before release:
   - `cargo deny check`
+  - `scripts/release-dry-run.sh --target x86_64-unknown-linux-gnu --output-dir dist`
   - `cargo fmt --check`
   - `cargo clippy --all-targets --all-features -- -D warnings`
   - `cargo test`
+  - PTY coverage reporting
 - Tool pins: release validation is pinned to Rust 1.96.0 and cargo-deny 0.19.9.
   `README.md`, `rust-toolchain.toml`, and `.github/workflows/ci.yml` must stay
   synchronized when these pins change.
@@ -91,8 +99,8 @@ artifacts.
   present. The first release must either record a real-device run or explicitly
   waive it in release notes as a known validation gap.
 - Release rehearsal: `scripts/release-dry-run.sh --target
-  x86_64-unknown-linux-gnu --output-dir dist` must succeed before any manual
-  release upload.
+  x86_64-unknown-linux-gnu --output-dir dist` must succeed from a new or empty
+  output directory before any manual release upload.
 - Checksum publication: `SHA256SUMS` must be generated and included with the
   release.
 

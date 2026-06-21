@@ -34,3 +34,5 @@
 [pattern] Release docs are stronger when they name non-promises, blockers, accepted risks, and artifact integrity policy instead of only listing happy-path steps.
 [anti-pattern] Release dry-run scripts that accept arbitrary target triples can undermine a documented platform boundary even when CI exercises only the intended target.
 [learning] Release staging commands should define stale-output behavior explicitly; leftover artifacts can make a correct checksum manifest look like an incomplete release set.
+[pattern] Release dry-run helpers should reject unsupported targets and dirty staging directories before any build or artifact write so failures cannot leave misleading partial outputs.
+[anti-pattern] A validation test left untracked creates false local confidence; CI only protects contracts that are actually committed.

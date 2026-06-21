@@ -172,8 +172,19 @@ Completed in iteration 19:
 - Updated README, `docs/release-boundary.md`, and `docs/release-checklist.md` to document the release rehearsal workflow and the versioned tarball artifact contract.
 - Targeted verification on 2026-06-21: `cargo test --test release_dry_run` passes, and manual skip-build probes produced the expected documented tarball/checksum for `x86_64-unknown-linux-gnu`.
 
+Completed in iteration 20:
+
+- Hardened `scripts/release-dry-run.sh` so the first-release dry run accepts only `x86_64-unknown-linux-gnu` and rejects unsupported targets before build, staging, or artifact writes, including the `--skip-build` path.
+- Required the release dry-run output directory to be absent or empty, refusing stale staging directories rather than silently mixing old artifacts with the current tarball/checksum.
+- Added Unix executable-permission enforcement for `--skip-build` binaries.
+- Expanded `tests/release_dry_run.rs` to cover unsupported non-Linux targets, unsupported Linux targets, unsupported targets under `--skip-build`, stale output directories, and non-executable skip-build binaries on Unix.
+- Aligned README, `docs/release-boundary.md`, `docs/release-checklist.md`, and CI wording around the validation-only dry run, empty staging requirement, PTY summary states, and local validation order.
+- Added a lightweight release-contract drift test that checks release target, artifact naming, checksum, dry-run, CI, and PTY-summary strings across docs, CI, and the script.
+- Targeted verification on 2026-06-21: `cargo test --test release_dry_run --test release_contract_docs` and `cargo fmt --check` pass.
+
 ## Known Gaps and Risks
 
+- High: `tests/release_contract_docs.rs` is currently untracked in the working tree. The drift-check implementation passes locally, but it will not run in CI or future checkouts unless the file is added to the repository before checkpoint/commit.
 - Medium: pseudo-terminal integration tests are skippable when PTY support is unavailable, so some CI/platform combinations may still rely on the runtime harness instead of exercising crossterm through a real terminal.
 - Medium: `AIRGRADIENT_CLI_TUI_TEST_REFRESH_INTERVAL_MS` no longer mutates app state and now has a 100ms floor, but it is still a public exported constant and is honored by normal binary processes. Accidental production environments can still force faster-than-documented polling.
 - Low: closed-PTY read-error classification now uses platform-provided `libc::EIO` on supported Unix-like targets, but the supported-target list remains a local policy decision that should stay conservative as more platforms are considered.
@@ -183,13 +194,11 @@ Completed in iteration 19:
 - Medium: parser priority is correct for key-list precedence and top-level-over-nested precedence, but same-alias duplicate fields inside one JSON object still depend on `serde_json::Map` iteration order. This is acceptable for malformed duplicate-ish payloads, but real-device validation should confirm no important duplicate field variants conflict.
 - Medium: non-object top-level config JSON is a documented hard repair boundary because unknown-field preservation requires an object.
 - Medium: sensor upper bounds are practical guardrails, not hardware-validated limits; revisit them after real-device validation.
-- Medium: first-release scope, version/tag expectations, checksum policy, signing non-scope, and release checklist are now documented, but the project still has no release workflow, artifact publishing automation, checksum-generation helper, or real-device validation record.
+- Medium: first-release scope, version/tag expectations, checksum policy, signing non-scope, release checklist, and dry-run artifact/checksum helper are now documented, but the project still has no release workflow, artifact publishing automation, or real-device validation record.
 - Medium: Rust and cargo-deny are now pinned, but future updates need a documented cadence so security/tooling updates are deliberate instead of stale.
 - Medium: duplicate-version deny exceptions are exact and rationalized, but they can become stale release-policy noise if upstream dependency convergence is not periodically checked.
-- Medium: the release dry-run script accepts arbitrary target triples, including non-Linux targets when `--skip-build` is used, even though the first-release boundary is Linux-only and currently documents `x86_64-unknown-linux-gnu`.
-- Medium: the release dry-run output directory is not required to be empty and is not cleaned, so stale tarballs from earlier rehearsals can remain next to the newly generated artifact and confuse manual publication.
-- Medium: README says local release validation should follow CI order, but the listed local commands omit the CI dry-run and PTY summary step; the release checklist documents the dry run separately, so the validation story is currently split.
-- Low: `--skip-build` only checks that the supplied binary path exists; it does not verify executable permissions on Unix. This is acceptable for the current test helper path but weaker than the release artifact contract.
+- Medium: the release-contract drift check is intentionally string-based, so it can catch missing contract anchors but cannot prove semantic equivalence between README, docs, CI, and the script.
+- Low: `scripts/release-dry-run.sh --help` still describes the script broadly as staging the Linux release artifact but does not mention the single supported target, empty-output requirement, or skip-build executable check; this is weaker than the README/checklist contract.
 
 ## Compatibility Targets
 
@@ -223,16 +232,18 @@ Must preserve:
 
 ### Release and CI Readiness
 
-1. Harden the release artifact dry-run contract.
-   - Reject unsupported target triples up front; the first-release dry run should allow only documented Linux targets, currently `x86_64-unknown-linux-gnu`.
-   - Add tests proving non-Linux targets and unsupported Linux targets fail before staging artifacts, including the `--skip-build` path.
-   - Decide whether the output directory must be empty, cleaned, or target-version scoped; prevent stale tarballs from being mistaken for current release artifacts.
-   - Verify or enforce executable permissions for `--skip-build` binaries on Unix so test fixture shortcuts cannot produce a non-executable packaged binary.
+1. Finalize the release-contract drift check.
+   - Ensure `tests/release_contract_docs.rs` is tracked so CI and future checkouts actually run it.
+   - Add a focused assertion that the script help output or usage text names the single supported target and clean-staging requirement, or deliberately document help as minimal.
+   - Keep the drift test lightweight, but avoid overfitting to incidental CI step names when stable command strings would be a stronger contract.
 
-2. Align release validation documentation with CI.
-   - Update README and `docs/release-checklist.md` so the local release-validation order includes `cargo deny check`, the release dry run, formatting, Clippy, tests, and PTY coverage reporting exactly as CI presents them.
-   - Clarify that the dry run is validation-only and may be run with a temporary output directory in CI, while maintainers should use a clean release staging directory.
-   - Add a small docs consistency check or release checklist item that prevents drift between CI, README, and release-boundary dry-run commands.
+2. Run the full release validation suite after the iteration-20 changes.
+   - Run `cargo deny check`.
+   - Run `scripts/release-dry-run.sh --target x86_64-unknown-linux-gnu --output-dir <fresh-temp-dir>` from a clean or empty staging directory.
+   - Run `cargo fmt --check`.
+   - Run `cargo clippy --all-targets --all-features -- -D warnings`.
+   - Run `cargo test`, confirming the release-contract drift test is included.
+   - Record the PTY coverage summary state after the PTY-backed tests run.
 
 3. Add a tool-update policy.
    - Document how and when to update Rust 1.96.0 and cargo-deny 0.19.9 pins.

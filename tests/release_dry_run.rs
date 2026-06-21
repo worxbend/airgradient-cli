@@ -103,6 +103,152 @@ fn skip_build_reports_missing_binary_explicitly() {
     );
 }
 
+#[test]
+fn unsupported_non_linux_target_is_rejected_before_artifacts() {
+    let tempdir = tempdir().expect("tempdir should be created");
+    let output_dir = tempdir.path().join("dist");
+
+    let output = release_dry_run()
+        .args([
+            "--target",
+            "x86_64-apple-darwin",
+            "--output-dir",
+            path_str(&output_dir),
+        ])
+        .output()
+        .expect("release dry-run script should execute");
+
+    assert_failure_contains(
+        &output,
+        "release dry run failed: unsupported target 'x86_64-apple-darwin'",
+    );
+    assert!(
+        !output_dir.exists(),
+        "unsupported target should fail before creating output directory"
+    );
+}
+
+#[test]
+fn unsupported_linux_target_is_rejected_before_artifacts() {
+    let tempdir = tempdir().expect("tempdir should be created");
+    let output_dir = tempdir.path().join("dist");
+
+    let output = release_dry_run()
+        .args([
+            "--target",
+            "aarch64-unknown-linux-gnu",
+            "--output-dir",
+            path_str(&output_dir),
+        ])
+        .output()
+        .expect("release dry-run script should execute");
+
+    assert_failure_contains(
+        &output,
+        "release dry run failed: unsupported target 'aarch64-unknown-linux-gnu'",
+    );
+    assert!(
+        !output_dir.exists(),
+        "unsupported target should fail before creating output directory"
+    );
+}
+
+#[test]
+fn unsupported_target_is_rejected_under_skip_build_before_artifacts() {
+    let tempdir = tempdir().expect("tempdir should be created");
+    let output_dir = tempdir.path().join("dist");
+    let binary_path = tempdir.path().join(BIN_NAME);
+    write_executable_fixture(&binary_path);
+
+    let output = release_dry_run()
+        .args([
+            "--skip-build",
+            "--binary",
+            path_str(&binary_path),
+            "--target",
+            "x86_64-unknown-linux-musl",
+            "--output-dir",
+            path_str(&output_dir),
+        ])
+        .output()
+        .expect("release dry-run script should execute");
+
+    assert_failure_contains(
+        &output,
+        "release dry run failed: unsupported target 'x86_64-unknown-linux-musl'",
+    );
+    assert!(
+        !output_dir.exists(),
+        "unsupported skip-build target should fail before creating output directory"
+    );
+}
+
+#[test]
+fn stale_output_directory_is_refused() {
+    let tempdir = tempdir().expect("tempdir should be created");
+    let output_dir = tempdir.path().join("dist");
+    fs::create_dir(&output_dir).expect("output directory should be created");
+    fs::write(
+        output_dir.join("airgradient-cli-v0.0.0-x86_64-unknown-linux-gnu.tar.gz"),
+        b"old artifact",
+    )
+    .expect("stale artifact should be written");
+
+    let binary_path = tempdir.path().join(BIN_NAME);
+    write_executable_fixture(&binary_path);
+
+    let output = release_dry_run()
+        .args([
+            "--skip-build",
+            "--binary",
+            path_str(&binary_path),
+            "--output-dir",
+            path_str(&output_dir),
+        ])
+        .output()
+        .expect("release dry-run script should execute");
+
+    assert_failure_contains(
+        &output,
+        "release dry run failed: output directory must be absent or empty before release dry run",
+    );
+    assert!(
+        output_dir
+            .join("airgradient-cli-v0.0.0-x86_64-unknown-linux-gnu.tar.gz")
+            .is_file(),
+        "stale artifact should remain untouched for explicit maintainer cleanup"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn skip_build_rejects_non_executable_binary_on_unix() {
+    let tempdir = tempdir().expect("tempdir should be created");
+    let output_dir = tempdir.path().join("dist");
+    let binary_path = tempdir.path().join(BIN_NAME);
+    write_non_executable_fixture(&binary_path);
+
+    let output = release_dry_run()
+        .args([
+            "--skip-build",
+            "--binary",
+            path_str(&binary_path),
+            "--output-dir",
+            path_str(&output_dir),
+        ])
+        .output()
+        .expect("release dry-run script should execute");
+
+    assert_failure_contains(
+        &output,
+        "release dry run failed: binary for --skip-build is not executable",
+    );
+    assert!(
+        !output_dir.exists(),
+        "non-executable skip-build binary should fail before creating output directory"
+    );
+}
+
 fn release_dry_run() -> Command {
     let mut command = Command::new("bash");
     command
@@ -124,6 +270,18 @@ fn write_executable_fixture(path: &Path) {
         permissions.set_mode(0o755);
         fs::set_permissions(path, permissions).expect("fixture binary should be executable");
     }
+}
+
+#[cfg(unix)]
+fn write_non_executable_fixture(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::write(path, b"#!/usr/bin/env sh\nexit 0\n").expect("fixture binary should be written");
+    let mut permissions = fs::metadata(path)
+        .expect("fixture metadata should be readable")
+        .permissions();
+    permissions.set_mode(0o644);
+    fs::set_permissions(path, permissions).expect("fixture binary should not be executable");
 }
 
 fn package_version() -> String {
@@ -188,6 +346,20 @@ fn assert_success(output: &Output) {
         output.status,
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn assert_failure_contains(output: &Output, expected_stderr: &str) {
+    assert!(
+        !output.status.success(),
+        "command should have failed; stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(expected_stderr),
+        "stderr should contain {expected_stderr:?}; stderr:\n{stderr}"
     );
 }
 
