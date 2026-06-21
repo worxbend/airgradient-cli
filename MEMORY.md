@@ -11,3 +11,6 @@
 [pattern] When compatibility repair has an intentional hard boundary, document the boundary and its reason so future work does not treat it as an accidental parser failure.
 [anti-pattern] A TUI event loop that awaits network fetches inline makes keyboard responsiveness depend on HTTP timeout rather than terminal event handling.
 [learning] Terminal cleanup confidence requires a testable terminal adapter or harness; asserting a cleanup plan does not prove cleanup happens after runtime errors.
+[pattern] A small runtime adapter plus harness can verify TUI draw, event, fetch, and cleanup behavior without requiring a real terminal in every test.
+[learning] Non-blocking TUI fetches need lifecycle ownership too; responsiveness is incomplete if pending tasks cannot be cancelled or joined on exit.
+[anti-pattern] Advancing scheduler time by intended poll durations instead of observed wall-clock time makes event-loop tests pass while leaving drift and early-fire edge cases under-specified.

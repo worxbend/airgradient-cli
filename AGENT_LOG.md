@@ -539,3 +539,90 @@ A  src/tui/theme.rs
 A  src/tui/ui.rs
 M  tests/cli.rs
 A  tests/tui_render.rs
+2026-06-21T15:04:46Z iteration 7 started remaining=14234s
+2026-06-21T15:04:46Z iteration 7 preplanner effective budgets untracked_scan_max_bytes=536870912 untracked_scan_max_count=10000 snapshot_copy_max_bytes=536870912 snapshot_copy_max_count=10000 snapshot_copy_max_file_bytes=134217728
+2026-06-21T15:04:46Z iteration 7 disposable preplanner repo created path=/tmp/agent-loop-preplanner-repo-axmyil1v/repo copied_entries=34
+2026-06-21T15:04:46Z iteration 7 ideator phase started count=3
+2026-06-21T15:04:46Z iteration 7 ideator phase concurrency workers=3
+2026-06-21T15:04:46Z iteration 7 ideator 1 role="the pragmatist" started
+2026-06-21T15:04:46Z iteration 7 ideator 2 role="the architect" started
+2026-06-21T15:04:46Z iteration 7 ideator 3 role="the contrarian" started
+2026-06-21T15:04:54Z iteration 7 ideator 1 role="the pragmatist" completed status=0
+2026-06-21T15:04:56Z iteration 7 ideator 3 role="the contrarian" completed status=0
+2026-06-21T15:04:57Z iteration 7 ideator 2 role="the architect" completed status=0
+2026-06-21T15:04:57Z iteration 7 ideator phase completed approaches=3
+2026-06-21T15:04:57Z iteration 7 selector started approaches=3
+2026-06-21T15:05:13Z iteration 7 selector completed status=0
+2026-06-21T15:05:13Z iteration 7 disposable preplanner repo cleanup path=/tmp/agent-loop-preplanner-repo-axmyil1v/repo
+2026-06-21T15:05:13Z iteration 7 selector rejected alternative role="the pragmatist" approach="Contract-First TUI Hardening: stabilize the observable runtime contract before expanding feature surface, using testable boundaries around terminal I/O and refresh orchestration..." reason="Strong on prioritizing observable runtime contract, but not explicit enough that a narrow harness or adapter is the mechanism needed to avoid shallow lifecycle tests and fragile confidence."
+2026-06-21T15:05:13Z iteration 7 selector rejected alternative role="the contrarian" approach="Contract-First TUI Containment: treat the TUI runtime as an unreliable boundary and first define the externally observable guarantees it must uphold, then reshape internals only..." reason="Strong on containment and avoiding an oversized async rewrite, but risks underinvesting in internal observability if the planner treats contract tests as enough without improving the runtime test boundary."
+2026-06-21T15:05:13Z iteration 7 selector rejected alternative role="the architect" approach="Harness-First Runtime Hardening: treat the TUI as a small runtime system before adding more UI polish. The next planner should prioritize making terminal I/O, event handling, fe..." reason="Strongest technical mechanism, but selected as-is could overemphasize architecture and test infrastructure. The planner should keep the harness subordinate to user-visible guarantees rather than making abstraction the headline."
+2026-06-21T15:05:13Z iteration 7 selector alternatives persisted count=3
+2026-06-21T15:05:13Z iteration 7 selector structured alternatives persisted count=3
+2026-06-21T15:05:13Z iteration 7 planner started
+2026-06-21T15:05:39Z iteration 7 plan: 6 task(s) in 4 phase(s). This iteration focuses on Phase 7A first: observable TUI runtime guarantees, testable harnessing, responsive fetch scheduling, cleanup correctness, and explicit non-TTY behavior. Render coverage and README updates are delayed until the runtime contract is stable. Phase 3 and Phase 4 use parallel groups only where file overlap is minimal and the tasks do not depend on each other beyond the earlier runtime harness and fetch refactor.
+2026-06-21T15:05:39Z iteration 7 phase 1 started parallel=False tasks=1
+2026-06-21T15:08:36Z iteration 7 task t1 ('Introduce testable TUI runtime adapters') status=0
+2026-06-21T15:08:36Z iteration 7 phase 2 started parallel=False tasks=1
+2026-06-21T15:12:38Z iteration 7 task t2 ('Make TUI fetches non-blocking and coalesced') status=0
+2026-06-21T15:12:38Z iteration 7 phase 3 started parallel=True tasks=2
+2026-06-21T15:13:56Z iteration 7 task t4 ('Make non-TTY TUI failure deliberate') status=0
+2026-06-21T15:16:22Z iteration 7 task t3 ('Harden terminal cleanup semantics') status=0
+2026-06-21T15:16:22Z iteration 7 phase 4 started parallel=True tasks=2
+2026-06-21T15:16:53Z iteration 7 task t6 ('Update README for implemented TUI behavior') status=0
+2026-06-21T15:18:52Z iteration 7 task t5 ('Broaden TUI render smoke coverage') status=0
+2026-06-21T15:18:52Z iteration 7 reviewer started
+
+## Reviewer Summary: Iteration 7
+
+Date: 2026-06-21
+Reviewer stance: fresh senior review; implementation inspected through `git diff`, full touched-file context, runtime/UI surrounding code, README, tests, and validation commands.
+
+### What Was Done
+
+- Introduced testable TUI runtime adapters: `TerminalRuntime`, `MeasureFetchWorker`, `CrosstermRuntime`, and a harness for deterministic runtime-loop tests.
+- Moved TUI fetches out of the blocking event loop using a background task plus channel, with scheduler coalescing so refresh requests do not overlap an in-flight fetch.
+- Added runtime tests for initial fetch, interval refresh, manual refresh coalescing, fetch failure after success, quitting while a fetch is pending, and cleanup after draw/poll/read failures.
+- Hardened terminal cleanup by leaving the alternate screen, showing the cursor, then disabling raw mode, and by preserving cleanup failure context when a primary runtime error also occurs.
+- Made non-TTY `--tui` failure deliberate with `TUI requires an interactive terminal`, covered by an integration test that asserts failure and the intended diagnostic.
+- Broadened TUI render smoke coverage for compact sizes, long URLs, long config/fetch errors, and all-missing metrics.
+- Updated README to document the implemented TUI, keyboard controls, refresh override behavior, non-TTY limitation, missing-URL state, and URL override usage.
+
+### Verification
+
+- `cargo test` passed: 74 library unit tests, 28 CLI integration tests, 12 sensor parsing integration tests, and 8 TUI render integration tests.
+- `cargo fmt --check` passed.
+- `cargo clippy --all-targets --all-features -- -D warnings` passed.
+
+### Findings
+
+- Medium: background TUI fetch tasks are fire-and-forget. Quitting while a fetch is pending returns promptly, but the spawned task is not explicitly aborted or joined, and cleanup semantics do not own the pending network operation.
+- Medium: `tui::runtime::run` is `async`, but the runtime loop is synchronous and depends on the binary's multi-thread Tokio runtime for spawned fetch tasks to progress while terminal polling blocks. A single-thread embedding could stall fetch completion.
+- Medium: refresh scheduling advances an internal clock by the requested poll timeout after idle polls instead of sampling actual elapsed time. This is acceptable with crossterm's normal blocking behavior, but fragile for spurious early returns, delayed polls, and future adapters.
+- Medium: the TUI still has no explicit in-flight fetch state, so startup/manual refreshes render as either waiting or the previous status without telling the user that work is pending.
+- Medium: runtime confidence is much higher through the harness, but no pseudo-terminal integration test starts the real TUI, sends quit input, and verifies the interactive path under crossterm.
+- Medium: render tests are broader, but still mostly string-presence checks; they do not prove absence of overlap or define a minimum supported terminal size.
+- Low: `TuiApp` still publicly stores `fetch_settings` and `fetch_client` even though fetching now lives behind the runtime worker boundary.
+- Low: `color-eyre` remains in `Cargo.toml` and `Cargo.lock` despite local diagnostics replacing it.
+
+### Top Improvement Proposals
+
+1. Track and cancel/abort pending background fetches on quit and fatal runtime errors, with tests that pending fetch cleanup does not wait for the HTTP timeout.
+2. Remove or explicitly document the multi-thread runtime assumption by making the TUI loop async-friendly or ensuring blocking terminal polling cannot starve spawned fetch work.
+3. Make interval scheduling use real wall-clock sampling and add harness coverage for early false polls or delayed polls.
+4. Add an explicit in-flight fetch state and render `fetching`/`refreshing` status without hiding the last successful snapshot.
+5. Add PTY-based TUI integration coverage, then clean dependency/public-state hygiene and document packaging/release guidance.
+2026-06-21T15:22:07Z iteration 7 reviewer completed status=0
+2026-06-21T15:22:07Z iteration 7 memory updated
+2026-06-21T15:22:07Z iteration 7 completed validation_status=0
+2026-06-21T15:22:07Z iteration 7 checkpoint started
+2026-06-21T15:22:07Z iteration 7 checkpoint status before commit:
+M  AGENT_LOG.md
+M  ALTERNATIVES.jsonl
+M  MEMORY.md
+M  PLAN.md
+M  README.md
+M  SCORES.jsonl
+M  src/tui/runtime.rs
+M  tests/cli.rs
+M  tests/tui_render.rs

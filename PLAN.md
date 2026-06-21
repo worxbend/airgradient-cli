@@ -28,27 +28,17 @@ Completed in iterations 1-3:
 - Rust binary crate bootstrapped with CLI parsing, HTTP/JSON support, config commands, one-shot fetch, text/JSON output, concise diagnostics, README contract documentation, and GitHub Actions CI.
 - Desktop-compatible config path, shape, refresh bounds, URL normalization, `/measures/current` endpoint construction, and unknown top-level field preservation are implemented.
 - One-shot fetches use a default 5 second timeout, captured stdout suppresses ANSI color by default, and default diagnostics are concise/uncolored with `-v`/`-vv` detail.
-- Sensor parsing handles current and alternate AirGradient field names, nested payloads, numeric strings, compensated temperature/humidity, PM2.5 AQI fallback, lower-bound validation, AQI/humidity bounds, and missing-value rendering.
+- Sensor parsing handles current and alternate AirGradient field names, nested payloads, numeric strings, compensated temperature/humidity, PM2.5 AQI fallback, domain validation, upper-bound guardrails, and missing-value rendering.
 - Tests cover config path behavior, URL normalization, fetch endpoint, output modes, diagnostics, bad HTTP/JSON/timeout cases, flag scope, unknown-field preservation, thresholds, trends, and missing values.
 
-Completed in iteration 4:
+Completed in iterations 4-5:
 
 - Added `device::FetchSettings` as the shared fetch runtime boundary and routed CLI fetches through one client-construction path.
-- Hardened `config show` to parse known fields from raw JSON with warnings for malformed known fields instead of failing typed deserialization.
-- Made `config set-url` and `config set-refresh` repair malformed known config fields while preserving unknown top-level sibling fields.
-- Added sensor-domain upper bounds for CO2, TVOC, NOx, PM mass, PM0.3 count, and temperature, with tests for absurd high values and numeric strings.
-- Added parser fixture coverage for AirGradient-like payloads, alternate names, nested conflicts, missing values, and invalid compensated value fallback.
-- Introduced a library crate surface and a pure `tui::app::TuiApp` state model covering current/previous successful snapshots, errors, fetch metadata, refresh interval clamping, and metric trends.
-- Verified on 2026-06-21: `cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --all-features -- -D warnings` pass.
-
-Completed in iteration 5:
-
+- Hardened `config show`, `config set-url`, and `config set-refresh` to tolerate malformed known config fields while preserving unknown top-level sibling fields.
 - Fixed bounded sensor candidate lookup so out-of-range matching fields are skipped and later valid alternate or nested candidates can still populate the metric.
-- Added regression coverage for invalid top-level PM2.5, CO2, and AQI fields falling back to valid alternate or nested candidates.
-- Preserved valid explicit AQI precedence over PM2.5-derived AQI and valid higher-priority top-level candidate precedence over lower-priority or nested fields.
-- Converted `tests/sensor_parsing.rs` to import `airgradient_cli::sensors::parse_snapshot` through the library crate, removing source-path imports and duplicate internal unit-test execution in that integration binary.
-- Documented the non-object config repair boundary, parser upper-bound policy, and `AIRGRADIENT_CLI_FETCH_TIMEOUT_MS` as a diagnostic/test hook rather than a supported user-facing setting.
-- Verified on 2026-06-21: `cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --all-features -- -D warnings` pass.
+- Added parser fixture coverage for AirGradient-like payloads, alternate names, nested conflicts, missing values, invalid compensated value fallback, fallback candidate priority, and public library API usage.
+- Introduced a library crate surface and a pure `tui::app::TuiApp` state model covering current/previous successful snapshots, errors, fetch metadata, refresh interval clamping, and metric trends.
+- Documented the non-object config repair boundary, parser upper-bound policy, and `AIRGRADIENT_CLI_FETCH_TIMEOUT_MS` as a diagnostic/test hook.
 
 Completed in iteration 6:
 
@@ -58,24 +48,32 @@ Completed in iteration 6:
 - Implemented terminal setup with raw mode and alternate screen, immediate fetch on startup when a URL is configured, interval refresh, manual `r` refresh, and `q`/`Esc` quit.
 - Reused one HTTP client from `FetchSettings` for TUI refreshes and preserved the last successful snapshot when fetches fail.
 - Added Ratatui test-backend smoke tests for missing config, populated snapshots, and error-with-last-success rendering.
-- Replaced the CLI integration test that expected the pending TUI error with a minimal assertion that the old placeholder text is gone.
+
+Completed in iteration 7:
+
+- Introduced a `TerminalRuntime` adapter and `MeasureFetchWorker` boundary so the TUI loop can be tested without a real terminal.
+- Moved TUI fetches out of the blocking event loop using a background task and channel, with coalescing so manual/interval refresh triggers do not overlap an in-flight fetch.
+- Added runtime harness tests for initial fetch, interval refresh, manual refresh coalescing, fetch failure after success, pending-fetch quit, normal quit, draw/poll/read errors, cleanup failure, and retained cleanup context.
+- Changed terminal cleanup order to leave the alternate screen, show the cursor, then disable raw mode; setup-failure cleanup uses the same ordering.
+- Made non-TTY `--tui` failure deliberate with `TUI requires an interactive terminal` before raw-mode setup, and replaced the weak CLI integration test with an exit-status/error assertion.
+- Broadened render smoke tests across 60x20, 80x24, and 36x20 backends, long URLs, long config/fetch errors, and all-missing metrics.
+- Updated README TUI documentation for `--tui`, `--refresh`, keyboard controls, non-TTY limitations, missing URL state, and URL overrides.
 - Verified on 2026-06-21: `cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --all-features -- -D warnings` pass.
 
 ## Known Gaps and Risks
 
-- High: TUI fetches run inline in the event loop. A slow, hanging, or timing-out request can block `q`, `Esc`, and `r` responsiveness for up to the fetch timeout.
-- High: terminal lifecycle tests are shallow. The cleanup unit tests only verify a boolean cleanup plan, not actual call ordering or cleanup after draw/event-loop errors.
-- Medium: `TerminalSession::restore` disables raw mode before leaving the alternate screen and showing the cursor. Common terminal cleanup practice is to leave the alternate screen and restore cursor visibility before disabling raw mode, or at least to test the selected order against real terminals.
-- Medium: `run` returns the loop error before a cleanup error. This preserves the primary failure, but cleanup failure details can be lost and should be logged or combined if they matter diagnostically.
-- Medium: the CLI `--tui` integration test is too weak; it passes if the command fails immediately with a generic terminal error or times out, as long as the old placeholder string is absent.
-- Medium: running `--tui` in a non-TTY exits with `error: terminal I/O failed`. That is mechanically acceptable, but the error should be deliberate, clearer, and covered by a test.
-- Medium: README still documents `--tui` as unimplemented and says it exits with `TUI is not implemented yet.`
-- Medium: render smoke tests cover only a 100x40 backend and string presence. They do not exercise compact terminal sizes, truncation behavior, or layout overlap.
+- Medium: background TUI fetch tasks are fire-and-forget. Quitting while a fetch is pending returns promptly, but the task is not explicitly aborted, joined, or represented in cleanup semantics; the binary currently relies on process/runtime shutdown to dispose of it.
+- Medium: the TUI runtime loop is synchronous inside `async fn run` and uses `tokio::spawn` for fetches. This works under the binary's multi-thread Tokio runtime, but could stall background tasks if reused from a single-thread runtime or another embedding context.
+- Medium: refresh timing advances an internal `Instant` by the requested poll timeout after idle polls instead of always sampling elapsed wall time. Crossterm normally blocks for that timeout, but the logic is fragile under spurious early returns, delayed polls, or future adapter implementations.
+- Medium: the dashboard has no explicit in-flight fetch state. During startup and manual refresh it shows either "waiting for first fetch" or the previous status, so users cannot tell that a refresh is currently pending.
+- Medium: runtime tests prove behavior through the harness, but there is still no pseudo-terminal integration test that starts the real TUI, sends `q`, and verifies terminal setup/cleanup against crossterm.
+- Medium: render tests are broader but still mostly assert string presence or deliberate clipping. They do not detect all layout overlap, inaccessible controls, or content loss at very small terminal sizes.
 - Medium: parser priority is correct for key-list precedence and top-level-over-nested precedence, but same-alias duplicate fields inside one JSON object still depend on `serde_json::Map` iteration order. This is acceptable for malformed duplicate-ish payloads, but real-device validation should confirm no important duplicate field variants conflict.
 - Medium: non-object top-level config JSON is a documented hard repair boundary because unknown-field preservation requires an object.
 - Medium: sensor upper bounds are practical guardrails, not hardware-validated limits; revisit them after real-device validation.
-- Low: `color-eyre` remains in `Cargo.toml`/`Cargo.lock` even though runtime diagnostics are now local; remove unused dependency surface before release.
-- There is no packaging guidance, release workflow, dependency audit, or real-device validation record yet.
+- Low: `TuiApp` still exposes `fetch_settings` and `fetch_client`, but the runtime now owns fetching through `MeasureFetchWorker`; this public state should be trimmed or justified before release.
+- Low: `color-eyre` remains in `Cargo.toml`/`Cargo.lock` even though runtime diagnostics are local; remove unused dependency surface before release.
+- There is no packaging guidance, release workflow, dependency audit, pseudo-terminal test coverage, or real-device validation record yet.
 
 ## Compatibility Targets
 
@@ -107,57 +105,64 @@ Must preserve:
 
 ## Prioritized Next Work
 
-### Phase 7A: Harden TUI Runtime Correctness
+### Phase 8A: Finish TUI Runtime Robustness
 
-1. Make TUI event handling responsive during fetches.
-   - Move refresh work out of the blocking event loop using a small async task/channel boundary or a non-overlapping background fetch state.
-   - Keep the existing no-overlap guarantee: skip or coalesce refresh triggers while one fetch is in flight.
-   - Keep the 5 second fetch timeout as the backstop, but do not make keyboard responsiveness depend on it.
-   - Add tests around refresh scheduling semantics where possible.
+1. Make background fetch lifecycle explicit.
+   - Track the spawned fetch task with a handle or cancellation token.
+   - Abort or otherwise cancel a pending fetch on TUI quit and on fatal runtime errors.
+   - Add tests proving pending fetch cleanup does not wait for timeout and does not apply stale results after exit.
 
-2. Strengthen terminal lifecycle handling.
-   - Introduce a small terminal adapter abstraction so setup, draw, event polling, and cleanup can be tested without a real terminal.
-   - Verify cleanup is attempted after draw errors, event read/poll errors, early loop errors, and normal quit.
-   - Revisit cleanup order and explicitly test the chosen order.
-   - Preserve the primary runtime error while retaining cleanup failure context through logging, verbose diagnostics, or a combined error type.
+2. Remove the synchronous-runtime assumption.
+   - Either make the TUI event loop fully async-compatible or document and enforce that it runs only under a multi-thread Tokio runtime.
+   - Prefer an architecture where blocking terminal polling does not starve spawned fetch work in single-thread embeddings.
+   - Add a regression test or compile-time structure that makes the chosen runtime assumption explicit.
 
-3. Make non-TTY `--tui` behavior explicit.
-   - Detect non-interactive stdout/stderr before entering raw mode where practical.
-   - Return a clear concise error such as `TUI requires an interactive terminal`.
-   - Replace the current weak integration test with one that asserts the deliberate non-TTY behavior and exit status.
+3. Make refresh timing wall-clock based.
+   - Replace synthetic `now += poll_timeout` updates with actual `Instant::now()` sampling after each poll.
+   - Add a harness test for early false polls or delayed polls so interval refreshes do not drift or fire early.
 
-### Phase 7B: Improve TUI Contract Coverage and Layout Robustness
+4. Add in-flight fetch state to the dashboard.
+   - Track whether a fetch is pending in `TuiApp` or the runtime presentation model.
+   - Render clear states such as `fetching`, `refreshing`, `waiting for first fetch`, `updated ...`, and `fetch failed`.
+   - Keep previous successful readings visible while a refresh is in progress.
 
-1. Broaden render smoke tests.
-   - Add backends for compact terminal sizes such as 60x20, 80x24, and a narrow mobile-like width.
-   - Assert the UI remains nonblank and key labels/statuses are visible or predictably truncated.
-   - Add regression coverage for long URLs, long config/fetch errors, and all-missing metrics.
+### Phase 8B: End-to-End TUI Contract Coverage
 
-2. Validate dashboard contract against fetch behavior.
-   - Add a runtime-level test or testable harness for initial fetch, interval refresh, manual refresh, fetch failure after success, and quit handling.
-   - Verify the TUI uses `/measures/current` through the same device boundary as one-shot fetch.
-   - Verify URL overrides and refresh overrides take precedence over config values.
+1. Add pseudo-terminal integration tests.
+   - Start the real binary/TUI in a PTY when available.
+   - Send `q`/`Esc`, verify process exit, and check that output does not contain the non-TTY error.
+   - Include a timeout so CI failures are crisp instead of hanging.
 
-3. Update user-facing documentation.
-   - Replace README statements that say TUI is unimplemented.
-   - Document `--tui`, `--refresh`, keyboard controls, non-TTY limitations, and the missing-URL state.
-   - Keep `AIRGRADIENT_CLI_FETCH_TIMEOUT_MS` described as diagnostic/test-only.
+2. Validate TUI fetch contract with a real HTTP test server.
+   - Exercise `--tui --url <server>` against a local server and assert `/measures/current` is requested.
+   - Cover startup success, startup failure, manual refresh, interval refresh, and failure after success where practical through the harness or PTY.
+   - Verify URL overrides and refresh overrides take precedence over config values in the runtime path.
 
-### Phase 7C: Dependency and Release Hygiene
+3. Strengthen layout assertions.
+   - Add coordinate-level or snapshot-style checks for footer controls, top bar status, AQI panel, metric cells, and error panel at compact sizes.
+   - Decide and document the minimum supported terminal size.
+   - Render a deliberately tiny terminal and verify the app degrades predictably instead of producing incoherent overlap.
+
+### Phase 8C: Dependency, Release, and Validation Hygiene
 
 1. Clean dependency surface.
    - Remove `color-eyre` if no code path uses it.
-   - Run `cargo tree` or `cargo machete` after Ratatui/crossterm are in place to catch stale dependencies.
+   - Run `cargo tree` or `cargo machete` after removal to catch stale dependencies.
 
-2. Add packaging and installation notes.
+2. Simplify or justify public TUI state.
+   - Remove unused `TuiApp::fetch_settings` and `TuiApp::fetch_client` fields if the runtime owns fetching.
+   - Keep constructor APIs aligned with actual ownership so tests do not need irrelevant `reqwest::Client` values for pure render state.
+
+3. Add packaging and installation notes.
    - Document `cargo install --path .`.
    - Add release binary naming guidance for Linux targets.
    - Decide whether shell completions are in scope.
 
-3. Add dependency and supply-chain checks.
+4. Add dependency and supply-chain checks.
    - Consider `cargo audit` or `cargo deny` with an explicit policy file.
+   - Document how failures should be triaged in CI.
 
-4. Validate against hardware.
+5. Validate against hardware.
    - Record a real-device validation run when hardware is available.
    - Revisit parser field names, bounds, same-object duplicate alias behavior, and desktop/GNOME compatibility after TUI hardening lands.
 

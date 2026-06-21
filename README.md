@@ -4,8 +4,8 @@
 default it reads the shared desktop config, fetches the current measurements
 once, and prints compact terminal output.
 
-The planned TUI dashboard is accepted by the CLI as `-t` / `--tui`, but it is
-not implemented yet.
+The interactive TUI dashboard is available with `-t` / `--tui` in an
+interactive terminal.
 
 ## Usage
 
@@ -61,7 +61,7 @@ Set the device URL:
 airgradient-cli config set-url http://192.168.1.201/some/path?ignored=true
 ```
 
-Set the refresh interval stored for the future dashboard:
+Set the refresh interval stored for the dashboard:
 
 ```sh
 airgradient-cli config set-refresh 30
@@ -79,15 +79,40 @@ Disable color explicitly in text output:
 airgradient-cli --no-color
 ```
 
-Start the planned dashboard:
+Start the interactive dashboard:
 
 ```sh
 airgradient-cli --tui
 ```
 
-For now this exits with `TUI is not implemented yet.` The top-level
-`--refresh <SECONDS>` flag is reserved for that dashboard and is rejected unless
-`--tui` is used.
+The TUI opens a Ratatui dashboard using the same AirGradient config file as the
+desktop app. It fetches `<server_url>/measures/current` on startup when a device
+URL is configured, then refreshes on the configured interval. Press `r` to
+refresh manually, or press `q` or `Esc` to quit. If a later refresh fails after a
+successful reading, the dashboard keeps showing the last successful snapshot
+alongside the error.
+
+The TUI requires an interactive terminal. Running `--tui` with captured or
+piped terminal streams exits with `TUI requires an interactive terminal`.
+
+Override the TUI refresh interval for one run:
+
+```sh
+airgradient-cli --tui --refresh 10
+```
+
+`--refresh <SECONDS>` applies only to `--tui` and is rejected for one-shot
+fetches and config commands. Like `config set-refresh`, it accepts values from
+`5` to `3600` seconds. It changes only the current dashboard run and does not
+write the config file.
+
+If no device URL is configured, `--tui` still opens the dashboard and shows the
+missing-URL state instead of fetching. Set a URL with `config set-url`, or pass a
+one-run URL override with `--url`:
+
+```sh
+airgradient-cli --tui --url 192.168.1.201
+```
 
 ## Config
 
