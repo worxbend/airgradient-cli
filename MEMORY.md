@@ -9,3 +9,5 @@
 [pattern] TUI work is easier to verify when state transitions are pure and tested before terminal drawing or event-loop code exists.
 [anti-pattern] Integration tests should import the crate API, not source files by path, or they duplicate unit tests and miss public-surface regressions.
 [pattern] When compatibility repair has an intentional hard boundary, document the boundary and its reason so future work does not treat it as an accidental parser failure.
+[anti-pattern] A TUI event loop that awaits network fetches inline makes keyboard responsiveness depend on HTTP timeout rather than terminal event handling.
+[learning] Terminal cleanup confidence requires a testable terminal adapter or harness; asserting a cleanup plan does not prove cleanup happens after runtime errors.

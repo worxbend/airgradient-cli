@@ -270,13 +270,25 @@ fn top_level_json_is_rejected_for_config_commands() {
 }
 
 #[test]
-fn tui_is_accepted_but_reports_pending_implementation() {
-    cli()
-        .args(["--tui", "--refresh", "30"])
-        .assert()
-        .failure()
-        .stdout("")
-        .stderr(predicate::str::contains("TUI is not implemented yet."));
+fn tui_handoff_no_longer_reports_pending_implementation() {
+    let dir = tempdir().expect("tempdir should be created");
+    let config_path = dir.path().join("missing.json");
+    let output = cli()
+        .timeout(Duration::from_millis(500))
+        .args([
+            "--config",
+            path_str(&config_path),
+            "--tui",
+            "--refresh",
+            "30",
+        ])
+        .output()
+        .expect("tui command should run or time out");
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf8");
+    let stderr = String::from_utf8(output.stderr).expect("stderr is utf8");
+    let combined_output = format!("{stdout}{stderr}");
+
+    assert!(!combined_output.contains("TUI is not implemented yet."));
 }
 
 #[test]

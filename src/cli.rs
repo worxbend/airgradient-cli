@@ -12,7 +12,7 @@ use crate::{
     config::{self, Config},
     device,
     output::{self, OutputMetadata},
-    sensors,
+    sensors, tui,
 };
 
 #[derive(Debug, Parser)]
@@ -82,8 +82,8 @@ pub enum CliError {
     )]
     MissingServerUrl,
 
-    #[error("TUI is not implemented yet.")]
-    TuiNotImplemented,
+    #[error(transparent)]
+    Tui(#[from] tui::runtime::RuntimeError),
 
     #[error("`--refresh` is only supported with `--tui`.")]
     RefreshRequiresTui,
@@ -101,7 +101,14 @@ pub enum CliError {
 
 pub async fn run(cli: Cli) -> Result<(), CliError> {
     if cli.tui {
-        return Err(CliError::TuiNotImplemented);
+        let options = tui::runtime::RuntimeOptions {
+            config_path: config_path(&cli)?,
+            url_override: cli.url.clone(),
+            refresh_override_secs: cli.refresh,
+            fetch_settings: fetch_settings()?,
+        };
+
+        return tui::runtime::run(options).await.map_err(CliError::from);
     }
 
     if cli.refresh.is_some() {

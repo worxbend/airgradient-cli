@@ -446,3 +446,96 @@ M  README.md
 M  SCORES.jsonl
 M  src/sensors/air_quality.rs
 M  tests/sensor_parsing.rs
+2026-06-21T14:51:39Z iteration 6 started remaining=15020s
+2026-06-21T14:51:39Z iteration 6 preplanner effective budgets untracked_scan_max_bytes=536870912 untracked_scan_max_count=10000 snapshot_copy_max_bytes=536870912 snapshot_copy_max_count=10000 snapshot_copy_max_file_bytes=134217728
+2026-06-21T14:51:40Z iteration 6 disposable preplanner repo created path=/tmp/agent-loop-preplanner-repo-pzxei3og/repo copied_entries=30
+2026-06-21T14:51:40Z iteration 6 ideator phase started count=3
+2026-06-21T14:51:40Z iteration 6 ideator phase concurrency workers=3
+2026-06-21T14:51:40Z iteration 6 ideator 1 role="the pragmatist" started
+2026-06-21T14:51:40Z iteration 6 ideator 2 role="the architect" started
+2026-06-21T14:51:40Z iteration 6 ideator 3 role="the contrarian" started
+2026-06-21T14:51:49Z iteration 6 ideator 2 role="the architect" completed status=0
+2026-06-21T14:51:49Z iteration 6 ideator 1 role="the pragmatist" completed status=0
+2026-06-21T14:51:50Z iteration 6 ideator 3 role="the contrarian" completed status=0
+2026-06-21T14:51:50Z iteration 6 ideator phase completed approaches=3
+2026-06-21T14:51:50Z iteration 6 selector started approaches=3
+2026-06-21T14:52:00Z iteration 6 selector completed status=0
+2026-06-21T14:52:00Z iteration 6 disposable preplanner repo cleanup path=/tmp/agent-loop-preplanner-repo-pzxei3og/repo
+2026-06-21T14:52:00Z iteration 6 selector rejected alternative role="the architect" approach="Contract-First TUI Slice: Treat iteration 6 as converting the existing public `--tui` promise from placeholder to dependable minimum product, with every decision biased toward p..." reason="Selected in substance, but too broad as-is because it risks pulling visual polish and module expansion into the same strategic priority as retiring the broken `--tui` contract."
+2026-06-21T14:52:00Z iteration 6 selector rejected alternative role="the pragmatist" approach="State-first TUI thin shell: treat the first functional dashboard as a terminal adapter around the existing pure TuiApp and presentation spine, keeping runtime, rendering, and fe..." reason="Selected in substance, but strengthened with the contrarian emphasis that terminal cleanup and failure boundaries are correctness requirements, not secondary implementation details."
+2026-06-21T14:52:00Z iteration 6 selector rejected alternative role="the contrarian" approach="Contract-First TUI Skeleton: treat the TUI as a compatibility surface before treating it as a full dashboard, and force the next planner to define the terminal lifecycle, app/ru..." reason="Useful for risk framing, but not selected as-is because it underweights the need for this iteration to produce an actually usable dashboard rather than primarily defining contracts."
+2026-06-21T14:52:00Z iteration 6 selector alternatives persisted count=3
+2026-06-21T14:52:00Z iteration 6 selector structured alternatives persisted count=3
+2026-06-21T14:52:00Z iteration 6 planner started
+2026-06-21T14:52:43Z iteration 6 plan: 4 task(s) in 3 phase(s). This decomposition targets the narrow contract-completion slice: first wire `--tui` into real code, then allow rendering and runtime work to proceed independently, then add end-to-end and smoke coverage once both pieces exist.
+2026-06-21T14:52:43Z iteration 6 phase 1 started parallel=False tasks=1
+2026-06-21T14:54:23Z iteration 6 task t1 ('Add TUI foundation and CLI handoff') status=0
+2026-06-21T14:54:23Z iteration 6 phase 2 started parallel=True tasks=2
+2026-06-21T14:57:11Z iteration 6 task t2 ('Implement Ratatui dashboard rendering') status=0
+2026-06-21T14:57:47Z iteration 6 task t3 ('Implement TUI runtime loop and terminal cleanup') status=0
+2026-06-21T14:57:47Z iteration 6 phase 3 started parallel=False tasks=1
+2026-06-21T15:01:39Z iteration 6 task t4 ('Add TUI contract tests') status=0
+2026-06-21T15:01:39Z iteration 6 reviewer started
+
+## Reviewer Summary: Iteration 6
+
+Date: 2026-06-21
+Reviewer stance: fresh senior review; implementation inspected through `git diff`, all new TUI files, existing CLI/config/device/TUI app context, tests, and validation commands.
+
+### What Was Done
+
+- Added `ratatui` and `crossterm` dependencies.
+- Added `src/tui/runtime.rs`, `src/tui/ui.rs`, and `src/tui/theme.rs`, and exported them from `src/tui/mod.rs`.
+- Replaced the `--tui` placeholder with a real runtime handoff from `src/cli.rs`.
+- Implemented a first Ratatui dashboard with top bar, AQI panel, metric grid, error panel, and footer hints.
+- Implemented TUI config resolution, URL override handling, refresh override clamping, immediate fetch, interval refresh, manual `r` refresh, and `q`/`Esc` quit.
+- Reused one reqwest client from `FetchSettings` for TUI refreshes.
+- Preserved the last successful snapshot when a later TUI fetch fails.
+- Added Ratatui test-backend render smoke tests for missing config, populated data, and fetch-error-with-previous-success states.
+- Replaced the old CLI test expecting `TUI is not implemented yet.` with a minimal assertion that the old placeholder text is gone.
+
+### Verification
+
+- `cargo test` passed: 59 library unit tests, 28 CLI integration tests, 12 sensor parsing integration tests, and 3 TUI render integration tests.
+- `cargo fmt --check` passed.
+- `cargo clippy --all-targets --all-features -- -D warnings` passed.
+- Manual non-TTY probe: `timeout 1s target/debug/airgradient-cli --config /tmp/airgradient-cli-missing-review.json --tui --refresh 30` exited with `error: terminal I/O failed`.
+
+### Findings
+
+- High: TUI fetches run inline in the event loop. During a slow or timing-out request, `q`, `Esc`, and `r` cannot be processed until the request returns, so keyboard responsiveness depends on the HTTP timeout.
+- High: terminal cleanup coverage is mostly indirect. The cleanup unit tests assert a boolean cleanup plan, but they do not prove cleanup is attempted after draw errors, event polling/read errors, loop errors, or normal quit.
+- Medium: `TerminalSession::restore` disables raw mode before leaving the alternate screen and showing the cursor. This may work, but the order is not justified or tested against real terminal lifecycle behavior.
+- Medium: cleanup errors can be lost when `run_loop` also returns an error. The implementation prioritizes the loop error, which is reasonable, but then cleanup failure context disappears.
+- Medium: the CLI `--tui` integration test is too weak. It does not assert exit status, intended non-TTY behavior, or successful runtime startup; it only checks that the old placeholder text is absent.
+- Medium: non-TTY `--tui` currently reports a generic `terminal I/O failed` error. That should become a deliberate, tested diagnostic such as `TUI requires an interactive terminal`.
+- Medium: README is now stale because it still says `--tui` is not implemented and exits with `TUI is not implemented yet.`
+- Medium: render smoke tests only cover 100x40 and string presence. They do not test compact terminal sizes, long URLs, long errors, truncation, or overlap risk.
+- Low: `color-eyre` remains in `Cargo.toml` and `Cargo.lock` even though diagnostics are local.
+
+### Top Improvement Proposals
+
+1. Make TUI fetching non-blocking relative to keyboard/event handling, while preserving the no-overlapping-fetch guarantee.
+2. Add a terminal adapter or harness that can test setup, draw, event polling, quit handling, and cleanup on normal and error paths.
+3. Replace the weak `--tui` integration test with deliberate non-TTY behavior coverage and, if practical, a harness-level startup/quit test.
+4. Broaden Ratatui render tests across compact sizes and pathological content such as long URLs and long error messages.
+5. Update README for the now-functional TUI and clean the unused `color-eyre` dependency.
+2026-06-21T15:04:46Z iteration 6 reviewer completed status=0
+2026-06-21T15:04:46Z iteration 6 memory updated
+2026-06-21T15:04:46Z iteration 6 completed validation_status=0
+2026-06-21T15:04:46Z iteration 6 checkpoint started
+2026-06-21T15:04:46Z iteration 6 checkpoint status before commit:
+M  AGENT_LOG.md
+M  ALTERNATIVES.jsonl
+M  Cargo.lock
+M  Cargo.toml
+M  MEMORY.md
+M  PLAN.md
+M  SCORES.jsonl
+M  src/cli.rs
+M  src/tui/mod.rs
+A  src/tui/runtime.rs
+A  src/tui/theme.rs
+A  src/tui/ui.rs
+M  tests/cli.rs
+A  tests/tui_render.rs
