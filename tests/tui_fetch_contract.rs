@@ -167,7 +167,7 @@ fn tui_interval_refresh_requests_current_measures_endpoint_again() -> Result<(),
 #[test]
 fn unsupported_tui_interval_refresh_hook_values_do_not_trigger_early_second_request()
 -> Result<(), Box<dyn Error>> {
-    for hook_value in ["unsupported", "0", PRODUCTION_REFRESH_MS, "3600001"] {
+    for hook_value in ["unsupported", "0", "99", PRODUCTION_REFRESH_MS, "3600001"] {
         assert_tui_refresh_hook_value_does_not_trigger_early_second_request(hook_value)?;
     }
 

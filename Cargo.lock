@@ -19,6 +19,7 @@ dependencies = [
  "clap",
  "comfy-table",
  "crossterm 0.28.1",
+ "libc",
  "owo-colors",
  "portable-pty",
  "predicates",

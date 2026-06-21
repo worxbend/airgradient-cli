@@ -396,30 +396,15 @@ fn is_closed_pty_raw_os_error(raw_os_error: Option<i32>) -> bool {
     // supported Unix targets. Keep this target-scoped: on Windows, raw OS
     // error 5 means ERROR_ACCESS_DENIED and must not be classified as an
     // expected PTY close.
-    raw_os_error.is_some() && raw_os_error == closed_pty_eio_raw_os_error()
+    is_closed_pty_raw_os_error_with_mapping(raw_os_error, closed_pty_eio_raw_os_error())
 }
 
-#[cfg(any(target_os = "linux", target_os = "android"))]
-const PTY_CLOSED_EIO_RAW_OS_ERROR: i32 = 5;
-
-#[cfg(any(
-    target_os = "macos",
-    target_os = "ios",
-    target_os = "tvos",
-    target_os = "watchos"
-))]
-const PTY_CLOSED_EIO_RAW_OS_ERROR: i32 = 5;
-
-#[cfg(any(
-    target_os = "freebsd",
-    target_os = "netbsd",
-    target_os = "openbsd",
-    target_os = "dragonfly"
-))]
-const PTY_CLOSED_EIO_RAW_OS_ERROR: i32 = 5;
-
-#[cfg(any(target_os = "illumos", target_os = "solaris"))]
-const PTY_CLOSED_EIO_RAW_OS_ERROR: i32 = 5;
+fn is_closed_pty_raw_os_error_with_mapping(
+    raw_os_error: Option<i32>,
+    closed_pty_eio: Option<i32>,
+) -> bool {
+    raw_os_error.is_some() && raw_os_error == closed_pty_eio
+}
 
 #[cfg(any(
     target_os = "linux",
@@ -436,7 +421,7 @@ const PTY_CLOSED_EIO_RAW_OS_ERROR: i32 = 5;
     target_os = "solaris"
 ))]
 fn closed_pty_eio_raw_os_error() -> Option<i32> {
-    Some(PTY_CLOSED_EIO_RAW_OS_ERROR)
+    Some(libc::EIO)
 }
 
 #[cfg(not(any(
@@ -493,13 +478,13 @@ mod tests {
         target_os = "solaris"
     ))]
     fn closed_pty_eio_mapping_is_available_for_supported_targets() {
+        let mapped_error = closed_pty_eio_raw_os_error()
+            .expect("supported Unix-like targets should expose libc::EIO");
+
+        assert_eq!(mapped_error, libc::EIO);
         assert_eq!(
-            closed_pty_eio_raw_os_error(),
-            Some(PTY_CLOSED_EIO_RAW_OS_ERROR)
-        );
-        assert_eq!(
-            io::Error::from_raw_os_error(PTY_CLOSED_EIO_RAW_OS_ERROR).raw_os_error(),
-            Some(PTY_CLOSED_EIO_RAW_OS_ERROR)
+            io::Error::from_raw_os_error(libc::EIO).raw_os_error(),
+            Some(libc::EIO)
         );
     }
 
@@ -519,11 +504,24 @@ mod tests {
         target_os = "solaris"
     ))]
     fn closed_pty_error_classification_accepts_supported_unix_eio() {
-        let error = io::Error::from_raw_os_error(PTY_CLOSED_EIO_RAW_OS_ERROR);
+        let error = io::Error::from_raw_os_error(libc::EIO);
 
         assert!(
             is_closed_pty_error(&error),
-            "supported Unix EIO should be treated as an expected closed-PTY read"
+            "supported Unix libc::EIO should be treated as an expected closed-PTY read"
+        );
+    }
+
+    #[test]
+    fn closed_pty_error_classification_rejects_windows_access_denied_semantics() {
+        const WINDOWS_ERROR_ACCESS_DENIED_RAW_OS_ERROR: i32 = 5;
+
+        assert!(
+            !is_closed_pty_raw_os_error_with_mapping(
+                Some(WINDOWS_ERROR_ACCESS_DENIED_RAW_OS_ERROR),
+                None
+            ),
+            "raw OS error 5 should not be suppressed without a supported PTY EIO mapping"
         );
     }
 

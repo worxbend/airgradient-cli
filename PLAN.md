@@ -153,20 +153,31 @@ Completed in iteration 17:
 - Documented release validation order and tool versions in README.
 - Verified on 2026-06-21: `cargo deny check`, `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test` pass.
 
+Completed in iteration 18:
+
+- Defined the first-release boundary in `docs/release-boundary.md`: manual, binary-only Linux release; GitHub Actions remains validation-only; no crates.io, macOS/Windows binaries, installers, package-manager recipes, shell completions, signatures, or release automation are promised.
+- Added `docs/release-checklist.md` covering release scope, version/tag matching, pinned validation commands, PTY coverage recording, real-device validation status, target-explicit artifact names, license inclusion, checksum publication, documentation consistency, and final release-note requirements.
+- Updated README release guidance to require target-explicit Linux artifact names, MIT license inclusion, `SHA256SUMS` publication, unsigned first-release wording, PTY coverage recording, real-device validation status, tool-pin update discipline, and duplicate-dependency exception pruning.
+- Added a 100ms minimum floor for `AIRGRADIENT_CLI_TUI_TEST_REFRESH_INTERVAL_MS`, keeping the hook scheduler-only and ignored for invalid, zero, below-floor, equal-to-production, and longer-than-production values.
+- Replaced target-scoped local PTY EIO raw constants with platform-provided `libc::EIO` in PTY helper tests, while preserving conservative unsupported-target behavior.
+- Expanded binary PTY HTTP coverage so a below-floor refresh-hook value does not trigger an early second `/measures/current` request.
+- Verified on 2026-06-21: `cargo deny check`, `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test` pass.
+
 ## Known Gaps and Risks
 
 - Medium: pseudo-terminal integration tests are skippable when PTY support is unavailable, so some CI/platform combinations may still rely on the runtime harness instead of exercising crossterm through a real terminal.
-- Medium: `AIRGRADIENT_CLI_TUI_TEST_REFRESH_INTERVAL_MS` no longer mutates app state, but it is still a public exported constant and is honored by any binary process whose environment contains it. Accidental production environments can still force very fast scheduler cadence and device polling.
-- Medium: closed-PTY read-error classification now uses explicit target-scoped mappings, but every supported mapping is still a locally defined raw OS error `5` rather than a platform-provided `libc::EIO` or `nix` value. The portability claim is clearer, not fully grounded in platform headers.
+- Medium: `AIRGRADIENT_CLI_TUI_TEST_REFRESH_INTERVAL_MS` no longer mutates app state and now has a 100ms floor, but it is still a public exported constant and is honored by normal binary processes. Accidental production environments can still force faster-than-documented polling.
+- Low: closed-PTY read-error classification now uses platform-provided `libc::EIO` on supported Unix-like targets, but the supported-target list remains a local policy decision that should stay conservative as more platforms are considered.
 - Medium: binary-level refresh-hook coverage uses real PTY processes and wall-clock sleeps. The bounded sleeps are acceptable now, but the suite will get slower if more timing cases are added without a deterministic binary-test seam.
 - Medium: the CI PTY summary reruns `tui_pty` and `tui_fetch_contract` after the full `cargo test`, increasing CI time and duplicating test execution. This is acceptable for visibility now, but should be revisited if the suite grows.
 - Low: PTY helper self-checks live inside `tests/common/pty.rs`, so they are compiled into each integration test crate that imports `mod common`; this is harmless at the current size but duplicates self-check execution and counts.
 - Medium: parser priority is correct for key-list precedence and top-level-over-nested precedence, but same-alias duplicate fields inside one JSON object still depend on `serde_json::Map` iteration order. This is acceptable for malformed duplicate-ish payloads, but real-device validation should confirm no important duplicate field variants conflict.
 - Medium: non-object top-level config JSON is a documented hard repair boundary because unknown-field preservation requires an object.
 - Medium: sensor upper bounds are practical guardrails, not hardware-validated limits; revisit them after real-device validation.
-- Medium: `publish = false` and the README now define the current binary-only/manual-release stance, but there is still no release workflow, artifact publishing automation, version-tag policy, checksum/signing policy, or real-device validation record.
+- Medium: first-release scope, version/tag expectations, checksum policy, signing non-scope, and release checklist are now documented, but the project still has no release workflow, artifact publishing automation, checksum-generation helper, or real-device validation record.
 - Medium: Rust and cargo-deny are now pinned, but future updates need a documented cadence so security/tooling updates are deliberate instead of stale.
 - Medium: duplicate-version deny exceptions are exact and rationalized, but they can become stale release-policy noise if upstream dependency convergence is not periodically checked.
+- Medium: `docs/release-boundary.md` makes `SHA256SUMS` a release blocker, but there is no script or CI dry-run that proves maintainers can build the named artifacts and generate the expected checksum file correctly.
 
 ## Compatibility Targets
 
@@ -200,11 +211,11 @@ Must preserve:
 
 ### Release and CI Readiness
 
-1. Define release automation and artifact integrity.
-   - Decide whether first releases are manual-only or produced by GitHub Actions.
-   - If automated, add a release workflow for Linux artifacts named according to the documented target triples.
-   - Add a release checklist covering version bump, tag naming, `cargo deny check`, format, Clippy, tests, PTY coverage state, artifact naming, and license inclusion.
-   - Decide whether to publish checksums and/or signatures for binary artifacts, and document the chosen policy.
+1. Add a release artifact dry-run script.
+   - Build or stage the documented Linux artifact filenames for the supported first-release targets.
+   - Include or stage the checked-in `LICENSE` file according to the release-boundary rules.
+   - Generate `SHA256SUMS` over the exact files the release docs say must be covered.
+   - Add a maintainer command or CI dry-run that validates the script without publishing artifacts.
 
 2. Add a tool-update policy.
    - Document how and when to update Rust 1.96.0 and cargo-deny 0.19.9 pins.
@@ -220,6 +231,10 @@ Must preserve:
    - Either keep completions explicitly out of the first release or add generation and artifact packaging.
    - Avoid documenting completion artifacts until generation is implemented and tested.
 
+5. Keep release-boundary docs synchronized.
+   - Treat `README.md`, `docs/release-boundary.md`, `docs/release-checklist.md`, `Cargo.toml`, `rust-toolchain.toml`, `.github/workflows/ci.yml`, and release notes as one release contract.
+   - Add a lightweight checklist review before release so artifact names, checksum policy, signing language, license inclusion, PTY coverage state, and real-device validation status do not drift.
+
 ### Test Infrastructure Hygiene
 
 1. Reassess CI PTY summary cost and structure.
@@ -227,24 +242,20 @@ Must preserve:
    - If the PTY-backed suite grows, split normal tests and PTY summary into clearer steps or use a reusable script so visibility does not require expensive duplicate work.
 
 2. Further contain the TUI interval hook if release hardening requires it.
-   - Consider making the env var private to the binary test harness, debug/test-only, or guarded behind a deliberately named internal test-support feature.
-   - If retained in all builds, consider a minimum hook interval such as 100-250ms to prevent accidental high-frequency polling.
+   - Consider making the exported constant private and duplicating the literal only in integration tests, or move the hook behind an internal test-support boundary.
+   - If retained in all builds, explicitly accept the 100ms floor as a diagnostic tradeoff and keep binary coverage for ignored below-floor values.
    - Keep the invariant that the hook affects only runtime scheduling and never mutates `TuiApp` state.
 
-3. Ground PTY EIO mapping in platform constants.
-   - Replace locally defined raw `5` mappings with `libc::EIO`, `nix`, or another platform-provided source if the dependency tradeoff is acceptable.
-   - Keep unsupported-target behavior conservative and keep the non-Unix raw-error rejection test.
-   - If no dependency is desired, document why POSIX EIO is intentionally represented locally and keep the target list narrow.
-
-### Validation Hygiene
-
-1. Reassess PTY self-check placement.
+3. Reassess PTY helper self-check placement.
    - Keep the current duplicated module tests if the cost remains negligible.
    - If more helper tests are added, move pure helper self-checks into a single integration test target or a small test-support crate to avoid repeated execution.
 
-2. Validate against hardware.
+### Validation Hygiene
+
+1. Validate against hardware.
    - Record a real-device validation run when hardware is available.
    - Revisit parser field names, bounds, same-object duplicate alias behavior, and desktop/GNOME compatibility after TUI hardening lands.
+   - If the first release ships without hardware access, document the waiver explicitly in release notes as required by `docs/release-boundary.md`.
 
 ## Acceptance Criteria
 

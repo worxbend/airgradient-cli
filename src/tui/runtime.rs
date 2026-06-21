@@ -26,7 +26,11 @@ use crate::{
 };
 
 const FETCH_RESULT_POLL_INTERVAL: Duration = Duration::from_millis(100);
+const MIN_TUI_TEST_REFRESH_INTERVAL_MS: u64 = 100;
+const MIN_TUI_TEST_REFRESH_INTERVAL: Duration =
+    Duration::from_millis(MIN_TUI_TEST_REFRESH_INTERVAL_MS);
 #[doc(hidden)]
+/// Diagnostic/test-only scheduler override. Values below 100ms are ignored.
 pub const TUI_TEST_REFRESH_INTERVAL_MS_ENV: &str = "AIRGRADIENT_CLI_TUI_TEST_REFRESH_INTERVAL_MS";
 
 #[derive(Debug, Clone)]
@@ -581,7 +585,10 @@ fn runtime_refresh_schedule_interval(
     };
 
     let override_interval = Duration::from_millis(millis);
-    if !override_interval.is_zero() && override_interval < production_interval {
+    let accepted_override = override_interval >= MIN_TUI_TEST_REFRESH_INTERVAL
+        && override_interval < production_interval;
+
+    if accepted_override {
         override_interval
     } else {
         production_interval
@@ -1216,12 +1223,32 @@ mod tests {
     }
 
     #[test]
+    fn minimum_runtime_refresh_schedule_override_can_shorten_without_changing_app_interval() {
+        assert_runtime_schedule_override(
+            MIN_REFRESH_INTERVAL_SECS,
+            Some("100"),
+            Duration::from_millis(100),
+        );
+    }
+
+    #[test]
     fn invalid_runtime_refresh_schedule_override_keeps_production_interval() {
         let production_interval = Duration::from_secs(MIN_REFRESH_INTERVAL_SECS);
 
         assert_runtime_schedule_override(
             MIN_REFRESH_INTERVAL_SECS,
             Some("invalid"),
+            production_interval,
+        );
+    }
+
+    #[test]
+    fn below_minimum_runtime_refresh_schedule_override_keeps_production_interval() {
+        let production_interval = Duration::from_secs(MIN_REFRESH_INTERVAL_SECS);
+
+        assert_runtime_schedule_override(
+            MIN_REFRESH_INTERVAL_SECS,
+            Some("99"),
             production_interval,
         );
     }

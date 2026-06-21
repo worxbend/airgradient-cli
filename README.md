@@ -18,19 +18,30 @@ cargo install --path .
 This installs the expected binary name, `airgradient-cli`, into Cargo's binary
 directory.
 
-This repository is currently maintained as a binary-only, manually released
-crate. `Cargo.toml` intentionally keeps `publish = false`, so the package is
+The first public releases are manual, binary-only Linux releases unless release
+automation is explicitly added later. GitHub Actions is currently a validation
+gate only; it does not build, upload, checksum, sign, or publish release
+artifacts. `Cargo.toml` intentionally keeps `publish = false`, so the package is
 not intended for crates.io publishing yet. Future crates.io publishing requires
 an explicit packaging decision before removing `publish = false`.
 
-The repository license is MIT. Binary redistribution should keep the checked-in
-MIT license text with the release artifacts.
+The repository license is MIT. Every release artifact bundle or release
+attachment set must include the checked-in `LICENSE` file.
 
-Linux release artifacts should make the target platform clear in the filename,
-for example `airgradient-cli-x86_64-unknown-linux-gnu` or
-`airgradient-cli-aarch64-unknown-linux-gnu`. The repository does not currently
-ship shell completions, so release artifacts should not list completions unless
-completion generation support is added first.
+Linux release artifacts use target-explicit filenames:
+`airgradient-cli-x86_64-unknown-linux-gnu` and
+`airgradient-cli-aarch64-unknown-linux-gnu`. Each Linux binary release must
+publish a SHA-256 checksum file named `SHA256SUMS` covering the shipped binary
+artifacts and the included license file when the license is packaged as a
+separate release attachment. Detached cryptographic signatures are intentionally
+out of scope for the first release; releases must not describe artifacts as
+signed.
+
+The repository does not currently generate or package shell completions, so
+release artifacts and release notes should not list completions unless
+completion generation support is added and tested first. The maintainer release
+checklist is in `docs/release-checklist.md`, and the release boundary audit is
+in `docs/release-boundary.md`.
 
 ## Release Validation
 
@@ -43,6 +54,12 @@ cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test
 ```
+
+Before cutting a release, record whether PTY-backed TUI tests exercised a real
+pseudo-terminal or were conditionally skipped because PTY support was
+unavailable. Also record real-device validation status; if no real AirGradient
+hardware run was performed, release notes must explicitly waive that validation
+gap.
 
 ## Dependency Policy
 
@@ -58,6 +75,14 @@ Maintainers should triage `cargo deny check` failures before cutting a release:
   project before extending the allowlist.
 - Unknown registries or git sources require explicit review before they are
   allowed.
+
+Tool pins are part of the release contract. Keep `README.md`,
+`rust-toolchain.toml`, `.github/workflows/ci.yml`, and release notes
+synchronized when changing Rust 1.96.0 or cargo-deny 0.19.9, and run the full
+release validation suite after a pin update because rustfmt, Clippy, and
+cargo-deny behavior can change. Periodically rerun
+`cargo tree -d --target all` and prune exact duplicate-version exceptions from
+`deny.toml` when upstream dependencies converge.
 
 ## Usage
 
@@ -175,8 +200,10 @@ Binary-level TUI interval-refresh tests use the diagnostic-only
 override inside the test process. The hook can only shorten the event loop's
 next-refresh timer below the already-clamped production interval; it cannot
 lengthen the refresh interval, disable refreshes, or change the refresh interval
-shown by the TUI/app model. It is not a supported user-facing configuration
-option.
+shown by the TUI/app model. Values below `100` milliseconds, zero, invalid
+values, values equal to the production interval, and values longer than the
+production-clamped interval are ignored. It is not a supported user-facing
+configuration option.
 
 If no device URL is configured, `--tui` still opens the dashboard and shows the
 missing-URL state instead of fetching. Set a URL with `config set-url`, or pass a
@@ -203,8 +230,8 @@ without claiming full end-to-end terminal coverage. The runtime harness tests in
 behavior in non-PTY environments. GitHub Actions also writes a test summary that
 reports whether the PTY-backed coverage actually ran or was conditionally
 skipped, so a green CI run does not hide the terminal coverage state. Expected
-closed-PTY read errors are classified only through explicit target-specific
-Unix `EIO` mappings for supported targets; raw OS error values from non-Unix or
+closed-PTY read errors are classified only through platform-provided
+`libc::EIO` on supported Unix-like targets; raw OS error values from non-Unix or
 unsupported targets are not treated as normal PTY closure.
 
 ## Config

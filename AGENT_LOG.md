@@ -1454,3 +1454,89 @@ M  PLAN.md
 M  README.md
 M  SCORES.jsonl
 A  rust-toolchain.toml
+2026-06-21T17:05:56Z iteration 18 started remaining=6964s
+2026-06-21T17:05:56Z iteration 18 preplanner effective budgets untracked_scan_max_bytes=536870912 untracked_scan_max_count=10000 snapshot_copy_max_bytes=536870912 snapshot_copy_max_count=10000 snapshot_copy_max_file_bytes=134217728
+2026-06-21T17:05:56Z iteration 18 disposable preplanner repo created path=/tmp/agent-loop-preplanner-repo-c535lkaf/repo copied_entries=41
+2026-06-21T17:05:56Z iteration 18 ideator phase started count=3
+2026-06-21T17:05:56Z iteration 18 ideator phase concurrency workers=3
+2026-06-21T17:05:56Z iteration 18 ideator 1 role="the pragmatist" started
+2026-06-21T17:05:56Z iteration 18 ideator 2 role="the architect" started
+2026-06-21T17:05:56Z iteration 18 ideator 3 role="the contrarian" started
+2026-06-21T17:06:04Z iteration 18 ideator 1 role="the pragmatist" completed status=0
+2026-06-21T17:06:04Z iteration 18 ideator 3 role="the contrarian" completed status=0
+2026-06-21T17:06:05Z iteration 18 ideator 2 role="the architect" completed status=0
+2026-06-21T17:06:05Z iteration 18 ideator phase completed approaches=3
+2026-06-21T17:06:05Z iteration 18 selector started approaches=3
+2026-06-21T17:06:15Z iteration 18 selector completed status=0
+2026-06-21T17:06:15Z iteration 18 disposable preplanner repo cleanup path=/tmp/agent-loop-preplanner-repo-c535lkaf/repo
+2026-06-21T17:06:15Z iteration 18 selector rejected alternative role="the pragmatist" approach="Release Contract First: treat iteration 18 as a packaging and governance pass that freezes the first-release promises before adding new runtime behavior. Start from the external..." reason="Strong on contract and governance, but selected as-is it could move too quickly into automation before the uncomfortable release blockers have been stress-tested."
+2026-06-21T17:06:15Z iteration 18 selector rejected alternative role="the contrarian" approach="Release Friction Audit: pause feature expansion and treat the next iteration as a release-readiness challenge, deliberately trying to disprove that the project is shippable befo..." reason="Strong on disproving shippability assumptions, but selected as-is it risks becoming an open-ended audit without enough emphasis on producing a crisp release boundary the Planner can use."
+2026-06-21T17:06:15Z iteration 18 selector rejected alternative role="the architect" approach="Release Boundary First: treat the next iteration as a release-shaping pass that decides what is intentionally in scope for the first binary release, then hardens only the contra..." reason="Strong framing around scope and redistributable artifacts, but it overlaps heavily with the synthesized approach and is less explicit about using negative evidence to prioritize the next planning direction."
+2026-06-21T17:06:15Z iteration 18 selector alternatives persisted count=3
+2026-06-21T17:06:15Z iteration 18 selector structured alternatives persisted count=3
+2026-06-21T17:06:15Z iteration 18 planner started
+2026-06-21T17:06:48Z iteration 18 plan: 5 task(s) in 3 phase(s). The first phase establishes the release boundary before implementation choices are made. Phase 2 contains independent work on checklist documentation, TUI hook hardening, and PTY portability because those tasks touch separate files and can proceed in parallel after the boundary is known. Phase 3 updates the public README last so it reflects the final decisions and any hardening completed in phase 2.
+2026-06-21T17:06:48Z iteration 18 phase 1 started parallel=False tasks=1
+2026-06-21T17:07:40Z iteration 18 task t1 ('Define first-release boundary') status=0
+2026-06-21T17:07:40Z iteration 18 phase 2 started parallel=True tasks=3
+2026-06-21T17:08:18Z iteration 18 task t2 ('Add release checklist') status=0
+2026-06-21T17:09:26Z iteration 18 task t4 ('Ground PTY EIO mapping') status=0
+2026-06-21T17:10:27Z iteration 18 task t3 ('Contain TUI refresh test hook') status=0
+2026-06-21T17:10:27Z iteration 18 phase 3 started parallel=False tasks=1
+2026-06-21T17:12:27Z iteration 18 task t5 ('Align README with release boundary') status=0
+2026-06-21T17:12:27Z iteration 18 reviewer started
+
+## Reviewer Summary: Iteration 18
+
+Date: 2026-06-21
+Reviewer stance: fresh senior review; implementation inspected through `git diff`, full changed-file context, new `docs/` files, runtime/PTY helper context, README updates, release metadata, and validation commands.
+
+### What Was Done
+
+- Added `docs/release-boundary.md`, defining the first public release as a manual, binary-only Linux release with GitHub Actions as validation-only.
+- Added `docs/release-checklist.md`, covering scope confirmation, version/tag matching, pinned validation commands, PTY coverage state, real-device validation status, artifact naming, license inclusion, checksum publication, and final release-note checks.
+- Updated README to align with the release boundary: Linux target-explicit artifact names, MIT license inclusion, required `SHA256SUMS`, unsigned first-release policy, no shell completions, PTY coverage recording, real-device validation recording, tool-pin synchronization, and duplicate-dependency pruning.
+- Added a 100ms minimum floor to `AIRGRADIENT_CLI_TUI_TEST_REFRESH_INTERVAL_MS` while preserving the scheduler-only invariant and app-model refresh interval.
+- Added runtime and binary PTY coverage for the 100ms minimum: 100ms is accepted, 99ms is ignored, and unsupported hook values do not cause an early second `/measures/current` request.
+- Replaced target-scoped local PTY EIO raw constants with platform-provided `libc::EIO` in the shared PTY helper and retained conservative unsupported-target rejection tests.
+
+### Verification
+
+- `cargo deny check` passed.
+- `cargo fmt --check` passed.
+- `cargo clippy --all-targets --all-features -- -D warnings` passed.
+- `cargo test` passed: 101 library tests, 28 CLI integration tests, 12 sensor parsing tests, 14 TUI fetch contract tests, 10 PTY smoke/helper tests, and 18 TUI render tests.
+
+### Findings
+
+- Medium: the release boundary is now much clearer, but `SHA256SUMS` is a release blocker with no script, CI dry-run, or tested maintainer command that proves the documented artifact and checksum process can be performed correctly.
+- Medium: `AIRGRADIENT_CLI_TUI_TEST_REFRESH_INTERVAL_MS` is safer with a 100ms floor and scheduler-only behavior, but it is still exported from the public runtime module and active in normal binary processes when the environment variable is present.
+- Medium: the first-release stance is documented as manual and binary-only, but actual artifact production remains unimplemented; this is acceptable for the chosen scope only if the manual checklist is followed and release notes record the remaining validation gaps.
+- Medium: PTY EIO mapping is now grounded in `libc::EIO`, but the supported-target list is still a local policy list that should stay conservative and be revisited before claiming broader platform support.
+- Low: binary refresh-hook regression coverage remains wall-clock/PTY based. The suite is still fast enough, but more timing cases should go through the runtime harness or a deterministic binary seam.
+
+### Top Improvement Proposals
+
+1. Add a release artifact dry-run script or maintainer command that builds/stages the documented Linux artifact names, includes `LICENSE`, and generates `SHA256SUMS` over exactly the files the release docs require.
+2. Further contain the TUI refresh hook by making the exported constant private or moving the hook behind an internal test-support boundary; if retained in release builds, explicitly accept the 100ms diagnostic floor as a documented tradeoff.
+3. Add a tool-update cadence and synchronization checklist so Rust, cargo-deny, README, CI, and release notes do not drift after pin changes.
+4. Periodically run `cargo tree -d --target all` and prune exact duplicate-version exceptions as upstream dependencies converge.
+5. Record real-device validation, or require release notes to explicitly waive that validation gap for the first release.
+2026-06-21T17:15:40Z iteration 18 reviewer completed status=0
+2026-06-21T17:15:40Z iteration 18 memory updated
+2026-06-21T17:15:40Z iteration 18 completed validation_status=0
+2026-06-21T17:15:40Z iteration 18 checkpoint started
+2026-06-21T17:15:40Z iteration 18 checkpoint status before commit:
+M  AGENT_LOG.md
+M  ALTERNATIVES.jsonl
+M  Cargo.lock
+M  Cargo.toml
+M  MEMORY.md
+M  PLAN.md
+M  README.md
+M  SCORES.jsonl
+A  docs/release-boundary.md
+A  docs/release-checklist.md
+M  src/tui/runtime.rs
+M  tests/common/pty.rs
+M  tests/tui_fetch_contract.rs
