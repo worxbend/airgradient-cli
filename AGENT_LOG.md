@@ -1212,3 +1212,82 @@ M  src/tui/ui.rs
 M  tests/common/pty.rs
 M  tests/tui_fetch_contract.rs
 M  tests/tui_render.rs
+2026-06-21T16:41:26Z iteration 15 started remaining=8433s
+2026-06-21T16:41:26Z iteration 15 preplanner effective budgets untracked_scan_max_bytes=536870912 untracked_scan_max_count=10000 snapshot_copy_max_bytes=536870912 snapshot_copy_max_count=10000 snapshot_copy_max_file_bytes=134217728
+2026-06-21T16:41:26Z iteration 15 disposable preplanner repo created path=/tmp/agent-loop-preplanner-repo-na67d5mc/repo copied_entries=38
+2026-06-21T16:41:26Z iteration 15 ideator phase started count=3
+2026-06-21T16:41:26Z iteration 15 ideator phase concurrency workers=3
+2026-06-21T16:41:26Z iteration 15 ideator 1 role="the pragmatist" started
+2026-06-21T16:41:26Z iteration 15 ideator 2 role="the architect" started
+2026-06-21T16:41:26Z iteration 15 ideator 3 role="the contrarian" started
+2026-06-21T16:41:35Z iteration 15 ideator 2 role="the architect" completed status=0
+2026-06-21T16:41:37Z iteration 15 ideator 1 role="the pragmatist" completed status=0
+2026-06-21T16:41:38Z iteration 15 ideator 3 role="the contrarian" completed status=0
+2026-06-21T16:41:38Z iteration 15 ideator phase completed approaches=3
+2026-06-21T16:41:38Z iteration 15 selector started approaches=3
+2026-06-21T16:41:47Z iteration 15 selector completed status=0
+2026-06-21T16:41:47Z iteration 15 disposable preplanner repo cleanup path=/tmp/agent-loop-preplanner-repo-na67d5mc/repo
+2026-06-21T16:41:47Z iteration 15 selector rejected alternative role="the architect" approach="Test-Hook Containment First: treat iteration 15 as a boundary-hardening pass focused on shrinking externally visible test affordances before expanding release or validation scop..." reason="Strongest single direction, but too narrowly centered on the timing hook. The planner should also treat PTY platform assumptions as part of the same boundary problem."
+2026-06-21T16:41:47Z iteration 15 selector rejected alternative role="the pragmatist" approach="Contain the Test-Only Escape Hatches: Treat iteration 15 as a boundary-hardening pass that narrows diagnostic hooks and platform assumptions before adding any new user-facing ca..." reason="Well aligned with the current risks, but selected as part of the hybrid rather than as-is because its framing is slightly more checklist-like and less explicit about contract governance."
+2026-06-21T16:41:47Z iteration 15 selector rejected alternative role="the contrarian" approach="Freeze the Feature Surface Before Hardening: Treat iteration 15 as a contract-governance pass rather than another test-depth pass. The next planner should first decide which ext..." reason="Useful governance framing, but too broad if taken literally. The next planner needs a practical hardening focus, not an open-ended contract review that could delay concrete cleanup."
+2026-06-21T16:41:47Z iteration 15 selector alternatives persisted count=3
+2026-06-21T16:41:47Z iteration 15 selector structured alternatives persisted count=3
+2026-06-21T16:41:47Z iteration 15 planner started
+2026-06-21T16:42:25Z iteration 15 plan: 5 task(s) in 3 phase(s). This slice focuses iteration 15 on test-support boundary hardening. The refresh-hook refactor and PTY EIO portability work touch separate files and can proceed concurrently. Binary-level hook coverage and README updates depend on the clarified behavior from phase 1 but do not share files with each other. Final validation runs after all code and documentation changes.
+2026-06-21T16:42:25Z iteration 15 phase 1 started parallel=True tasks=2
+2026-06-21T16:44:27Z iteration 15 task t2 ('Use explicit PTY EIO mapping') status=0
+2026-06-21T16:46:04Z iteration 15 task t1 ('Narrow TUI refresh hook boundary') status=0
+2026-06-21T16:46:04Z iteration 15 phase 2 started parallel=True tasks=2
+2026-06-21T16:46:38Z iteration 15 task t4 ('Document hardened test boundaries') status=0
+2026-06-21T16:47:24Z iteration 15 task t3 ('Add binary hook contract coverage') status=0
+2026-06-21T16:47:24Z iteration 15 phase 3 started parallel=False tasks=1
+2026-06-21T16:47:49Z iteration 15 task t5 ('Run validation gates') status=0
+2026-06-21T16:47:49Z iteration 15 reviewer started
+
+## Reviewer Summary: Iteration 15
+
+Date: 2026-06-21
+Reviewer stance: fresh senior review; implementation inspected through `git diff`, full changed-file context for `src/tui/runtime.rs`, `tests/common/pty.rs`, `tests/tui_fetch_contract.rs`, README, PLAN/log files, and validation commands.
+
+### What Was Done
+
+- Moved `AIRGRADIENT_CLI_TUI_TEST_REFRESH_INTERVAL_MS` out of the app-state construction path. It now shortens only the runtime scheduler interval, while `TuiApp::new` continues to clamp and expose the documented production refresh interval.
+- Added runtime tests for valid, missing, invalid, zero, equal, and lengthening refresh-hook values, including proof that a valid short scheduler override does not mutate `app.refresh_interval`.
+- Added binary-level PTY HTTP coverage that unsupported hook values do not cause an early second `/measures/current` request.
+- Changed PTY closed-read EIO handling from one Unix-wide raw constant to explicit target-scoped mappings, with tests for supported-target mapping availability and unsupported-target rejection.
+- Updated README and PLAN documentation around the scheduler-only hook boundary and target-scoped PTY EIO classification.
+
+### Verification
+
+- `cargo fmt --check` passed.
+- `cargo test` passed: 99 library tests, 28 CLI integration tests, 12 sensor parsing tests, 13 TUI fetch contract tests, 9 PTY smoke/helper tests, and 18 TUI render tests.
+- `cargo clippy --all-targets --all-features -- -D warnings` passed.
+
+### Findings
+
+- Medium: the refresh hook boundary is materially better because it no longer mutates `TuiApp` state, but the hook remains a public exported constant and remains active in normal binary processes. An accidental environment variable can still force sub-5-second polling in production.
+- Medium: the PTY EIO mapping is more explicit and target-scoped, but it still defines raw error `5` locally for each supported target instead of using a platform-provided `libc::EIO`/`nix` constant. This partially addresses the portability concern but does not fully close it.
+- Medium: binary hook regression coverage is useful, but it adds several PTY process launches and wall-clock sleeps. Combined with the CI PTY summary rerun, this area should be watched before adding more timing-heavy cases.
+- Low: unsupported hook-value binary coverage proves no second request within 900ms for a 3600s production interval. That is enough for the current regression, but it is not a deterministic proof of scheduler time semantics; the runtime harness remains the stronger timing proof.
+
+### Top Improvement Proposals
+
+1. Move next into release readiness: add `cargo audit` or `cargo deny` with an explicit triage policy and CI coverage.
+2. Define release automation scope: manual artifacts versus GitHub Actions, artifact names, and whether shell completions are in scope.
+3. Reassess the CI PTY summary before adding more PTY/timing tests; preserve visibility without repeatedly running the expensive binary suite.
+4. Further contain the interval hook if release hardening requires it: make it private/test-only, add a lower-bound safety limit, or explicitly accept it as a diagnostic escape hatch.
+5. Replace local PTY EIO raw constants with platform-provided constants if a small dependency is acceptable; otherwise document the POSIX assumption and keep the target list conservative.
+2026-06-21T16:49:57Z iteration 15 reviewer completed status=0
+2026-06-21T16:49:57Z iteration 15 memory updated
+2026-06-21T16:49:57Z iteration 15 completed validation_status=0
+2026-06-21T16:49:57Z iteration 15 checkpoint started
+2026-06-21T16:49:57Z iteration 15 checkpoint status before commit:
+M  AGENT_LOG.md
+M  ALTERNATIVES.jsonl
+M  MEMORY.md
+M  PLAN.md
+M  README.md
+M  SCORES.jsonl
+M  src/tui/runtime.rs
+M  tests/common/pty.rs
+M  tests/tui_fetch_contract.rs

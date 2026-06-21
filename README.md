@@ -133,10 +133,15 @@ fetches and config commands. Like `config set-refresh`, it accepts values from
 write the config file. In TUI mode, this CLI override takes precedence over the
 refresh interval stored in the config file.
 
-The production refresh lower bound remains 5 seconds for config values and CLI
-overrides. Binary-level TUI interval-refresh tests use the diagnostic-only
-`AIRGRADIENT_CLI_TUI_TEST_REFRESH_INTERVAL_MS` hook to shorten the interval
-inside the test process; it is not a supported user-facing configuration option.
+The app model's refresh interval is always clamped to the documented production
+bounds: minimum `5` seconds, maximum `3600` seconds, default `30` seconds.
+Binary-level TUI interval-refresh tests use the diagnostic-only
+`AIRGRADIENT_CLI_TUI_TEST_REFRESH_INTERVAL_MS` hook as a runtime scheduling
+override inside the test process. The hook can only shorten the event loop's
+next-refresh timer below the already-clamped production interval; it cannot
+lengthen the refresh interval, disable refreshes, or change the refresh interval
+shown by the TUI/app model. It is not a supported user-facing configuration
+option.
 
 If no device URL is configured, `--tui` still opens the dashboard and shows the
 missing-URL state instead of fetching. Set a URL with `config set-url`, or pass a
@@ -163,8 +168,9 @@ without claiming full end-to-end terminal coverage. The runtime harness tests in
 behavior in non-PTY environments. GitHub Actions also writes a test summary that
 reports whether the PTY-backed coverage actually ran or was conditionally
 skipped, so a green CI run does not hide the terminal coverage state. Expected
-closed-PTY read errors are classified with an explicit Unix EIO mapping; raw OS
-error values from non-Unix platforms are not treated as normal PTY closure.
+closed-PTY read errors are classified only through explicit target-specific
+Unix `EIO` mappings for supported targets; raw OS error values from non-Unix or
+unsupported targets are not treated as normal PTY closure.
 
 ## Config
 

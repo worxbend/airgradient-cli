@@ -126,11 +126,21 @@ Completed in iteration 14:
 - Replaced the raw PTY closed-read OS error literal at the comparison site with a named Unix EIO mapping and retained coverage that Windows-like raw error semantics are rejected as expected PTY closure.
 - Verified on 2026-06-21: `cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --all-features -- -D warnings` pass.
 
+Completed in iteration 15:
+
+- Refactored `AIRGRADIENT_CLI_TUI_TEST_REFRESH_INTERVAL_MS` so it no longer mutates `TuiApp::refresh_interval` after construction. The app model still reports and enforces the production-clamped interval, while the env hook only shortens the runtime scheduler interval.
+- Added runtime coverage that missing, invalid, zero, equal, and lengthening refresh-hook values keep the production schedule, and that a valid shorter hook triggers interval refresh without changing the app interval.
+- Added binary-level PTY HTTP coverage proving unsupported hook values do not cause an early second `/measures/current` request.
+- Replaced the single Unix EIO comparison constant with explicit target-scoped EIO mappings and tests for supported and unsupported targets.
+- Updated README documentation for the scheduler-only hook boundary and target-scoped PTY closed-read classification.
+- Verified on 2026-06-21: `cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --all-features -- -D warnings` pass.
+
 ## Known Gaps and Risks
 
 - Medium: pseudo-terminal integration tests are skippable when PTY support is unavailable, so some CI/platform combinations may still rely on the runtime harness instead of exercising crossterm through a real terminal.
-- Medium: `AIRGRADIENT_CLI_TUI_TEST_REFRESH_INTERVAL_MS` is documented as diagnostic-only, but it is still an exported runtime constant and is honored by any binary process whose environment contains it. It currently bypasses `TuiApp::new` clamping with a direct post-construction field assignment so tests can exercise sub-5-second intervals.
-- Medium: closed-PTY read-error classification now uses a named Unix EIO constant, but the constant is still locally defined as raw OS error `5` instead of coming from `libc::EIO`, `nix`, or explicit target-specific platform mappings.
+- Medium: `AIRGRADIENT_CLI_TUI_TEST_REFRESH_INTERVAL_MS` no longer mutates app state, but it is still a public exported constant and is honored by any binary process whose environment contains it. Accidental production environments can still force very fast scheduler cadence and device polling.
+- Medium: closed-PTY read-error classification now uses explicit target-scoped mappings, but every supported mapping is still a locally defined raw OS error `5` rather than a platform-provided `libc::EIO` or `nix` value. The portability claim is clearer, not fully grounded in platform headers.
+- Medium: binary-level refresh-hook coverage uses real PTY processes and wall-clock sleeps. The bounded sleeps are acceptable now, but the suite will get slower if more timing cases are added without a deterministic binary-test seam.
 - Medium: the CI PTY summary reruns `tui_pty` and `tui_fetch_contract` after the full `cargo test`, increasing CI time and duplicating test execution. This is acceptable for visibility now, but should be revisited if the suite grows.
 - Low: PTY helper self-checks live inside `tests/common/pty.rs`, so they are compiled into each integration test crate that imports `mod common`; this is harmless at the current size but duplicates self-check execution and counts.
 - Medium: parser priority is correct for key-list precedence and top-level-over-nested precedence, but same-alias duplicate fields inside one JSON object still depend on `serde_json::Map` iteration order. This is acceptable for malformed duplicate-ish payloads, but real-device validation should confirm no important duplicate field variants conflict.
@@ -168,32 +178,33 @@ Must preserve:
 
 ## Prioritized Next Work
 
-### Runtime and Test Hook Hygiene
+### Release and CI Readiness
 
-1. Narrow the TUI interval test hook boundary.
-   - Decide whether `AIRGRADIENT_CLI_TUI_TEST_REFRESH_INTERVAL_MS` should be active only in debug/test builds, hidden behind a less public test-support API, or retained as a diagnostic hook with stronger documentation.
-   - Avoid bypassing `TuiApp::new` with a direct post-construction assignment if a cleaner runtime-only scheduling override can preserve the pure app refresh contract.
-   - Add focused coverage that unsupported, zero, and lengthening hook values cannot alter production refresh behavior, including the binary path if the hook remains externally settable.
+1. Add dependency and supply-chain checks.
+   - Choose `cargo audit` or `cargo deny`; prefer `cargo deny` if license/advisory policy should be explicit in the repo.
+   - Add CI coverage and a short README or policy note explaining how advisory, yanked-crate, duplicate-version, and license failures should be triaged.
+   - Keep the policy small enough that it catches real release blockers without making routine dependency updates opaque.
 
-2. Tighten PTY EIO portability.
-   - Replace the local raw `5` constant with a platform-provided `EIO` constant or explicit `target_os` mapping whose supported targets are visible in code.
-   - Keep the non-Unix rejection test so Windows-like raw error semantics cannot regress.
-   - Consider whether the helper should treat unsupported Unix targets conservatively instead of assuming raw error `5` universally means PTY close.
+2. Define release automation scope.
+   - Decide whether release artifacts are produced manually or by GitHub Actions.
+   - If automated, add a release workflow that names Linux artifacts according to the documented target triples.
+   - Decide whether shell completion generation is in scope before documenting completion artifacts.
 
-### Release and CI Hygiene
+### Test Infrastructure Hygiene
 
 1. Reassess CI PTY summary cost and structure.
    - Keep the current summary step if the duplicated PTY run remains cheap.
    - If the PTY-backed suite grows, split normal tests and PTY summary into clearer steps or use a reusable script so visibility does not require expensive duplicate work.
 
-2. Add dependency and supply-chain checks.
-   - Consider `cargo audit` or `cargo deny` with an explicit policy file.
-   - Document how failures should be triaged in CI so dependency checks do not become unexplained red builds.
+2. Further contain the TUI interval hook if release hardening requires it.
+   - Consider making the env var private to the binary test harness, debug/test-only, or guarded behind a deliberately named internal test-support feature.
+   - If retained in all builds, consider a minimum hook interval such as 100-250ms to prevent accidental high-frequency polling.
+   - Keep the invariant that the hook affects only runtime scheduling and never mutates `TuiApp` state.
 
-3. Define release automation scope.
-   - Decide whether release artifacts are produced manually or by GitHub Actions.
-   - If automated, add a release workflow that names Linux artifacts according to the documented target triples.
-   - Decide whether shell completion generation is in scope before documenting completion artifacts.
+3. Ground PTY EIO mapping in platform constants.
+   - Replace locally defined raw `5` mappings with `libc::EIO`, `nix`, or another platform-provided source if the dependency tradeoff is acceptable.
+   - Keep unsupported-target behavior conservative and keep the non-Unix raw-error rejection test.
+   - If no dependency is desired, document why POSIX EIO is intentionally represented locally and keep the target list narrow.
 
 ### Validation Hygiene
 

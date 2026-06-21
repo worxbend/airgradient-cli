@@ -26,3 +26,5 @@
 [pattern] Conditional integration-test result types should carry only the skippable capability gap, while infrastructure failures stay outside the skip variant and fail loudly.
 [learning] Binary-level timing hooks are useful for end-to-end coverage, but if they are environment-driven they need a clear build/visibility boundary so test controls do not become accidental runtime controls.
 [anti-pattern] Test hooks that mutate public state after construction can bypass constructor invariants; prefer a narrower runtime scheduling seam when the app model owns validation.
+[pattern] Runtime-only scheduling overrides can preserve pure app-model invariants while still enabling fast binary-level timing coverage.
+[anti-pattern] Renaming raw errno literals as mappings is not the same as grounding portability in platform-provided constants or narrowly documented target assumptions.

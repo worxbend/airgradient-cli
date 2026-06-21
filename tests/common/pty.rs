@@ -391,28 +391,75 @@ fn is_closed_pty_error(error: &io::Error) -> bool {
     ) || is_closed_pty_raw_os_error(error.raw_os_error())
 }
 
-#[cfg(unix)]
-const UNIX_EIO_RAW_OS_ERROR: i32 = 5;
-
-#[cfg(unix)]
 fn is_closed_pty_raw_os_error(raw_os_error: Option<i32>) -> bool {
-    // Reading from a Unix PTY master after the slave closes can report EIO.
-    // Keep this errno mapping Unix-only: on Windows, raw OS error 5 means
-    // ERROR_ACCESS_DENIED and must not be classified as an expected PTY close.
-    raw_os_error == Some(UNIX_EIO_RAW_OS_ERROR)
+    // Reading from a PTY master after the slave closes can report EIO on
+    // supported Unix targets. Keep this target-scoped: on Windows, raw OS
+    // error 5 means ERROR_ACCESS_DENIED and must not be classified as an
+    // expected PTY close.
+    raw_os_error.is_some() && raw_os_error == closed_pty_eio_raw_os_error()
 }
 
-#[cfg(not(unix))]
-fn is_closed_pty_raw_os_error(_raw_os_error: Option<i32>) -> bool {
-    false
+#[cfg(any(target_os = "linux", target_os = "android"))]
+const PTY_CLOSED_EIO_RAW_OS_ERROR: i32 = 5;
+
+#[cfg(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "watchos"
+))]
+const PTY_CLOSED_EIO_RAW_OS_ERROR: i32 = 5;
+
+#[cfg(any(
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_os = "dragonfly"
+))]
+const PTY_CLOSED_EIO_RAW_OS_ERROR: i32 = 5;
+
+#[cfg(any(target_os = "illumos", target_os = "solaris"))]
+const PTY_CLOSED_EIO_RAW_OS_ERROR: i32 = 5;
+
+#[cfg(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "watchos",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_os = "dragonfly",
+    target_os = "illumos",
+    target_os = "solaris"
+))]
+fn closed_pty_eio_raw_os_error() -> Option<i32> {
+    Some(PTY_CLOSED_EIO_RAW_OS_ERROR)
+}
+
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "watchos",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_os = "dragonfly",
+    target_os = "illumos",
+    target_os = "solaris"
+)))]
+fn closed_pty_eio_raw_os_error() -> Option<i32> {
+    None
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[cfg(not(unix))]
-    const WINDOWS_ERROR_ACCESS_DENIED_RAW_OS_ERROR: i32 = 5;
 
     #[test]
     fn closed_pty_error_classification_accepts_expected_terminal_close_errors() {
@@ -431,24 +478,78 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
-    fn closed_pty_error_classification_accepts_unix_eio() {
-        let error = io::Error::from_raw_os_error(UNIX_EIO_RAW_OS_ERROR);
-
-        assert!(
-            is_closed_pty_error(&error),
-            "Unix EIO should be treated as an expected closed-PTY read"
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "watchos",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "dragonfly",
+        target_os = "illumos",
+        target_os = "solaris"
+    ))]
+    fn closed_pty_eio_mapping_is_available_for_supported_targets() {
+        assert_eq!(
+            closed_pty_eio_raw_os_error(),
+            Some(PTY_CLOSED_EIO_RAW_OS_ERROR)
+        );
+        assert_eq!(
+            io::Error::from_raw_os_error(PTY_CLOSED_EIO_RAW_OS_ERROR).raw_os_error(),
+            Some(PTY_CLOSED_EIO_RAW_OS_ERROR)
         );
     }
 
     #[test]
-    #[cfg(not(unix))]
-    fn closed_pty_error_classification_rejects_non_unix_raw_error_5() {
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "watchos",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "dragonfly",
+        target_os = "illumos",
+        target_os = "solaris"
+    ))]
+    fn closed_pty_error_classification_accepts_supported_unix_eio() {
+        let error = io::Error::from_raw_os_error(PTY_CLOSED_EIO_RAW_OS_ERROR);
+
+        assert!(
+            is_closed_pty_error(&error),
+            "supported Unix EIO should be treated as an expected closed-PTY read"
+        );
+    }
+
+    #[test]
+    #[cfg(not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "watchos",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "dragonfly",
+        target_os = "illumos",
+        target_os = "solaris"
+    )))]
+    fn closed_pty_error_classification_rejects_raw_error_5_without_supported_mapping() {
+        const WINDOWS_ERROR_ACCESS_DENIED_RAW_OS_ERROR: i32 = 5;
+
         let error = io::Error::from_raw_os_error(WINDOWS_ERROR_ACCESS_DENIED_RAW_OS_ERROR);
 
         assert!(
             !is_closed_pty_error(&error),
-            "Windows ERROR_ACCESS_DENIED raw OS error should not be suppressed as a PTY close"
+            "raw OS error 5 should not be suppressed without a supported PTY EIO mapping"
         );
     }
 

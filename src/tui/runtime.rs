@@ -19,7 +19,7 @@ use tokio::task::JoinHandle;
 use url::Url;
 
 use crate::{
-    config::{self, MAX_REFRESH_INTERVAL_SECS, MIN_REFRESH_INTERVAL_SECS},
+    config,
     device::{self, FetchSettings},
     sensors,
     tui::app::TuiApp,
@@ -73,7 +73,10 @@ pub async fn run(options: RuntimeOptions) -> Result<(), RuntimeError> {
         effective_config.configured_url,
         effective_config.refresh_interval,
     );
-    app.refresh_interval = effective_config.refresh_interval;
+    let refresh_schedule_interval = runtime_refresh_schedule_interval(
+        app.refresh_interval,
+        env::var(TUI_TEST_REFRESH_INTERVAL_MS_ENV).ok().as_deref(),
+    );
 
     if let Some(error) = effective_config.current_error {
         app.current_error = Some(error);
@@ -82,7 +85,13 @@ pub async fn run(options: RuntimeOptions) -> Result<(), RuntimeError> {
     let mut terminal = CrosstermRuntime::default();
     let mut fetcher = BackgroundMeasureFetcher::new(fetch_client);
 
-    run_with_adapters(&mut terminal, &mut app, &mut fetcher).await
+    run_with_adapters_with_refresh_interval(
+        &mut terminal,
+        &mut app,
+        &mut fetcher,
+        refresh_schedule_interval,
+    )
+    .await
 }
 
 fn ensure_interactive_terminal() -> Result<(), RuntimeError> {
@@ -93,6 +102,7 @@ fn ensure_interactive_terminal() -> Result<(), RuntimeError> {
     }
 }
 
+#[cfg(test)]
 async fn run_with_adapters<T, F>(
     terminal: &mut T,
     app: &mut TuiApp,
@@ -102,10 +112,31 @@ where
     T: TerminalRuntime,
     F: MeasureFetchWorker,
 {
+    let refresh_schedule_interval = app.refresh_interval;
+    run_with_adapters_with_refresh_interval(terminal, app, fetcher, refresh_schedule_interval).await
+}
+
+async fn run_with_adapters_with_refresh_interval<T, F>(
+    terminal: &mut T,
+    app: &mut TuiApp,
+    fetcher: &mut F,
+    refresh_schedule_interval: Duration,
+) -> Result<(), RuntimeError>
+where
+    T: TerminalRuntime,
+    F: MeasureFetchWorker,
+{
     terminal.enter()?;
 
     let mut clock = SystemClock;
-    let result = run_loop(terminal, app, fetcher, &mut clock).await;
+    let result = run_loop(
+        terminal,
+        app,
+        fetcher,
+        &mut clock,
+        refresh_schedule_interval,
+    )
+    .await;
     let cleanup_result = terminal.cleanup();
 
     match (result, cleanup_result) {
@@ -143,6 +174,7 @@ async fn run_loop<T, F, C>(
     app: &mut TuiApp,
     fetcher: &mut F,
     clock: &mut C,
+    refresh_schedule_interval: Duration,
 ) -> Result<(), RuntimeError>
 where
     T: TerminalRuntime,
@@ -159,7 +191,7 @@ where
 
         terminal.draw(app)?;
         let mut now = clock.now();
-        let mut next_refresh = now + app.refresh_interval;
+        let mut next_refresh = now + refresh_schedule_interval;
 
         loop {
             if fetch_scheduler.apply_ready_results(app, fetcher).await? {
@@ -180,7 +212,7 @@ where
                             fetch_scheduler.request_refresh(app, fetcher);
                             fetch_scheduler.apply_ready_results(app, fetcher).await?;
                         }
-                        next_refresh = now + app.refresh_interval;
+                        next_refresh = now + refresh_schedule_interval;
                         terminal.draw(app)?;
                     }
                     RuntimeEvent::Ignored => {}
@@ -192,7 +224,7 @@ where
                         fetch_scheduler.request_refresh(app, fetcher);
                         fetch_scheduler.apply_ready_results(app, fetcher).await?;
                     }
-                    next_refresh = now + app.refresh_interval;
+                    next_refresh = now + refresh_schedule_interval;
                     terminal.draw(app)?;
                 }
 
@@ -205,7 +237,7 @@ where
                     fetch_scheduler.request_refresh(app, fetcher);
                     fetch_scheduler.apply_ready_results(app, fetcher).await?;
                 }
-                next_refresh = now + app.refresh_interval;
+                next_refresh = now + refresh_schedule_interval;
                 terminal.draw(app)?;
             }
         }
@@ -534,23 +566,13 @@ impl EffectiveConfig {
 
         Self {
             configured_url,
-            refresh_interval: effective_refresh_interval(refresh_secs),
+            refresh_interval: Duration::from_secs(refresh_secs),
             current_error,
         }
     }
 }
 
-fn effective_refresh_interval(seconds: u64) -> Duration {
-    let production_interval = Duration::from_secs(clamp_refresh_secs(seconds));
-    let override_value = env::var(TUI_TEST_REFRESH_INTERVAL_MS_ENV).ok();
-    apply_test_refresh_interval_override(production_interval, override_value.as_deref())
-}
-
-fn clamp_refresh_secs(seconds: u64) -> u64 {
-    seconds.clamp(MIN_REFRESH_INTERVAL_SECS, MAX_REFRESH_INTERVAL_SECS)
-}
-
-fn apply_test_refresh_interval_override(
+fn runtime_refresh_schedule_interval(
     production_interval: Duration,
     override_value: Option<&str>,
 ) -> Duration {
@@ -700,6 +722,7 @@ impl Drop for TerminalSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{MAX_REFRESH_INTERVAL_SECS, MIN_REFRESH_INTERVAL_SECS};
     use serde_json::json;
     use std::{
         cell::Cell,
@@ -881,7 +904,15 @@ mod tests {
         terminal.enter()?;
 
         let mut clock = FakeClock::new(clock);
-        let result = run_loop(terminal, app, fetcher, &mut clock).await;
+        let refresh_schedule_interval = app.refresh_interval;
+        let result = run_loop(
+            terminal,
+            app,
+            fetcher,
+            &mut clock,
+            refresh_schedule_interval,
+        )
+        .await;
         let cleanup_result = terminal.cleanup();
 
         match (result, cleanup_result) {
@@ -1138,47 +1169,97 @@ mod tests {
 
     #[test]
     fn production_refresh_clamp_keeps_documented_bounds() {
-        assert_eq!(clamp_refresh_secs(0), MIN_REFRESH_INTERVAL_SECS);
-        assert_eq!(clamp_refresh_secs(1), MIN_REFRESH_INTERVAL_SECS);
-        assert_eq!(clamp_refresh_secs(4), MIN_REFRESH_INTERVAL_SECS);
-        assert_eq!(clamp_refresh_secs(5), MIN_REFRESH_INTERVAL_SECS);
-        assert_eq!(clamp_refresh_secs(3601), MAX_REFRESH_INTERVAL_SECS);
-    }
-
-    #[test]
-    fn tui_test_refresh_interval_override_can_shorten_clamped_interval() {
-        let production_interval = Duration::from_secs(MIN_REFRESH_INTERVAL_SECS);
-
         assert_eq!(
-            apply_test_refresh_interval_override(production_interval, Some("250")),
-            Duration::from_millis(250)
+            TuiApp::new(None, Duration::from_secs(0)).refresh_interval,
+            Duration::from_secs(MIN_REFRESH_INTERVAL_SECS)
+        );
+        assert_eq!(
+            TuiApp::new(None, Duration::from_secs(1)).refresh_interval,
+            Duration::from_secs(MIN_REFRESH_INTERVAL_SECS)
+        );
+        assert_eq!(
+            TuiApp::new(None, Duration::from_secs(4)).refresh_interval,
+            Duration::from_secs(MIN_REFRESH_INTERVAL_SECS)
+        );
+        assert_eq!(
+            TuiApp::new(None, Duration::from_secs(5)).refresh_interval,
+            Duration::from_secs(MIN_REFRESH_INTERVAL_SECS)
+        );
+        assert_eq!(
+            TuiApp::new(None, Duration::from_secs(3601)).refresh_interval,
+            Duration::from_secs(MAX_REFRESH_INTERVAL_SECS)
         );
     }
 
-    #[test]
-    fn tui_test_refresh_interval_override_cannot_lengthen_or_disable_interval() {
-        let production_interval = Duration::from_secs(MIN_REFRESH_INTERVAL_SECS);
+    fn assert_runtime_schedule_override(
+        production_seconds: u64,
+        override_value: Option<&str>,
+        expected_schedule_interval: Duration,
+    ) {
+        let app = TuiApp::new(None, Duration::from_secs(production_seconds));
+        let production_interval = app.refresh_interval;
 
         assert_eq!(
-            apply_test_refresh_interval_override(production_interval, None),
-            production_interval
+            runtime_refresh_schedule_interval(production_interval, override_value),
+            expected_schedule_interval
         );
-        assert_eq!(
-            apply_test_refresh_interval_override(production_interval, Some("invalid")),
-            production_interval
+        assert_eq!(app.refresh_interval, production_interval);
+    }
+
+    #[test]
+    fn runtime_refresh_schedule_override_can_shorten_without_changing_app_interval() {
+        assert_runtime_schedule_override(
+            MIN_REFRESH_INTERVAL_SECS,
+            Some("250"),
+            Duration::from_millis(250),
         );
-        assert_eq!(
-            apply_test_refresh_interval_override(production_interval, Some("0")),
-            production_interval
+    }
+
+    #[test]
+    fn invalid_runtime_refresh_schedule_override_keeps_production_interval() {
+        let production_interval = Duration::from_secs(MIN_REFRESH_INTERVAL_SECS);
+
+        assert_runtime_schedule_override(
+            MIN_REFRESH_INTERVAL_SECS,
+            Some("invalid"),
+            production_interval,
         );
-        assert_eq!(
-            apply_test_refresh_interval_override(production_interval, Some("5000")),
-            production_interval
+    }
+
+    #[test]
+    fn zero_runtime_refresh_schedule_override_keeps_production_interval() {
+        let production_interval = Duration::from_secs(MIN_REFRESH_INTERVAL_SECS);
+
+        assert_runtime_schedule_override(MIN_REFRESH_INTERVAL_SECS, Some("0"), production_interval);
+    }
+
+    #[test]
+    fn equal_runtime_refresh_schedule_override_keeps_production_interval() {
+        let production_interval = Duration::from_secs(MIN_REFRESH_INTERVAL_SECS);
+
+        assert_runtime_schedule_override(
+            MIN_REFRESH_INTERVAL_SECS,
+            Some("5000"),
+            production_interval,
         );
-        assert_eq!(
-            apply_test_refresh_interval_override(production_interval, Some("6000")),
-            production_interval
+    }
+
+    #[test]
+    fn longer_runtime_refresh_schedule_override_keeps_production_interval() {
+        let production_interval = Duration::from_secs(MIN_REFRESH_INTERVAL_SECS);
+
+        assert_runtime_schedule_override(
+            MIN_REFRESH_INTERVAL_SECS,
+            Some("6000"),
+            production_interval,
         );
+    }
+
+    #[test]
+    fn missing_runtime_refresh_schedule_override_keeps_production_interval() {
+        let production_interval = Duration::from_secs(MIN_REFRESH_INTERVAL_SECS);
+
+        assert_runtime_schedule_override(MIN_REFRESH_INTERVAL_SECS, None, production_interval);
     }
 
     fn successful_payload() -> Value {
@@ -1345,6 +1426,48 @@ mod tests {
                 .as_ref()
                 .and_then(|snapshot| snapshot.aqi),
             Some(42.0)
+        );
+    }
+
+    #[tokio::test]
+    async fn runtime_refresh_schedule_can_shorten_without_mutating_app_interval() {
+        let clock = test_clock_start();
+        let mut terminal =
+            HarnessTerminal::with_events([RuntimeEvent::Quit]).with_clock(clock.clone());
+        for _ in 0..3 {
+            terminal.polls.push_back(Ok(false));
+            terminal.poll_advances.push_back(Duration::from_millis(100));
+        }
+        let mut fetcher =
+            HarnessFetcher::new([Ok(successful_payload()), Ok(later_successful_payload())]);
+        let url = configured_url();
+        let production_interval = Duration::from_secs(MIN_REFRESH_INTERVAL_SECS);
+        let mut app = TuiApp::new(Some(url.clone()), production_interval);
+        let refresh_schedule_interval =
+            runtime_refresh_schedule_interval(production_interval, Some("250"));
+
+        terminal.enter().expect("terminal should enter");
+        let mut fake_clock = FakeClock::new(clock);
+        let result = run_loop(
+            &mut terminal,
+            &mut app,
+            &mut fetcher,
+            &mut fake_clock,
+            refresh_schedule_interval,
+        )
+        .await;
+        let cleanup_result = terminal.cleanup();
+
+        result.expect("runtime should quit cleanly");
+        cleanup_result.expect("cleanup should succeed");
+        assert_eq!(refresh_schedule_interval, Duration::from_millis(250));
+        assert_eq!(app.refresh_interval, production_interval);
+        assert_eq!(fetcher.calls, [url.clone(), url]);
+        assert_eq!(
+            app.current_snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.aqi),
+            Some(55.0)
         );
     }
 

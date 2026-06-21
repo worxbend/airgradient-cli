@@ -24,7 +24,10 @@ const STARTUP_TIMEOUT: Duration = Duration::from_secs(4);
 const EXIT_TIMEOUT: Duration = Duration::from_secs(3);
 const REFRESH_OVERRIDE_OBSERVATION: Duration = Duration::from_millis(5500);
 const INTERVAL_REFRESH_TIMEOUT: Duration = Duration::from_secs(4);
+const NO_EARLY_INTERVAL_REFRESH_OBSERVATION: Duration = Duration::from_millis(900);
 const TEST_REFRESH_INTERVAL_MS: &str = "250";
+const PRODUCTION_REFRESH_SECS: &str = "3600";
+const PRODUCTION_REFRESH_MS: &str = "3600000";
 
 #[test]
 fn tui_startup_success_requests_current_measures_endpoint() -> Result<(), Box<dyn Error>> {
@@ -138,7 +141,7 @@ fn tui_interval_refresh_requests_current_measures_endpoint_again() -> Result<(),
             "--url",
             &server_uri,
             "--refresh",
-            "3600",
+            PRODUCTION_REFRESH_SECS,
         ],
         &[(TUI_TEST_REFRESH_INTERVAL_MS_ENV, TEST_REFRESH_INTERVAL_MS)],
         |tui| {
@@ -158,6 +161,16 @@ fn tui_interval_refresh_requests_current_measures_endpoint_again() -> Result<(),
     );
 
     let _ = assert_completed_cleanly(result);
+    Ok(())
+}
+
+#[test]
+fn unsupported_tui_interval_refresh_hook_values_do_not_trigger_early_second_request()
+-> Result<(), Box<dyn Error>> {
+    for hook_value in ["unsupported", "0", PRODUCTION_REFRESH_MS, "3600001"] {
+        assert_tui_refresh_hook_value_does_not_trigger_early_second_request(hook_value)?;
+    }
+
     Ok(())
 }
 
@@ -215,6 +228,55 @@ fn tui_cli_url_and_refresh_overrides_take_precedence_over_config() -> Result<(),
             String::from_utf8_lossy(&output)
         );
     }
+    Ok(())
+}
+
+fn assert_tui_refresh_hook_value_does_not_trigger_early_second_request(
+    hook_value: &str,
+) -> Result<(), Box<dyn Error>> {
+    let server = TestServer::start(ServerResponse::Success)?;
+    let server_uri = server.uri();
+    let config = TestConfig::missing();
+
+    let result = run_tui_until_with_env(
+        &[
+            "--config",
+            config.path_str(),
+            "--tui",
+            "--url",
+            &server_uri,
+            "--refresh",
+            PRODUCTION_REFRESH_SECS,
+        ],
+        &[(TUI_TEST_REFRESH_INTERVAL_MS_ENV, hook_value)],
+        |tui| {
+            assert!(
+                server.wait_for_current_count(1, STARTUP_TIMEOUT),
+                "TUI did not perform the initial fetch with hook value {hook_value:?}; observed paths: {:?}",
+                server.paths()
+            );
+
+            thread::sleep(NO_EARLY_INTERVAL_REFRESH_OBSERVATION);
+
+            assert_eq!(
+                server.current_count(),
+                1,
+                "hook value {hook_value:?} caused an early second /measures/current request; observed paths: {:?}",
+                server.paths()
+            );
+            assert!(
+                server
+                    .paths()
+                    .iter()
+                    .all(|path| path == "/measures/current"),
+                "TUI requested an unexpected path with hook value {hook_value:?}; observed paths: {:?}",
+                server.paths()
+            );
+            tui.press_q();
+        },
+    );
+
+    let _ = assert_completed_cleanly(result);
     Ok(())
 }
 
