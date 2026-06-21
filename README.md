@@ -134,7 +134,9 @@ when the host platform can create one. On platforms or CI workers without usable
 PTY support, those tests print a conditional-coverage skip reason and pass
 without claiming full end-to-end terminal coverage. The runtime harness tests in
 `tests/tui_runtime.rs` still cover TUI event-loop, fetch, shutdown, and cleanup
-behavior in non-PTY environments.
+behavior in non-PTY environments. GitHub Actions also writes a test summary that
+reports whether the PTY-backed coverage actually ran or was conditionally
+skipped, so a green CI run does not hide the terminal coverage state.
 
 ## Config
 

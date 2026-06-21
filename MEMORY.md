@@ -21,3 +21,4 @@
 [learning] Awaited cancellation can still lose diagnostic value if cancellation or task-panic errors are dropped behind a primary runtime error; preserve secondary failure context deliberately.
 [pattern] Compact TUI support is clearer when a minimum terminal size and below-minimum fallback are explicit contracts rather than incidental layout behavior.
 [learning] Conditional test coverage reported only through passing-test stderr can be invisible in normal CI output; surface skip state through summaries or explicit reporting.
+[anti-pattern] Conditional integration-test helpers must distinguish missing platform capability from test infrastructure failure; broad skip results can hide broken CI or missing binaries.

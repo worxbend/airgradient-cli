@@ -23,3 +23,30 @@ jobs:
 
       - name: Run tests
         run: cargo test
+
+      - name: Report PTY-backed TUI coverage
+        run: |
+          set -o pipefail
+
+          output_file="${RUNNER_TEMP}/pty-test-output.txt"
+
+          set +e
+          cargo test --test tui_pty --test tui_fetch_contract -- --nocapture 2>&1 | tee "${output_file}"
+          test_exit_code="${PIPESTATUS[0]}"
+          set -e
+
+          {
+            echo "### PTY-backed TUI coverage"
+            echo
+            if [ "${test_exit_code}" -ne 0 ]; then
+              echo "Result: PTY integration tests failed."
+            elif grep -q "conditional PTY .* coverage skipped" "${output_file}"; then
+              echo "Result: skipped because this runner did not provide usable PTY support."
+              echo
+              grep "conditional PTY .* coverage skipped" "${output_file}" | sed 's/^/- /'
+            else
+              echo "Result: exercised with a usable pseudo-terminal."
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          exit "${test_exit_code}"

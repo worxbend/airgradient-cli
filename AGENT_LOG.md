@@ -880,3 +880,87 @@ M  src/tui/ui.rs
 M  tests/tui_fetch_contract.rs
 M  tests/tui_pty.rs
 M  tests/tui_render.rs
+2026-06-21T16:01:50Z iteration 11 started remaining=10810s
+2026-06-21T16:01:50Z iteration 11 preplanner effective budgets untracked_scan_max_bytes=536870912 untracked_scan_max_count=10000 snapshot_copy_max_bytes=536870912 snapshot_copy_max_count=10000 snapshot_copy_max_file_bytes=134217728
+2026-06-21T16:01:50Z iteration 11 disposable preplanner repo created path=/tmp/agent-loop-preplanner-repo-_opw5hwe/repo copied_entries=36
+2026-06-21T16:01:50Z iteration 11 ideator phase started count=3
+2026-06-21T16:01:50Z iteration 11 ideator phase concurrency workers=3
+2026-06-21T16:01:50Z iteration 11 ideator 1 role="the pragmatist" started
+2026-06-21T16:01:50Z iteration 11 ideator 2 role="the architect" started
+2026-06-21T16:01:50Z iteration 11 ideator 3 role="the contrarian" started
+2026-06-21T16:01:58Z iteration 11 ideator 1 role="the pragmatist" completed status=0
+2026-06-21T16:01:58Z iteration 11 ideator 3 role="the contrarian" completed status=0
+2026-06-21T16:02:02Z iteration 11 ideator 2 role="the architect" completed status=0
+2026-06-21T16:02:02Z iteration 11 ideator phase completed approaches=3
+2026-06-21T16:02:02Z iteration 11 selector started approaches=3
+2026-06-21T16:02:11Z iteration 11 selector completed status=0
+2026-06-21T16:02:11Z iteration 11 disposable preplanner repo cleanup path=/tmp/agent-loop-preplanner-repo-_opw5hwe/repo
+2026-06-21T16:02:11Z iteration 11 selector rejected alternative role="the pragmatist" approach="Gate-First Stabilization: restore the failing validation gate immediately, then only pursue TUI test maintainability changes that reduce future regression risk without expanding..." reason="Strongly aligned, but selected strategy makes the evidence-quality theme more explicit and warns more clearly against product-scope expansion after the formatting fix."
+2026-06-21T16:02:11Z iteration 11 selector rejected alternative role="the contrarian" approach="Gate-First Evidence Strategy: treat the formatting failure as a release-blocking signal, then use the restored green suite as the fixed reference point for any TUI maintainabili..." reason="Strongly aligned on proof quality, but slightly underweights the practical maintainability value of consolidating duplicated PTY helpers once the gate is restored."
+2026-06-21T16:02:11Z iteration 11 selector rejected alternative role="the architect" approach="Gate-First Stabilization with Evidence-Driven Hardening: restore the broken validation signal before expanding scope, then use test friction and duplicated harness code as the g..." reason="Strongly aligned, but the selected synthesis is more direct about sequencing and keeping the post-gate work limited to observable integration-test confidence."
+2026-06-21T16:02:11Z iteration 11 selector alternatives persisted count=3
+2026-06-21T16:02:11Z iteration 11 selector structured alternatives persisted count=3
+2026-06-21T16:02:11Z iteration 11 planner started
+2026-06-21T16:02:37Z iteration 11 plan: 5 task(s) in 4 phase(s). This breakdown follows a gate-first stabilization slice: restore formatting before touching test infrastructure, then consolidate PTY helpers, then add CI/docs visibility in parallel because they affect separate files, and finally validate the same tree.
+2026-06-21T16:02:37Z iteration 11 phase 1 started parallel=False tasks=1
+2026-06-21T16:02:57Z iteration 11 task t1 ('Restore formatting gate') status=0
+2026-06-21T16:02:57Z iteration 11 phase 2 started parallel=False tasks=1
+2026-06-21T16:07:36Z iteration 11 task t2 ('Extract shared PTY test helpers') status=0
+2026-06-21T16:07:36Z iteration 11 phase 3 started parallel=True tasks=2
+2026-06-21T16:08:03Z iteration 11 task t4 ('Document PTY coverage visibility') status=0
+2026-06-21T16:09:36Z iteration 11 task t3 ('Surface PTY coverage in CI') status=0
+2026-06-21T16:09:36Z iteration 11 phase 4 started parallel=False tasks=1
+2026-06-21T16:10:04Z iteration 11 task t5 ('Run full validation') status=0
+2026-06-21T16:10:04Z iteration 11 reviewer started
+
+## Reviewer Summary: Iteration 11
+
+Date: 2026-06-21
+Reviewer stance: fresh senior review; implementation inspected through `git diff`, full changed-file context, the new shared PTY helper, CI workflow changes, README updates, and validation commands.
+
+### What Was Done
+
+- Restored the failing formatting gate; `cargo fmt --check` passes again.
+- Extracted duplicated PTY test process management into `tests/common/pty.rs`, including binary launch, PTY setup, input helpers, output draining, child timeout/kill handling, and cleanup.
+- Updated `tests/tui_pty.rs` and `tests/tui_fetch_contract.rs` to use the shared `PtyTui` helper and centralized conditional skip reporting.
+- Added a GitHub Actions summary step that reruns the PTY-backed TUI tests with `--nocapture` and records whether a usable pseudo-terminal was exercised or the coverage was conditionally skipped.
+- Updated README to explain that CI surfaces PTY-backed coverage state in the job summary.
+
+### Verification
+
+- `cargo fmt --check` passed.
+- `cargo test` passed: 91 library unit tests, 28 CLI integration tests, 12 sensor parsing tests, 4 TUI fetch contract tests, 2 PTY smoke tests, and 17 TUI render tests.
+- `cargo clippy --all-targets --all-features -- -D warnings` passed.
+
+### Findings
+
+- High: `PtyTui::spawn` now returns `Result<Self, String>`, and both PTY-backed test files convert any error into `PtyRunResult::Skipped`. That means missing `CARGO_BIN_EXE_airgradient-cli`, invalid binary path, or unexpected `spawn_command` failures can be reported as conditional PTY coverage skips instead of failing as test infrastructure errors.
+- Medium: the shared PTY reader still drops unexpected read errors silently. This was inherited from the duplicated code, but centralizing the helper makes it more important to distinguish expected closed-PTY conditions from real output-drain failures.
+- Medium: the CI visibility step reruns `tui_pty` and `tui_fetch_contract` after the full `cargo test`. This is acceptable at the current size, but it duplicates several seconds of PTY-backed coverage and should be revisited if those tests expand.
+- Medium: binary-level interval refresh coverage is still missing because production refresh clamping makes a deterministic fast end-to-end test awkward.
+- Medium: the 36x20 TUI contract still guarantees coherent regions and controls, not visibility of every metric row.
+- Low: `color-eyre` remains in the dependency graph even though runtime diagnostics are local.
+
+### Top Improvement Proposals
+
+1. Introduce a typed PTY spawn error that separates skippable PTY unavailability from test infrastructure failures, and update CI summary wording to reflect that distinction.
+2. Make unexpected PTY output-drain errors observable while continuing to ignore normal closed-PTY conditions after process exit.
+3. Add deterministic interval-refresh coverage for the binary TUI path without adding repeated 5+ second sleeps.
+4. Decide whether clipped metrics at 36x20 are acceptable; document that explicitly or implement scrolling/pagination/compact metric rendering with tests.
+5. Remove unused `color-eyre`, then add packaging/install notes and dependency-audit guidance.
+2026-06-21T16:12:24Z iteration 11 reviewer completed status=0
+2026-06-21T16:12:24Z iteration 11 memory updated
+2026-06-21T16:12:24Z iteration 11 completed validation_status=0
+2026-06-21T16:12:24Z iteration 11 checkpoint started
+2026-06-21T16:12:24Z iteration 11 checkpoint status before commit:
+M  .github/workflows/ci.yml
+M  AGENT_LOG.md
+M  ALTERNATIVES.jsonl
+M  MEMORY.md
+M  PLAN.md
+M  README.md
+M  SCORES.jsonl
+A  tests/common/mod.rs
+A  tests/common/pty.rs
+M  tests/tui_fetch_contract.rs
+M  tests/tui_pty.rs

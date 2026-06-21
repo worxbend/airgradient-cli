@@ -1,3 +1,5 @@
+mod common;
+
 use std::{
     error::Error,
     fs,
@@ -5,14 +7,14 @@ use std::{
     net::{SocketAddr, TcpListener, TcpStream},
     path::{Path, PathBuf},
     sync::{
+        Arc, Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
-        mpsc, Arc, Mutex,
     },
     thread,
     time::{Duration, Instant},
 };
 
-use portable_pty::{native_pty_system, CommandBuilder, ExitStatus, PtySize};
+use common::pty::{PtyRunResult, PtyTui, report_conditional_skip};
 use tempfile::TempDir;
 
 const NON_TTY_ERROR: &str = "TUI requires an interactive terminal";
@@ -43,7 +45,7 @@ fn tui_startup_success_requests_current_measures_endpoint() -> Result<(), Box<dy
                 "TUI did not request /measures/current; observed paths: {:?}",
                 server.paths()
             );
-            tui.write_all(b"q");
+            tui.press_q();
         },
     );
 
@@ -73,7 +75,7 @@ fn tui_startup_failure_still_requests_current_measures_endpoint() -> Result<(), 
                 "TUI did not request /measures/current for failed startup fetch; observed paths: {:?}",
                 server.paths()
             );
-            tui.write_all(b"q");
+            tui.press_q();
         },
     );
 
@@ -104,14 +106,14 @@ fn tui_manual_refresh_requests_current_measures_endpoint_again() -> Result<(), B
                 server.paths()
             );
 
-            tui.write_all(b"r");
+            tui.press_refresh();
 
             assert!(
                 server.wait_for_current_count(2, STARTUP_TIMEOUT),
                 "manual refresh did not request /measures/current again; observed paths: {:?}",
                 server.paths()
             );
-            tui.write_all(b"q");
+            tui.press_q();
         },
     );
 
@@ -161,7 +163,7 @@ fn tui_cli_url_and_refresh_overrides_take_precedence_over_config() -> Result<(),
                 0,
                 "config-file server was requested while the CLI --url override was active"
             );
-            tui.write_all(b"q");
+            tui.press_q();
         },
     );
 
@@ -179,8 +181,10 @@ fn tui_cli_url_and_refresh_overrides_take_precedence_over_config() -> Result<(),
 fn assert_completed_cleanly(result: PtyRunResult) -> Vec<u8> {
     match result {
         PtyRunResult::Skipped(reason) => {
-            eprintln!(
-                "{PTY_SKIP_PREFIX}: {reason}. Runtime harness tests cover TUI fetch lifecycle behavior without a platform PTY."
+            report_conditional_skip(
+                PTY_SKIP_PREFIX,
+                &reason,
+                "Runtime harness tests cover TUI fetch lifecycle behavior without a platform PTY.",
             );
             Vec::new()
         }
@@ -207,7 +211,7 @@ fn run_tui_until(args: &[&str], exercise: impl FnOnce(&mut PtyTui)) -> PtyRunRes
     };
 
     exercise(&mut tui);
-    tui.wait_for_exit()
+    tui.wait_for_exit(EXIT_TIMEOUT)
 }
 
 struct TestConfig {
@@ -244,152 +248,6 @@ impl TestConfig {
     fn path_str(&self) -> &str {
         path_str(&self.path)
     }
-}
-
-struct PtyTui {
-    child: Box<dyn portable_pty::Child + Send + Sync>,
-    writer: Box<dyn Write + Send>,
-    output_rx: mpsc::Receiver<Vec<u8>>,
-    output: Vec<u8>,
-}
-
-impl PtyTui {
-    fn spawn(args: &[&str]) -> Result<Self, String> {
-        let binary = std::env::var("CARGO_BIN_EXE_airgradient-cli")
-            .map_err(|error| format!("compiled binary path unavailable: {error}"))?;
-
-        let pty_system = native_pty_system();
-        let pair = pty_system
-            .openpty(PtySize {
-                rows: 24,
-                cols: 80,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .map_err(|error| format!("failed to open PTY: {error}"))?;
-
-        let reader = pair
-            .master
-            .try_clone_reader()
-            .map_err(|error| format!("failed to clone PTY reader: {error}"))?;
-        let writer = pair
-            .master
-            .take_writer()
-            .map_err(|error| format!("failed to open PTY writer: {error}"))?;
-
-        let (output_tx, output_rx) = mpsc::channel();
-        thread::spawn(move || read_pty_output(reader, output_tx));
-
-        let mut command = CommandBuilder::new(binary);
-        command.args(args);
-        command.env("TERM", "xterm-256color");
-        command.env("AIRGRADIENT_CLI_FETCH_TIMEOUT_MS", "1000");
-
-        let child = pair
-            .slave
-            .spawn_command(command)
-            .map_err(|error| format!("failed to spawn command in PTY: {error}"))?;
-        drop(pair.slave);
-
-        Ok(Self {
-            child,
-            writer,
-            output_rx,
-            output: Vec::new(),
-        })
-    }
-
-    fn write_all(&mut self, bytes: &[u8]) {
-        self.writer
-            .write_all(bytes)
-            .expect("input should be written to PTY");
-        self.writer.flush().expect("input should be flushed to PTY");
-    }
-
-    fn wait_for_exit(&mut self) -> PtyRunResult {
-        let started = Instant::now();
-
-        loop {
-            self.drain_output();
-
-            match self.child.try_wait() {
-                Ok(Some(status)) => {
-                    self.drain_output_for(Duration::from_millis(100));
-                    return PtyRunResult::Completed {
-                        status,
-                        output: self.output.clone(),
-                    };
-                }
-                Ok(None) if started.elapsed() < EXIT_TIMEOUT => {
-                    thread::sleep(Duration::from_millis(25));
-                }
-                Ok(None) => {
-                    let _ = self.child.kill();
-                    let _ = self.child.wait();
-                    self.drain_output_for(Duration::from_millis(100));
-                    panic!(
-                        "TUI process did not exit within {:?}; output:\n{}",
-                        EXIT_TIMEOUT,
-                        String::from_utf8_lossy(&self.output)
-                    );
-                }
-                Err(error) => panic!("failed to poll TUI child status: {error}"),
-            }
-        }
-    }
-
-    fn drain_output(&mut self) {
-        while let Ok(chunk) = self.output_rx.try_recv() {
-            self.output.extend_from_slice(&chunk);
-        }
-    }
-
-    fn drain_output_for(&mut self, timeout: Duration) {
-        let deadline = Instant::now() + timeout;
-
-        while Instant::now() < deadline {
-            match self.output_rx.recv_timeout(Duration::from_millis(10)) {
-                Ok(chunk) => self.output.extend_from_slice(&chunk),
-                Err(mpsc::RecvTimeoutError::Timeout) => {}
-                Err(mpsc::RecvTimeoutError::Disconnected) => break,
-            }
-        }
-
-        self.drain_output();
-    }
-}
-
-impl Drop for PtyTui {
-    fn drop(&mut self) {
-        if let Ok(None) = self.child.try_wait() {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
-        }
-    }
-}
-
-fn read_pty_output(mut reader: Box<dyn Read + Send>, output_tx: mpsc::Sender<Vec<u8>>) {
-    let mut buffer = [0; 4096];
-
-    loop {
-        match reader.read(&mut buffer) {
-            Ok(0) => break,
-            Ok(bytes_read) => {
-                if output_tx.send(buffer[..bytes_read].to_vec()).is_err() {
-                    break;
-                }
-            }
-            Err(error) if is_closed_pty_error(&error) => break,
-            Err(_) => break,
-        }
-    }
-}
-
-fn is_closed_pty_error(error: &io::Error) -> bool {
-    matches!(
-        error.kind(),
-        io::ErrorKind::UnexpectedEof | io::ErrorKind::BrokenPipe | io::ErrorKind::ConnectionReset
-    ) || error.raw_os_error() == Some(5)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -525,9 +383,4 @@ fn handle_connection(
 
 fn path_str(path: &Path) -> &str {
     path.to_str().expect("test path should be valid UTF-8")
-}
-
-enum PtyRunResult {
-    Skipped(String),
-    Completed { status: ExitStatus, output: Vec<u8> },
 }
