@@ -1,4 +1,5 @@
 use std::{
+    io::{self, IsTerminal},
     path::{Path, PathBuf},
     time::Instant,
 };
@@ -105,6 +106,7 @@ async fn run_config_command(command: &ConfigCommand, cli: &Cli) -> Result<(), Cl
         }
         ConfigCommand::Show => {
             let config = config::read_config(&path)?;
+            let config = config::normalized_display_config(config)?;
             println!("{}", serde_json::to_string_pretty(&config)?);
         }
         ConfigCommand::SetUrl { url } => {
@@ -142,9 +144,10 @@ async fn run_fetch(cli: &Cli, json: bool) -> Result<(), CliError> {
             output::json::render_pretty(&snapshot, None, metadata)?
         );
     } else {
+        let no_color = cli.no_color || !io::stdout().is_terminal();
         print!(
             "{}",
-            output::text::render(&snapshot, None, metadata, cli.no_color)
+            output::text::render(&snapshot, None, metadata, no_color)
         );
     }
 

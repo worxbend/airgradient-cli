@@ -60,16 +60,16 @@ pub struct SensorSnapshot {
 
 impl SensorSnapshot {
     pub fn from_airgradient_payload(payload: &Value) -> Self {
-        let pm25 = find_number(payload, PM25_KEYS);
+        let pm25 = find_non_negative_number(payload, PM25_KEYS);
         let explicit_aqi = find_number(payload, AQI_KEYS);
 
         Self {
             aqi: explicit_aqi.or_else(|| pm25.map(us_aqi_from_pm25)),
             co2: find_number(payload, CO2_KEYS),
             pm25,
-            pm1: find_number(payload, PM1_KEYS),
-            pm10: find_number(payload, PM10_KEYS),
-            pm03_count: find_number(payload, PM03_COUNT_KEYS),
+            pm1: find_non_negative_number(payload, PM1_KEYS),
+            pm10: find_non_negative_number(payload, PM10_KEYS),
+            pm03_count: find_non_negative_number(payload, PM03_COUNT_KEYS),
             tvoc: find_number(payload, TVOC_KEYS),
             nox: find_number(payload, NOX_KEYS),
             temperature_c: find_number(payload, TEMPERATURE_COMPENSATED_KEYS)
@@ -130,6 +130,10 @@ fn find_number(value: &Value, keys: &[&str]) -> Option<f64> {
         Value::Array(items) => items.iter().find_map(|child| find_number(child, keys)),
         _ => None,
     }
+}
+
+fn find_non_negative_number(value: &Value, keys: &[&str]) -> Option<f64> {
+    find_number(value, keys).filter(|value| *value >= 0.0)
 }
 
 fn value_as_number(value: &Value) -> Option<f64> {
@@ -220,6 +224,86 @@ mod tests {
         let snapshot = parse_snapshot(&json!({ "pm02": 12.1 }));
 
         assert_eq!(snapshot.aqi, Some(57.0));
+    }
+
+    #[test]
+    fn treats_negative_pm25_as_missing_without_aqi_fallback() {
+        let snapshot = parse_snapshot(&json!({ "pm02": -1.0 }));
+
+        assert_eq!(snapshot.pm25, None);
+        assert_eq!(snapshot.aqi, None);
+    }
+
+    #[test]
+    fn treats_negative_pm1_as_missing() {
+        let snapshot = parse_snapshot(&json!({ "pm01": -1.0 }));
+
+        assert_eq!(snapshot.pm1, None);
+    }
+
+    #[test]
+    fn treats_negative_pm10_as_missing() {
+        let snapshot = parse_snapshot(&json!({ "pm10": -1.0 }));
+
+        assert_eq!(snapshot.pm10, None);
+    }
+
+    #[test]
+    fn treats_negative_pm03_count_as_missing() {
+        let snapshot = parse_snapshot(&json!({ "pm003Count": -1.0 }));
+
+        assert_eq!(snapshot.pm03_count, None);
+    }
+
+    #[test]
+    fn treats_negative_particulate_numeric_strings_as_missing() {
+        let snapshot = parse_snapshot(&json!({
+            "pm02": "-1.0",
+            "pm01": "-2.0",
+            "pm10": "-3.0",
+            "pm003Count": "-4.0"
+        }));
+
+        assert_eq!(snapshot.pm25, None);
+        assert_eq!(snapshot.aqi, None);
+        assert_eq!(snapshot.pm1, None);
+        assert_eq!(snapshot.pm10, None);
+        assert_eq!(snapshot.pm03_count, None);
+    }
+
+    #[test]
+    fn keeps_zero_particulate_values_valid() {
+        let snapshot = parse_snapshot(&json!({
+            "pm02": 0.0,
+            "pm01": 0.0,
+            "pm10": 0.0,
+            "pm003Count": 0.0
+        }));
+
+        assert_eq!(snapshot.pm25, Some(0.0));
+        assert_eq!(snapshot.aqi, Some(0.0));
+        assert_eq!(snapshot.pm1, Some(0.0));
+        assert_eq!(snapshot.pm10, Some(0.0));
+        assert_eq!(snapshot.pm03_count, Some(0.0));
+    }
+
+    #[test]
+    fn ignores_non_finite_numeric_strings() {
+        let snapshot = parse_snapshot(&json!({
+            "pm02": "NaN",
+            "pm01": "inf",
+            "pm10": "-inf",
+            "pm003Count": "Infinity",
+            "aqi": "NaN",
+            "co2": "inf"
+        }));
+
+        assert_eq!(snapshot.pm25, None);
+        assert_eq!(snapshot.aqi, None);
+        assert_eq!(snapshot.pm1, None);
+        assert_eq!(snapshot.pm10, None);
+        assert_eq!(snapshot.pm03_count, None);
+        assert_eq!(snapshot.co2, None);
     }
 
     #[test]

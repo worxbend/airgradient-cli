@@ -95,3 +95,93 @@ A  src/sensors/mod.rs
 A  src/sensors/presentation.rs
 A  src/sensors/thresholds.rs
 A  tests/cli.rs
+2026-06-21T14:13:11Z iteration 2 started remaining=17329s
+2026-06-21T14:13:11Z iteration 2 preplanner effective budgets untracked_scan_max_bytes=536870912 untracked_scan_max_count=10000 snapshot_copy_max_bytes=536870912 snapshot_copy_max_count=10000 snapshot_copy_max_file_bytes=134217728
+2026-06-21T14:13:11Z iteration 2 disposable preplanner repo created path=/tmp/agent-loop-preplanner-repo-aw5aezoj/repo copied_entries=19
+2026-06-21T14:13:11Z iteration 2 ideator phase started count=3
+2026-06-21T14:13:11Z iteration 2 ideator phase concurrency workers=3
+2026-06-21T14:13:11Z iteration 2 ideator 1 role="the pragmatist" started
+2026-06-21T14:13:11Z iteration 2 ideator 2 role="the architect" started
+2026-06-21T14:13:11Z iteration 2 ideator 3 role="the contrarian" started
+2026-06-21T14:13:19Z iteration 2 ideator 3 role="the contrarian" completed status=0
+2026-06-21T14:13:20Z iteration 2 ideator 1 role="the pragmatist" completed status=0
+2026-06-21T14:13:24Z iteration 2 ideator 2 role="the architect" completed status=0
+2026-06-21T14:13:24Z iteration 2 ideator phase completed approaches=3
+2026-06-21T14:13:24Z iteration 2 selector started approaches=3
+2026-06-21T14:13:36Z iteration 2 selector completed status=0
+2026-06-21T14:13:36Z iteration 2 disposable preplanner repo cleanup path=/tmp/agent-loop-preplanner-repo-aw5aezoj/repo
+2026-06-21T14:13:36Z iteration 2 selector rejected alternative role="the contrarian" approach="Contract-First Stabilization: freeze the CLI/config/fetch behavior as a compatibility contract before adding the TUI, treating the TUI as a consumer of hardened core semantics r..." reason="Not selected as-is because it frames the strategy mostly as freezing the current contract. The current contract still contains known incorrect behavior, so the planner should stabilize and correct it rather than merely freeze it."
+2026-06-21T14:13:36Z iteration 2 selector rejected alternative role="the pragmatist" approach="Stabilize the Contract Before Expanding the Surface: Treat the existing CLI/config/fetch/presentation spine as the product contract, harden the correctness gaps that could misle..." reason="Strong and nearly selected as-is, but it is slightly broader than needed for planner guidance. The synthesized strategy makes the gate explicit: only shared runtime semantics that the TUI will consume should drive the next plan, avoiding..."
+2026-06-21T14:13:36Z iteration 2 selector rejected alternative role="the architect" approach="Stabilize the Shared Contract Before Building the TUI: Treat the CLI, JSON output, config display, fetch layer, and future Ratatui dashboard as clients of one hardened domain co..." reason="Strong but risks encouraging abstraction work under the banner of a hardened domain core. The selected hybrid keeps the architectural insight while emphasizing narrow behavioral stabilization over structural refactoring."
+2026-06-21T14:13:36Z iteration 2 selector alternatives persisted count=3
+2026-06-21T14:13:36Z iteration 2 selector structured alternatives persisted count=3
+2026-06-21T14:13:36Z iteration 2 planner started
+2026-06-21T14:14:32Z iteration 2 plan: 6 task(s) in 5 phase(s). This iteration stabilizes the contract that both one-shot output and the future TUI will rely on: bounded fetches, truthful sensor domains, terminal-safe color behavior, normalized config display, and explicit config write semantics. Phase 1 can run in parallel because HTTP timeout work and sensor parsing touch separate modules. Later phases are sequential because they share CLI integration tests and CLI/config command plumbing.
+2026-06-21T14:14:32Z iteration 2 phase 1 started parallel=True tasks=2
+2026-06-21T14:15:28Z iteration 2 task t2 ('Sanitize impossible sensor values') status=0
+2026-06-21T14:15:41Z iteration 2 task t1 ('Add HTTP fetch timeout') status=0
+2026-06-21T14:15:41Z iteration 2 phase 2 started parallel=False tasks=1
+2026-06-21T14:16:28Z iteration 2 task t3 ('Disable color for non-TTY output') status=0
+2026-06-21T14:16:28Z iteration 2 phase 3 started parallel=False tasks=1
+2026-06-21T14:17:41Z iteration 2 task t4 ('Normalize config show output') status=0
+2026-06-21T14:17:41Z iteration 2 phase 4 started parallel=False tasks=1
+2026-06-21T14:18:42Z iteration 2 task t5 ('Document config write semantics') status=0
+2026-06-21T14:18:42Z iteration 2 phase 5 started parallel=False tasks=1
+2026-06-21T14:19:30Z iteration 2 task t6 ('Clean unused dependency surface') status=0
+2026-06-21T14:19:30Z iteration 2 reviewer started
+
+## Reviewer Summary: Iteration 2
+
+Date: 2026-06-21
+Reviewer stance: fresh senior review; implementation inspected via `git diff` and full surrounding file context.
+
+### What Was Done
+
+- Added a 5 second default timeout to one-shot HTTP fetches.
+- Kept the fetch boundary injectable through `fetch_current_measures_with_client`, with tests proving the provided client timeout is honored.
+- Disabled ANSI coloring for captured or piped stdout text output by checking `stdout().is_terminal()`.
+- Normalized `config show` output for stored `server_url` values with path/query/fragment while leaving the file unchanged.
+- Documented and tested current mutating config semantics: writes emit only the known desktop-compatible schema and drop unknown sibling fields.
+- Sanitized negative PM2.5, PM1.0, PM10, and PM0.3 count values, including negative numeric strings.
+- Prevented invalid negative PM2.5 values from producing fallback AQI `0`.
+- Removed the unused `directories` dependency from `Cargo.toml` and `Cargo.lock`.
+
+### Verification
+
+- `cargo test` passed: 42 unit tests and 9 integration tests.
+- `cargo fmt --check` passed.
+- `cargo clippy --all-targets --all-features -- -D warnings` passed.
+
+### Findings
+
+- High: `--tui` is still accepted but not implemented, so a prominent CLI contract remains unfulfilled.
+- Medium: color suppression only covers normal stdout rendering. `color-eyre` diagnostics and tracing output may still emit styled stderr in non-TTY contexts.
+- Medium: `config show` now uses strict URL normalization. A malformed or legacy stored `server_url` can fail the whole command instead of showing the rest of the effective config.
+- Medium: unknown config fields are now explicitly dropped and tested, but that is weaker than preserving sibling-app fields for long-term desktop compatibility.
+- Medium: sensor domain validation is still incomplete. Explicit AQI, CO2, humidity, TVOC, NOx, and temperature accept any finite value.
+- Low: timeout duration is private and fixed. That is fine for one-shot fetches, but the TUI should centralize client construction instead of copying timeout setup.
+
+### Top Improvement Proposals
+
+1. Implement user-facing error policy next: concise non-colored default diagnostics, verbose source chains, and integration tests for invalid URLs, HTTP failures, bad JSON, and timeouts.
+2. Preserve unknown config fields during mutations or document the destructive known-field-only behavior in README and command help.
+3. Make `config show` tolerant of imperfect stored URLs by choosing a warning/raw-display behavior and testing invalid, empty, and unsupported-scheme values.
+4. Finish sensor domain validation across all metrics, especially explicit AQI and humidity bounds, so one bad field cannot create misleading statuses.
+5. Before TUI work, extract a reusable HTTP client construction/fetch settings boundary so refresh loops reuse the same timeout behavior without recreating clients.
+2026-06-21T14:21:43Z iteration 2 reviewer completed status=0
+2026-06-21T14:21:43Z iteration 2 memory updated
+2026-06-21T14:21:43Z iteration 2 completed validation_status=0
+2026-06-21T14:21:43Z iteration 2 checkpoint started
+2026-06-21T14:21:43Z iteration 2 checkpoint status before commit:
+M  AGENT_LOG.md
+M  ALTERNATIVES.jsonl
+M  Cargo.lock
+M  Cargo.toml
+M  MEMORY.md
+M  PLAN.md
+M  SCORES.jsonl
+M  src/cli.rs
+M  src/config.rs
+M  src/device.rs
+M  src/sensors/air_quality.rs
+M  tests/cli.rs

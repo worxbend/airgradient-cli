@@ -1,9 +1,12 @@
+use std::time::Duration;
+
 use reqwest::{Client, StatusCode};
 use serde_json::Value;
 use thiserror::Error;
 use url::Url;
 
 const CURRENT_MEASURES_PATH: &str = "measures/current";
+const DEFAULT_FETCH_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Error)]
 pub enum DeviceError {
@@ -69,6 +72,7 @@ pub fn normalize_base_url(input: &str) -> Result<Url, DeviceError> {
 
 pub async fn fetch_current_measures(base_url: &Url) -> Result<Value, DeviceError> {
     let client = Client::builder()
+        .timeout(DEFAULT_FETCH_TIMEOUT)
         .build()
         .map_err(DeviceError::ClientBuild)?;
 
@@ -128,6 +132,10 @@ fn has_explicit_scheme(input: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wiremock::{
+        Mock, MockServer, ResponseTemplate,
+        matchers::{method, path},
+    };
 
     #[test]
     fn normalizes_bare_host_to_http_base_url() {
@@ -177,5 +185,79 @@ mod tests {
         let endpoint = current_measures_url(&base);
 
         assert_eq!(endpoint.as_str(), "http://192.168.1.201/measures/current");
+    }
+
+    #[tokio::test]
+    async fn fetch_current_measures_uses_default_timeout() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/measures/current"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_delay(DEFAULT_FETCH_TIMEOUT + Duration::from_secs(1)),
+            )
+            .mount(&server)
+            .await;
+        let base = normalize_base_url(&server.uri()).expect("URL should normalize");
+
+        let err = fetch_current_measures(&base)
+            .await
+            .expect_err("request should time out");
+
+        assert!(matches!(
+            err,
+            DeviceError::Request { source, .. } if source.is_timeout()
+        ));
+    }
+
+    #[tokio::test]
+    async fn fetch_current_measures_with_client_uses_provided_client() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/measures/current"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_delay(Duration::from_millis(100))
+                    .set_body_json(serde_json::json!({ "pm02": 7.4 })),
+            )
+            .mount(&server)
+            .await;
+        let base = normalize_base_url(&server.uri()).expect("URL should normalize");
+        let client = Client::builder()
+            .timeout(Duration::from_millis(25))
+            .build()
+            .expect("client should build");
+
+        let err = fetch_current_measures_with_client(&client, &base)
+            .await
+            .expect_err("provided client timeout should be used");
+
+        assert!(matches!(
+            err,
+            DeviceError::Request { source, .. } if source.is_timeout()
+        ));
+    }
+
+    #[tokio::test]
+    async fn fetch_current_measures_with_client_fetches_current_measures_endpoint() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/measures/current"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "pm02": 7.4
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let base = normalize_base_url(&format!("{}/ignored?debug=true#now", server.uri()))
+            .expect("URL should normalize");
+        let client = Client::new();
+
+        let payload = fetch_current_measures_with_client(&client, &base)
+            .await
+            .expect("request should succeed");
+
+        assert_eq!(payload["pm02"], 7.4);
+        server.verify().await;
     }
 }

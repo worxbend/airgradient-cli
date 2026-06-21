@@ -108,6 +108,14 @@ pub fn read_config(path: &Path) -> Result<Config, ConfigError> {
     Ok(config)
 }
 
+pub fn normalized_display_config(mut config: Config) -> Result<Config, ConfigError> {
+    if let Some(server_url) = config.server_url.as_deref() {
+        config.server_url = Some(crate::device::normalize_base_url(server_url)?.to_string());
+    }
+
+    Ok(config)
+}
+
 pub fn write_config(path: &Path, config: &Config) -> Result<(), ConfigError> {
     validate_refresh_interval(config.refresh_interval_secs)?;
 
@@ -118,6 +126,8 @@ pub fn write_config(path: &Path, config: &Config) -> Result<(), ConfigError> {
         })?;
     }
 
+    // Writes intentionally emit only the known desktop-compatible schema.
+    // Unknown sibling fields from future desktop versions are not preserved yet.
     let mut contents = serde_json::to_string_pretty(config).map_err(ConfigError::Serialize)?;
     contents.push('\n');
 
