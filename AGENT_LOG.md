@@ -1701,3 +1701,7 @@ M  docs/release-checklist.md
 M  scripts/release-dry-run.sh
 A  tests/release_contract_docs.rs
 M  tests/release_dry_run.rs
+2026-06-21T17:32:14Z final checkpoint policy behavior=source_and_telemetry terminal_reason=iterations_complete
+2026-06-21T17:32:14Z iteration final-20 checkpoint started
+2026-06-21T17:32:14Z iteration final-20 checkpoint status before commit:
+M  AGENT_LOG.md
