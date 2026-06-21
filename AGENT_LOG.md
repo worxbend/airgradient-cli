@@ -1045,3 +1045,87 @@ M  SCORES.jsonl
 M  tests/common/pty.rs
 M  tests/tui_fetch_contract.rs
 M  tests/tui_pty.rs
+2026-06-21T16:23:22Z iteration 13 started remaining=9518s
+2026-06-21T16:23:22Z iteration 13 preplanner effective budgets untracked_scan_max_bytes=536870912 untracked_scan_max_count=10000 snapshot_copy_max_bytes=536870912 snapshot_copy_max_count=10000 snapshot_copy_max_file_bytes=134217728
+2026-06-21T16:23:22Z iteration 13 disposable preplanner repo created path=/tmp/agent-loop-preplanner-repo-opke82kt/repo copied_entries=38
+2026-06-21T16:23:22Z iteration 13 ideator phase started count=3
+2026-06-21T16:23:22Z iteration 13 ideator phase concurrency workers=3
+2026-06-21T16:23:22Z iteration 13 ideator 1 role="the pragmatist" started
+2026-06-21T16:23:22Z iteration 13 ideator 2 role="the architect" started
+2026-06-21T16:23:22Z iteration 13 ideator 3 role="the contrarian" started
+2026-06-21T16:23:29Z iteration 13 ideator 1 role="the pragmatist" completed status=0
+2026-06-21T16:23:31Z iteration 13 ideator 2 role="the architect" completed status=0
+2026-06-21T16:23:37Z iteration 13 ideator 3 role="the contrarian" completed status=0
+2026-06-21T16:23:37Z iteration 13 ideator phase completed approaches=3
+2026-06-21T16:23:37Z iteration 13 selector started approaches=3
+2026-06-21T16:23:48Z iteration 13 selector completed status=0
+2026-06-21T16:23:48Z iteration 13 disposable preplanner repo cleanup path=/tmp/agent-loop-preplanner-repo-opke82kt/repo
+2026-06-21T16:23:48Z iteration 13 selector rejected alternative role="the pragmatist" approach="Evidence-First Hardening: prioritize the smallest changes that turn existing assumptions into explicit, platform-scoped contracts before adding new feature surface." reason="Strong on minimal evidence hardening, but too narrow as-is because it may postpone release hygiene even though dependency cleanup and installation notes are now low-cost, high-signal readiness work."
+2026-06-21T16:23:48Z iteration 13 selector rejected alternative role="the architect" approach="Evidence-First Portability Tightening: prioritize clarifying which TUI/PTX guarantees are portable contracts versus Linux-specific proof points, then use that distinction to gui..." reason="Strong framing around portable versus Linux-specific guarantees, but as-is it risks staying inside test semantics and not using that clarified evidence to improve the project\u2019s release posture."
+2026-06-21T16:23:48Z iteration 13 selector rejected alternative role="the contrarian" approach="Release-Readiness Inversion: stop expanding TUI behavior first, and instead drive the next iteration from what would block a credible first release: dependency surface, portabil..." reason="Useful release-skeptic inversion, but too aggressive as-is because it could defer unresolved TUI contract ambiguity that directly affects confidence in the main user-facing feature."
+2026-06-21T16:23:48Z iteration 13 selector alternatives persisted count=3
+2026-06-21T16:23:48Z iteration 13 selector structured alternatives persisted count=3
+2026-06-21T16:23:48Z iteration 13 planner started
+2026-06-21T16:24:08Z iteration 13 plan: 5 task(s) in 4 phase(s). This slice follows the Evidence-First Release Readiness constraint by first making PTY portability and skip semantics honest, then allowing independent release-hygiene work on dependencies and README documentation. Validation is last because it depends on all changed files.
+2026-06-21T16:24:08Z iteration 13 phase 1 started parallel=False tasks=1
+2026-06-21T16:24:53Z iteration 13 task t1 ('Harden PTY closed-read portability') status=0
+2026-06-21T16:24:53Z iteration 13 phase 2 started parallel=False tasks=1
+2026-06-21T16:26:53Z iteration 13 task t2 ('Make PTY skip results unavailable-only') status=0
+2026-06-21T16:26:53Z iteration 13 phase 3 started parallel=True tasks=2
+2026-06-21T16:27:17Z iteration 13 task t4 ('Document installation and release binary basics') status=0
+2026-06-21T16:28:28Z iteration 13 task t3 ('Remove unused color-eyre dependency') status=0
+2026-06-21T16:28:28Z iteration 13 phase 4 started parallel=False tasks=1
+2026-06-21T16:29:00Z iteration 13 task t5 ('Validate formatting, tests, and lint gates') status=0
+2026-06-21T16:29:00Z iteration 13 reviewer started
+
+## Reviewer Summary: Iteration 13
+
+Date: 2026-06-21
+Reviewer stance: fresh senior review; implementation inspected through `git diff`, full touched-file context for PTY helpers and callers, README/plan/log context, dependency-tree checks, and validation commands.
+
+### What Was Done
+
+- Scoped closed-PTY raw OS error handling away from non-Unix targets; raw OS error `5` is no longer accepted as an expected PTY-close read on non-Unix platforms.
+- Introduced `PtyUnavailable` and narrowed `PtyRunResult::Skipped` so skipped PTY runs can only carry platform/capability unavailability, not infrastructure failures.
+- Added `PtyTui::spawn_or_skip` and updated both PTY-backed integration callers to panic on infrastructure failures while returning conditional skips only for unavailable PTY support.
+- Removed the unused `color-eyre` dependency from `Cargo.toml` and pruned its transitive packages from `Cargo.lock`.
+- Added README installation and release basics: `cargo install --path .`, Linux target-triple artifact naming, and the current absence of shell completion artifacts.
+
+### Verification
+
+- `cargo tree -i color-eyre` reports no matching package, confirming no resolved `color-eyre` package remains.
+- `cargo tree -i tracing-error` reports no matching package, confirming the old `color-eyre` diagnostic support dependency is also gone.
+- Full validation passed locally: `cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --all-features -- -D warnings`.
+
+### Findings
+
+- Medium: PTY closed-read handling is improved but still uses the literal raw OS error `5` under `cfg(unix)`. That is better than accepting it everywhere, but a platform `EIO` constant or target-specific mapping would make the portability claim more defensible than a magic number.
+- Medium: binary-level interval refresh coverage is still missing. Startup fetch, manual refresh, and override precedence are covered, but there is still no fast end-to-end proof that the shipped TUI triggers interval refreshes.
+- Medium: the 36x20 TUI layout contract still guarantees coherent dashboard regions and controls, not visibility of every metric row. The product contract needs to explicitly accept clipping or implement a compact/scrolling metric strategy.
+- Medium: the CI PTY summary still reruns PTY-backed tests after the full test suite. This is acceptable while cheap, but the duplicated execution should be revisited if PTY coverage grows.
+- Medium: installation and artifact naming basics now exist, but release automation, dependency audit policy, and real-device validation remain open.
+- Low: PTY helper self-checks still live in `tests/common/pty.rs`, so they are compiled and run in each integration test crate importing `mod common`.
+
+### Top Improvement Proposals
+
+1. Replace PTY raw errno literal `5` with a platform `EIO` constant or explicit target mapping, preserving the non-Unix rejection test.
+2. Add deterministic binary-level interval refresh coverage without repeated 5+ second sleeps, while keeping production refresh bounds intact.
+3. Decide and test the 36x20 metric visibility contract: accepted clipping, scrolling, pagination, or a denser compact metric layout.
+4. Add dependency/supply-chain checks such as `cargo audit` or `cargo deny`, with documented CI triage expectations.
+5. Define release automation scope and record real-device validation when hardware is available.
+2026-06-21T16:31:38Z iteration 13 reviewer completed status=0
+2026-06-21T16:31:38Z iteration 13 memory updated
+2026-06-21T16:31:38Z iteration 13 completed validation_status=0
+2026-06-21T16:31:38Z iteration 13 checkpoint started
+2026-06-21T16:31:38Z iteration 13 checkpoint status before commit:
+M  AGENT_LOG.md
+M  ALTERNATIVES.jsonl
+M  Cargo.lock
+M  Cargo.toml
+M  MEMORY.md
+M  PLAN.md
+M  README.md
+M  SCORES.jsonl
+M  tests/common/pty.rs
+M  tests/tui_fetch_contract.rs
+M  tests/tui_pty.rs

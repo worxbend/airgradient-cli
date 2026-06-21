@@ -7,6 +7,23 @@ once, and prints compact terminal output.
 The interactive TUI dashboard is available with `-t` / `--tui` in an
 interactive terminal.
 
+## Installation and Releases
+
+For local installation from a checked-out repository, run:
+
+```sh
+cargo install --path .
+```
+
+This installs the expected binary name, `airgradient-cli`, into Cargo's binary
+directory.
+
+Linux release artifacts should make the target platform clear in the filename,
+for example `airgradient-cli-x86_64-unknown-linux-gnu` or
+`airgradient-cli-aarch64-unknown-linux-gnu`. The repository does not currently
+ship shell completions, so release artifacts should not list completions unless
+completion generation support is added first.
+
 ## Usage
 
 Configure the AirGradient device URL once:

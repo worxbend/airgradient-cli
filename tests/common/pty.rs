@@ -12,22 +12,41 @@ use portable_pty::{Child, CommandBuilder, ExitStatus, PtySize, native_pty_system
 const OUTPUT_DRAIN_TIMEOUT: Duration = Duration::from_millis(100);
 
 pub enum PtyRunResult {
-    Skipped(PtySpawnError),
+    Skipped(PtyUnavailable),
     Completed { status: ExitStatus, output: Vec<u8> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PtyUnavailable {
+    detail: String,
+}
+
+impl PtyUnavailable {
+    pub fn new(detail: impl Into<String>) -> Self {
+        Self {
+            detail: detail.into(),
+        }
+    }
+}
+
+impl fmt::Display for PtyUnavailable {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "PTY support unavailable: {}", self.detail)
+    }
+}
+
+impl std::error::Error for PtyUnavailable {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PtySpawnError {
-    Unavailable(String),
+    Unavailable(PtyUnavailable),
     Infrastructure(String),
 }
 
 impl fmt::Display for PtySpawnError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Unavailable(detail) => {
-                write!(formatter, "PTY support unavailable: {detail}")
-            }
+            Self::Unavailable(reason) => write!(formatter, "{reason}"),
             Self::Infrastructure(detail) => {
                 write!(formatter, "PTY test infrastructure error: {detail}")
             }
@@ -58,9 +77,9 @@ impl PtyTui {
                 pixel_height: 0,
             })
             .map_err(|error| {
-                PtySpawnError::Unavailable(format!(
+                PtySpawnError::Unavailable(PtyUnavailable::new(format!(
                     "failed to open a pseudo-terminal for TUI integration tests: {error}"
-                ))
+                )))
             })?;
 
         let reader = pair.master.try_clone_reader().map_err(|error| {
@@ -98,6 +117,16 @@ impl PtyTui {
             output: Vec::new(),
             output_read_error: None,
         })
+    }
+
+    pub fn spawn_or_skip(args: &[&str], context: &str) -> Result<Self, PtyUnavailable> {
+        match Self::spawn(args) {
+            Ok(tui) => Ok(tui),
+            Err(PtySpawnError::Unavailable(reason)) => Err(reason),
+            Err(PtySpawnError::Infrastructure(reason)) => {
+                panic!("PTY test infrastructure failed while {context}: {reason}")
+            }
+        }
     }
 
     #[allow(dead_code)]
@@ -342,7 +371,17 @@ fn is_closed_pty_error(error: &io::Error) -> bool {
     matches!(
         error.kind(),
         io::ErrorKind::UnexpectedEof | io::ErrorKind::BrokenPipe | io::ErrorKind::ConnectionReset
-    ) || error.raw_os_error() == Some(5)
+    ) || is_closed_pty_raw_os_error(error.raw_os_error())
+}
+
+#[cfg(unix)]
+fn is_closed_pty_raw_os_error(raw_os_error: Option<i32>) -> bool {
+    raw_os_error == Some(5)
+}
+
+#[cfg(not(unix))]
+fn is_closed_pty_raw_os_error(_raw_os_error: Option<i32>) -> bool {
+    false
 }
 
 #[cfg(test)]
@@ -366,12 +405,24 @@ mod tests {
     }
 
     #[test]
-    fn closed_pty_error_classification_accepts_linux_eio() {
+    #[cfg(unix)]
+    fn closed_pty_error_classification_accepts_unix_eio() {
         let error = io::Error::from_raw_os_error(5);
 
         assert!(
             is_closed_pty_error(&error),
-            "raw OS error 5 should be treated as an expected closed-PTY read"
+            "Unix EIO raw OS error 5 should be treated as an expected closed-PTY read"
+        );
+    }
+
+    #[test]
+    #[cfg(not(unix))]
+    fn closed_pty_error_classification_rejects_non_unix_raw_error_5() {
+        let error = io::Error::from_raw_os_error(5);
+
+        assert!(
+            !is_closed_pty_error(&error),
+            "raw OS error 5 should not be suppressed on platforms without known PTY EIO semantics"
         );
     }
 
@@ -393,7 +444,7 @@ mod tests {
 
     #[test]
     fn spawn_error_display_distinguishes_unavailable_from_infrastructure() {
-        let unavailable = PtySpawnError::Unavailable("openpty failed".to_string());
+        let unavailable = PtySpawnError::Unavailable(PtyUnavailable::new("openpty failed"));
         let infrastructure = PtySpawnError::Infrastructure("missing binary path".to_string());
 
         assert_eq!(
@@ -408,10 +459,27 @@ mod tests {
 
     #[test]
     fn spawn_error_variants_support_branching_without_string_matching() {
-        let unavailable = PtySpawnError::Unavailable("openpty failed".to_string());
+        let unavailable = PtySpawnError::Unavailable(PtyUnavailable::new("openpty failed"));
         let infrastructure = PtySpawnError::Infrastructure("missing binary path".to_string());
 
         assert!(matches!(unavailable, PtySpawnError::Unavailable(_)));
         assert!(matches!(infrastructure, PtySpawnError::Infrastructure(_)));
+    }
+
+    #[test]
+    fn skipped_run_result_only_carries_unavailable_pty_support() {
+        let result = PtyRunResult::Skipped(PtyUnavailable::new("openpty failed"));
+
+        match result {
+            PtyRunResult::Skipped(reason) => {
+                assert_eq!(
+                    reason.to_string(),
+                    "PTY support unavailable: openpty failed"
+                );
+            }
+            PtyRunResult::Completed { .. } => {
+                panic!("test constructed a skipped PTY result");
+            }
+        }
     }
 }

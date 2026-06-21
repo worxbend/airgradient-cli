@@ -14,7 +14,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use common::pty::{PtyRunResult, PtySpawnError, PtyTui, report_conditional_skip};
+use common::pty::{PtyRunResult, PtyTui, report_conditional_skip};
 use tempfile::TempDir;
 
 const NON_TTY_ERROR: &str = "TUI requires an interactive terminal";
@@ -205,16 +205,9 @@ fn assert_completed_cleanly(result: PtyRunResult) -> Vec<u8> {
 }
 
 fn run_tui_until(args: &[&str], exercise: impl FnOnce(&mut PtyTui)) -> PtyRunResult {
-    let mut tui = match PtyTui::spawn(args) {
+    let mut tui = match PtyTui::spawn_or_skip(args, "starting TUI fetch contract test") {
         Ok(tui) => tui,
-        Err(PtySpawnError::Unavailable(reason)) => {
-            return PtyRunResult::Skipped(PtySpawnError::Unavailable(reason));
-        }
-        Err(PtySpawnError::Infrastructure(reason)) => {
-            panic!(
-                "PTY test infrastructure failed while starting TUI fetch contract test: {reason}"
-            )
-        }
+        Err(reason) => return PtyRunResult::Skipped(reason),
     };
 
     exercise(&mut tui);

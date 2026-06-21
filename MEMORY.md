@@ -23,3 +23,4 @@
 [learning] Conditional test coverage reported only through passing-test stderr can be invisible in normal CI output; surface skip state through summaries or explicit reporting.
 [anti-pattern] Conditional integration-test helpers must distinguish missing platform capability from test infrastructure failure; broad skip results can hide broken CI or missing binaries.
 [learning] PTY closed-read error codes are platform semantics, not universal constants; scope raw OS error handling to the OS where the code meaning is known.
+[pattern] Conditional integration-test result types should carry only the skippable capability gap, while infrastructure failures stay outside the skip variant and fail loudly.

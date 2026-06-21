@@ -2,7 +2,7 @@ mod common;
 
 use std::{path::Path, time::Duration};
 
-use common::pty::{PtyRunResult, PtySpawnError, PtyTui, report_conditional_skip};
+use common::pty::{PtyRunResult, PtyTui, report_conditional_skip};
 use tempfile::tempdir;
 
 const NON_TTY_ERROR: &str = "TUI requires an interactive terminal";
@@ -49,14 +49,9 @@ fn run_tui_in_pty(input: &[u8]) -> PtyRunResult {
     let tempdir = tempdir().expect("temp config dir should be created");
     let config_path = tempdir.path().join("config.json");
     let args = ["--config", path_str(&config_path), "--tui"];
-    let mut tui = match PtyTui::spawn(&args) {
+    let mut tui = match PtyTui::spawn_or_skip(&args, "starting TUI smoke test") {
         Ok(tui) => tui,
-        Err(PtySpawnError::Unavailable(reason)) => {
-            return PtyRunResult::Skipped(PtySpawnError::Unavailable(reason));
-        }
-        Err(PtySpawnError::Infrastructure(reason)) => {
-            panic!("PTY test infrastructure failed while starting TUI smoke test: {reason}")
-        }
+        Err(reason) => return PtyRunResult::Skipped(reason),
     };
 
     std::thread::sleep(Duration::from_millis(100));

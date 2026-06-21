@@ -109,19 +109,26 @@ Completed in iteration 12:
 - Updated the GitHub Actions PTY summary wording so infrastructure failures, PTY-unavailable skips, and real PTY exercise are reported distinctly.
 - Verified on 2026-06-21: `cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --all-features -- -D warnings` pass.
 
+Completed in iteration 13:
+
+- Scoped PTY closed-read raw OS error handling away from non-Unix platforms, so Windows raw OS error `5` is no longer silently treated as an expected closed-PTY read.
+- Narrowed skipped PTY run results to `PtyRunResult::Skipped(PtyUnavailable)` and added `PtyTui::spawn_or_skip` so infrastructure spawn failures panic instead of being representable as conditional coverage skips.
+- Removed the unused `color-eyre` dependency from `Cargo.toml` and pruned its transitive packages from `Cargo.lock`; `cargo tree -i color-eyre` no longer resolves a package.
+- Documented local installation with `cargo install --path .`, Linux release artifact naming expectations, and the current absence of shell completion artifacts.
+- Verified on 2026-06-21: `cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --all-features -- -D warnings` pass.
+
 ## Known Gaps and Risks
 
 - Medium: pseudo-terminal integration tests are skippable when PTY support is unavailable, so some CI/platform combinations may still rely on the runtime harness instead of exercising crossterm through a real terminal.
 - Medium: binary-level TUI HTTP tests cover startup success/failure, manual refresh, and override precedence, but they do not yet cover interval-triggered refresh with a shortened deterministic clock because the binary enforces the production 5 second minimum.
 - Medium: the 36x20 TUI contract guarantees coherent regions and footer access, but it does not guarantee that every metric is visible at the minimum size; the product contract should explicitly decide whether clipped metrics are acceptable or whether scrolling/pagination is required.
 - Medium: the CI PTY summary reruns `tui_pty` and `tui_fetch_contract` after the full `cargo test`, increasing CI time and duplicating test execution. This is acceptable for visibility now, but should be revisited if the suite grows.
-- Medium: closed-PTY read-error classification treats raw OS error `5` as expected on every platform, while the intended case is Linux/Unix PTY `EIO`; on non-Linux platforms this could hide a real read failure such as access denied.
+- Medium: closed-PTY read-error classification is now Unix-only for raw OS error `5`, but it still hard-codes the numeric errno instead of comparing against a platform `EIO` constant or target-specific mapping.
 - Low: PTY helper self-checks live inside `tests/common/pty.rs`, so they are compiled into each integration test crate that imports `mod common`; this is harmless at the current size but duplicates self-check execution and counts.
 - Medium: parser priority is correct for key-list precedence and top-level-over-nested precedence, but same-alias duplicate fields inside one JSON object still depend on `serde_json::Map` iteration order. This is acceptable for malformed duplicate-ish payloads, but real-device validation should confirm no important duplicate field variants conflict.
 - Medium: non-object top-level config JSON is a documented hard repair boundary because unknown-field preservation requires an object.
 - Medium: sensor upper bounds are practical guardrails, not hardware-validated limits; revisit them after real-device validation.
-- Low: `color-eyre` remains in `Cargo.toml`/`Cargo.lock` even though runtime diagnostics are local; remove unused dependency surface before release.
-- There is no packaging guidance, release workflow, dependency audit, or real-device validation record yet.
+- Medium: installation and release binary basics are documented, but there is still no release workflow, artifact publishing automation, dependency audit policy, or real-device validation record.
 
 ## Compatibility Targets
 
@@ -153,52 +160,43 @@ Must preserve:
 
 ## Prioritized Next Work
 
-### Phase 12A: Finish PTY Helper Portability and Evidence Hygiene
-
-1. Scope closed-PTY raw OS error handling by platform.
-   - Treat Linux/Unix PTY `EIO` as an expected closed-terminal read only on platforms where that mapping is known.
-   - Avoid suppressing raw OS error `5` on Windows or other platforms where it may mean access denied or another real failure.
-   - Update the helper self-checks with platform-specific expectations so the test names and implementation match.
-
-2. Tighten skipped-coverage typing.
-   - Consider changing `PtyRunResult::Skipped(PtySpawnError)` to a narrower unavailable-only skip type so infrastructure failures cannot accidentally be reintroduced as skipped results by future call sites.
-   - Add a small caller-level assertion or helper wrapper that makes the intended unavailable-vs-infrastructure branch hard to misuse.
-
-3. Reassess PTY self-check placement.
-   - Keep the current duplicated module tests if the cost remains negligible.
-   - If more helper tests are added, move pure helper self-checks into a single integration test target or a small test-support crate to avoid repeated execution.
-
-### Phase 12B: Fill Remaining TUI Contract Gaps
+### Phase 14A: Finish TUI Contract Gaps
 
 1. Add interval refresh contract coverage.
-   - Consider a test-only runtime hook or lower-bound override for interval refresh coverage without adding 5+ second sleeps to more tests.
+   - Add a test-only lower-bound override or runtime hook that proves the binary-level TUI path performs an interval-triggered `/measures/current` request.
    - Keep the production `5s` lower bound intact for normal CLI behavior.
-   - Prove the binary-level TUI path performs an interval-triggered `/measures/current` request, not only startup and manual refresh.
+   - Cover interval refresh separately from startup and manual `r` refresh so the scheduler contract is not only harness-level.
 
 2. Decide the minimum-size metric visibility contract.
    - Either document that 36x20 may clip lower metric rows while preserving coherent layout and controls, or add scrolling/pagination/alternate compact metric rendering.
    - Add tests for whichever behavior is chosen so the minimum terminal contract is not ambiguous.
 
-3. Reassess CI PTY summary cost and structure.
+3. Tighten PTY errno portability one more step.
+   - Replace the raw literal `5` with a platform `EIO` constant or a target-specific mapping whose supported targets are explicit.
+   - Keep the non-Unix rejection test so Windows-like raw error semantics cannot regress.
+
+### Phase 14B: Release and CI Hygiene
+
+1. Reassess CI PTY summary cost and structure.
    - Keep the current summary step if the duplicated PTY run remains cheap.
    - If the PTY-backed suite grows, split normal tests and PTY summary into clearer steps or use a reusable script so visibility does not require expensive duplicate work.
 
-### Phase 12C: Dependency, Release, and Validation Hygiene
-
-1. Clean dependency surface.
-   - Remove `color-eyre` if no code path uses it.
-   - Run `cargo tree` or `cargo machete` after removal to catch stale dependencies.
-
-2. Add packaging and installation notes.
-   - Document `cargo install --path .`.
-   - Add release binary naming guidance for Linux targets.
-   - Decide whether shell completions are in scope.
-
-3. Add dependency and supply-chain checks.
+2. Add dependency and supply-chain checks.
    - Consider `cargo audit` or `cargo deny` with an explicit policy file.
-   - Document how failures should be triaged in CI.
+   - Document how failures should be triaged in CI so dependency checks do not become unexplained red builds.
 
-4. Validate against hardware.
+3. Define release automation scope.
+   - Decide whether release artifacts are produced manually or by GitHub Actions.
+   - If automated, add a release workflow that names Linux artifacts according to the documented target triples.
+   - Decide whether shell completion generation is in scope before documenting completion artifacts.
+
+### Phase 14C: Validation Hygiene
+
+1. Reassess PTY self-check placement.
+   - Keep the current duplicated module tests if the cost remains negligible.
+   - If more helper tests are added, move pure helper self-checks into a single integration test target or a small test-support crate to avoid repeated execution.
+
+2. Validate against hardware.
    - Record a real-device validation run when hardware is available.
    - Revisit parser field names, bounds, same-object duplicate alias behavior, and desktop/GNOME compatibility after TUI hardening lands.
 
