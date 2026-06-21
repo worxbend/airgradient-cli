@@ -28,3 +28,5 @@
 [anti-pattern] Test hooks that mutate public state after construction can bypass constructor invariants; prefer a narrower runtime scheduling seam when the app model owns validation.
 [pattern] Runtime-only scheduling overrides can preserve pure app-model invariants while still enabling fast binary-level timing coverage.
 [anti-pattern] Renaming raw errno literals as mappings is not the same as grounding portability in platform-provided constants or narrowly documented target assumptions.
+[learning] A passing dependency-license gate can still leave redistribution terms undefined when the workspace crate is private and has no explicit project license.
+[pattern] Exact duplicate-version deny exceptions with package/version rationale keep new duplicates visible while allowing known transitive splits to pass temporarily.

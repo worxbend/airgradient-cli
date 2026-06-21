@@ -135,6 +135,15 @@ Completed in iteration 15:
 - Updated README documentation for the scheduler-only hook boundary and target-scoped PTY closed-read classification.
 - Verified on 2026-06-21: `cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --all-features -- -D warnings` pass.
 
+Completed in iteration 16:
+
+- Added a checked-in `cargo-deny` policy covering advisories, yanked crates, duplicate versions, wildcard dependencies, license allowlisting, and unknown registry/git sources.
+- Added exact duplicate-version exemptions with package/version-specific rationale for the current dependency graph instead of broad blanket allowances.
+- Wired `cargo deny check` into GitHub Actions before formatting, Clippy, and tests.
+- Documented maintainer triage expectations for advisories, yanked crates, duplicate dependency versions, license failures, and unknown sources.
+- Marked the crate `publish = false`, making the current package metadata consistent with local/binary release guidance rather than accidental crates.io publishing.
+- Verified on 2026-06-21: `cargo deny check`, `cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --all-features -- -D warnings` pass.
+
 ## Known Gaps and Risks
 
 - Medium: pseudo-terminal integration tests are skippable when PTY support is unavailable, so some CI/platform combinations may still rely on the runtime harness instead of exercising crossterm through a real terminal.
@@ -146,7 +155,10 @@ Completed in iteration 15:
 - Medium: parser priority is correct for key-list precedence and top-level-over-nested precedence, but same-alias duplicate fields inside one JSON object still depend on `serde_json::Map` iteration order. This is acceptable for malformed duplicate-ish payloads, but real-device validation should confirm no important duplicate field variants conflict.
 - Medium: non-object top-level config JSON is a documented hard repair boundary because unknown-field preservation requires an object.
 - Medium: sensor upper bounds are practical guardrails, not hardware-validated limits; revisit them after real-device validation.
-- Medium: installation and release binary basics are documented, but there is still no release workflow, artifact publishing automation, dependency audit policy, or real-device validation record.
+- High: the project still has no explicit repository/crate license. Because the crate is private (`publish = false`) and cargo-deny ignores private workspace license checks, dependency licenses are gated but the project's own redistribution terms remain undefined for binary releases.
+- Medium: the cargo-deny gate is enforced in CI, but the installed cargo-deny version is not pinned. Future cargo-deny default or schema changes can break CI unexpectedly or subtly change the release gate.
+- Medium: `publish = false` prevents accidental crates.io publishing, but the release scope is not yet explicit enough: decide whether this project is binary-only/manual-release or whether crates.io publishing should eventually be supported with license metadata.
+- Medium: installation and release binary basics plus dependency policy are documented, but there is still no release workflow, artifact publishing automation, or real-device validation record.
 
 ## Compatibility Targets
 
@@ -180,12 +192,22 @@ Must preserve:
 
 ### Release and CI Readiness
 
-1. Add dependency and supply-chain checks.
-   - Choose `cargo audit` or `cargo deny`; prefer `cargo deny` if license/advisory policy should be explicit in the repo.
-   - Add CI coverage and a short README or policy note explaining how advisory, yanked-crate, duplicate-version, and license failures should be triaged.
-   - Keep the policy small enough that it catches real release blockers without making routine dependency updates opaque.
+1. Define the project license and release scope.
+   - Choose and add an explicit repository license file.
+   - Add matching `license` or `license-file` metadata to `Cargo.toml`, or document clearly why the crate is binary-only and intentionally private.
+   - Decide whether `publish = false` is a permanent binary-release stance or temporary until crates.io packaging is ready.
 
-2. Define release automation scope.
+2. Make the dependency gate reproducible.
+   - Pin the cargo-deny version used in CI, or add a documented update path for the moving installer.
+   - Consider adding a toolchain file or otherwise documenting the Rust/cargo-deny versions used for release validation.
+   - Keep local and CI commands aligned: `cargo deny check`, `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test`.
+
+3. Tighten dependency-policy maintenance.
+   - Periodically re-run `cargo tree -d --target all` and prune exact duplicate-version skips when upstream dependencies converge.
+   - Investigate whether `comfy-table`/`ratatui`/direct `crossterm` usage can be aligned to one `crossterm` line in a future dependency update.
+   - Keep advisory ignores and license exceptions empty unless a specific release decision adds a narrowly documented exception.
+
+4. Define release automation scope.
    - Decide whether release artifacts are produced manually or by GitHub Actions.
    - If automated, add a release workflow that names Linux artifacts according to the documented target triples.
    - Decide whether shell completion generation is in scope before documenting completion artifacts.

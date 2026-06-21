@@ -1,0 +1,54 @@
+[advisories]
+yanked = "deny"
+unmaintained = "workspace"
+unsound = "workspace"
+ignore = []
+
+[licenses]
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+confidence-threshold = 0.8
+unused-allowed-license = "allow"
+exceptions = []
+
+[licenses.private]
+ignore = true
+
+[bans]
+multiple-versions = "deny"
+wildcards = "deny"
+highlight = "all"
+allow = []
+deny = []
+skip = [
+    { crate = "crossterm@0.28.1", reason = "Direct dependency and ratatui use 0.28 while comfy-table currently brings 0.29." },
+    { crate = "crossterm@0.29.0", reason = "Transitive duplicate from comfy-table until the terminal stack converges." },
+    { crate = "hashbrown@0.15.5", reason = "Transitive duplicate from ratatui/lru while h2/indexmap uses the newer line." },
+    { crate = "hashbrown@0.17.1", reason = "Transitive duplicate from h2/indexmap until upstream dependencies converge." },
+    { crate = "linux-raw-sys@0.4.15", reason = "Transitive duplicate through rustix 0.38 used by crossterm 0.28." },
+    { crate = "linux-raw-sys@0.12.1", reason = "Transitive duplicate through rustix 1.x used by crossterm 0.29/tempfile." },
+    { crate = "rustix@0.38.44", reason = "Transitive duplicate from crossterm 0.28 while newer crates use rustix 1.x." },
+    { crate = "rustix@1.1.4", reason = "Transitive duplicate from crossterm 0.29/tempfile until crossterm versions converge." },
+    { crate = "unicode-width@0.1.14", reason = "Transitive duplicate from unicode-truncate while ratatui/comfy-table use 0.2." },
+    { crate = "unicode-width@0.2.0", reason = "Transitive duplicate retained until unicode-truncate moves to 0.2." },
+    { crate = "windows-sys@0.52.0", reason = "Transitive duplicate from ring/rustix while other dependencies use windows-sys 0.61." },
+    { crate = "windows-sys@0.61.2", reason = "Transitive duplicate retained until Windows support crates converge." },
+]
+skip-tree = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

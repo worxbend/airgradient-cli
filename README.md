@@ -24,6 +24,21 @@ for example `airgradient-cli-x86_64-unknown-linux-gnu` or
 ship shell completions, so release artifacts should not list completions unless
 completion generation support is added first.
 
+## Dependency Policy
+
+This project uses `cargo-deny` as a dependency and supply-chain release gate.
+Maintainers should triage `cargo deny check` failures before cutting a release:
+
+- Known vulnerabilities and yanked crates are release blockers unless they are
+  consciously patched, replaced, or otherwise handled with a documented reason.
+- Duplicate dependency versions should be collapsed when reasonable. If a
+  transitive duplicate cannot be removed in the current change, exempt only the
+  specific package/version case and include the rationale in the policy.
+- License failures require confirming that the license is compatible with the
+  project before extending the allowlist.
+- Unknown registries or git sources require explicit review before they are
+  allowed.
+
 ## Usage
 
 Configure the AirGradient device URL once:

@@ -1291,3 +1291,82 @@ M  SCORES.jsonl
 M  src/tui/runtime.rs
 M  tests/common/pty.rs
 M  tests/tui_fetch_contract.rs
+2026-06-21T16:49:57Z iteration 16 started remaining=7923s
+2026-06-21T16:49:57Z iteration 16 preplanner effective budgets untracked_scan_max_bytes=536870912 untracked_scan_max_count=10000 snapshot_copy_max_bytes=536870912 snapshot_copy_max_count=10000 snapshot_copy_max_file_bytes=134217728
+2026-06-21T16:49:57Z iteration 16 disposable preplanner repo created path=/tmp/agent-loop-preplanner-repo-57sf1gtj/repo copied_entries=38
+2026-06-21T16:49:57Z iteration 16 ideator phase started count=3
+2026-06-21T16:49:57Z iteration 16 ideator phase concurrency workers=3
+2026-06-21T16:49:57Z iteration 16 ideator 1 role="the pragmatist" started
+2026-06-21T16:49:57Z iteration 16 ideator 2 role="the architect" started
+2026-06-21T16:49:57Z iteration 16 ideator 3 role="the contrarian" started
+2026-06-21T16:50:05Z iteration 16 ideator 3 role="the contrarian" completed status=0
+2026-06-21T16:50:12Z iteration 16 ideator 1 role="the pragmatist" completed status=0
+2026-06-21T16:50:12Z iteration 16 ideator 2 role="the architect" completed status=0
+2026-06-21T16:50:12Z iteration 16 ideator phase completed approaches=3
+2026-06-21T16:50:12Z iteration 16 selector started approaches=3
+2026-06-21T16:50:25Z iteration 16 selector completed status=0
+2026-06-21T16:50:25Z iteration 16 disposable preplanner repo cleanup path=/tmp/agent-loop-preplanner-repo-57sf1gtj/repo
+2026-06-21T16:50:25Z iteration 16 selector rejected alternative role="the contrarian" approach="Release Gate Minimalism: stop expanding TUI/test machinery and make the next iteration prove the crate is releasable by adding only the smallest supply-chain and release-readine..." reason="Selected in spirit, but not as-is because its framing risks treating release readiness as a one-off audit. The stronger version should explicitly establish an ongoing CI-enforced policy and triage contract, not just prove a tagged build..."
+2026-06-21T16:50:25Z iteration 16 selector rejected alternative role="the pragmatist" approach="Release-Gate First: prioritize a small, explicit supply-chain and CI readiness gate before expanding product surface. Treat the next iteration as release hardening, choosing the..." reason="Very close to the selected strategy, but it underemphasizes preserving the known medium risks as visible deferred work. The Planner should avoid implying that dependency gating resolves the refresh-hook, PTY timing, EIO mapping, or hardw..."
+2026-06-21T16:50:25Z iteration 16 selector rejected alternative role="the architect" approach="Release Gate First: treat the next iteration as a policy-hardening pass that makes release blockers explicit before adding more runtime behavior" reason="Also largely aligned, but its framing is slightly broader than needed for the next iteration. The selected hybrid keeps the architectural policy lens while making the immediate planning direction more operationally narrow: one enforceabl..."
+2026-06-21T16:50:25Z iteration 16 selector alternatives persisted count=3
+2026-06-21T16:50:25Z iteration 16 selector structured alternatives persisted count=3
+2026-06-21T16:50:25Z iteration 16 planner started
+2026-06-21T16:50:51Z iteration 16 plan: 4 task(s) in 3 phase(s). This iteration is scoped to one release-readiness boundary: an enforceable dependency and supply-chain policy. The cargo-deny policy must exist before CI and documentation can accurately reference it. CI wiring and README triage guidance can then proceed in parallel because they touch different files. Final validation is serialized because it depends on all changes.
+2026-06-21T16:50:51Z iteration 16 phase 1 started parallel=False tasks=1
+2026-06-21T16:55:30Z iteration 16 task t1 ('Add cargo-deny release policy') status=0
+2026-06-21T16:55:30Z iteration 16 phase 2 started parallel=True tasks=2
+2026-06-21T16:56:00Z iteration 16 task t3 ('Document dependency policy triage') status=0
+2026-06-21T16:56:10Z iteration 16 task t2 ('Wire cargo-deny into CI') status=0
+2026-06-21T16:56:10Z iteration 16 phase 3 started parallel=False tasks=1
+2026-06-21T16:56:51Z iteration 16 task t4 ('Validate release gate') status=0
+2026-06-21T16:56:51Z iteration 16 reviewer started
+
+## Reviewer Summary: Iteration 16
+
+Date: 2026-06-21
+Reviewer stance: fresh senior review; implementation inspected through `git diff`, full changed-file context for `deny.toml`, CI, Cargo metadata, README, plan/log artifacts, and local validation commands.
+
+### What Was Done
+
+- Added a new `deny.toml` cargo-deny policy for advisories, yanked crates, license allowlisting, duplicate versions, wildcard dependencies, and unknown sources.
+- Added exact duplicate-version skips with package/version-specific rationale for the current dependency graph.
+- Added `cargo deny check` to GitHub Actions before the existing format, Clippy, and test gates.
+- Added README dependency-policy triage guidance for vulnerabilities, yanked crates, duplicates, license failures, and unknown sources.
+- Marked the crate `publish = false`, avoiding accidental crates.io publication under the current incomplete package metadata.
+
+### Verification
+
+- `cargo deny check` passed locally: advisories, bans, licenses, and sources all ok.
+- `cargo fmt --check` passed.
+- `cargo clippy --all-targets --all-features -- -D warnings` passed.
+- `cargo test` passed: 99 library tests, 28 CLI integration tests, 12 sensor parsing tests, 13 TUI fetch contract tests, 9 PTY smoke/helper tests, and 18 TUI render tests.
+
+### Findings
+
+- High: the release story still lacks an explicit project license. No `LICENSE*` file exists, `Cargo.toml` has no `license`/`license-file`, and `[licenses.private].ignore = true` means cargo-deny intentionally does not force the private workspace crate to declare one.
+- Medium: CI installs cargo-deny through a moving installer target (`taiki-e/install-action@cargo-deny`) rather than a pinned cargo-deny version, so the release gate can drift as cargo-deny changes.
+- Medium: `publish = false` is sensible for preventing accidental crates.io publishing now, but it also makes the release scope a decision that should be documented: binary-only/manual release versus future crates.io packaging.
+- Medium: duplicate-version skips are exact and rationalized, which is good, but they now need active maintenance as dependencies converge; otherwise the skip list becomes stale release-policy noise.
+
+### Top Improvement Proposals
+
+1. Choose and add the project license, then add matching Cargo metadata or explicitly document binary-only/private-package release scope.
+2. Pin cargo-deny in CI, and consider documenting release validation tool versions so local and CI gates remain reproducible.
+3. Prune duplicate-version exceptions opportunistically, starting with the `crossterm` split across direct/Ratatui and `comfy-table` dependency paths.
+4. Define release automation scope: manual artifacts versus GitHub Actions, Linux artifact names, and whether crates.io or shell completions are intentionally out of scope.
+5. Continue carrying known runtime/test risks separately: PTY coverage skips, the public TUI interval test hook, target-scoped local EIO mappings, and real-device validation remain unresolved by the dependency gate.
+2026-06-21T17:00:09Z iteration 16 reviewer completed status=0
+2026-06-21T17:00:09Z iteration 16 memory updated
+2026-06-21T17:00:09Z iteration 16 completed validation_status=0
+2026-06-21T17:00:09Z iteration 16 checkpoint started
+2026-06-21T17:00:09Z iteration 16 checkpoint status before commit:
+M  .github/workflows/ci.yml
+M  AGENT_LOG.md
+M  ALTERNATIVES.jsonl
+M  Cargo.toml
+M  MEMORY.md
+M  PLAN.md
+M  README.md
+M  SCORES.jsonl
+A  deny.toml
