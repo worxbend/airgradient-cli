@@ -8,6 +8,36 @@ use url::Url;
 const CURRENT_MEASURES_PATH: &str = "measures/current";
 const DEFAULT_FETCH_TIMEOUT: Duration = Duration::from_secs(5);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FetchSettings {
+    timeout: Duration,
+}
+
+impl FetchSettings {
+    pub const fn new(timeout: Duration) -> Self {
+        Self { timeout }
+    }
+
+    pub const fn timeout(self) -> Duration {
+        self.timeout
+    }
+
+    pub fn client(self) -> Result<Client, DeviceError> {
+        Client::builder()
+            .timeout(self.timeout)
+            .build()
+            .map_err(DeviceError::ClientBuild)
+    }
+}
+
+impl Default for FetchSettings {
+    fn default() -> Self {
+        Self {
+            timeout: DEFAULT_FETCH_TIMEOUT,
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum DeviceError {
     #[error("invalid device URL `{input}`")]
@@ -71,17 +101,16 @@ pub fn normalize_base_url(input: &str) -> Result<Url, DeviceError> {
 }
 
 pub async fn fetch_current_measures(base_url: &Url) -> Result<Value, DeviceError> {
-    fetch_current_measures_with_timeout(base_url, DEFAULT_FETCH_TIMEOUT).await
+    let client = FetchSettings::default().client()?;
+
+    fetch_current_measures_with_client(&client, base_url).await
 }
 
 pub async fn fetch_current_measures_with_timeout(
     base_url: &Url,
     timeout: Duration,
 ) -> Result<Value, DeviceError> {
-    let client = Client::builder()
-        .timeout(timeout)
-        .build()
-        .map_err(DeviceError::ClientBuild)?;
+    let client = FetchSettings::new(timeout).client()?;
 
     fetch_current_measures_with_client(&client, base_url).await
 }
@@ -195,7 +224,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fetch_current_measures_uses_default_timeout() {
+    async fn fetch_settings_client_uses_default_timeout() {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/measures/current"))
@@ -206,8 +235,11 @@ mod tests {
             .mount(&server)
             .await;
         let base = normalize_base_url(&server.uri()).expect("URL should normalize");
+        let client = FetchSettings::default()
+            .client()
+            .expect("default client should build");
 
-        let err = fetch_current_measures(&base)
+        let err = fetch_current_measures_with_client(&client, &base)
             .await
             .expect_err("request should time out");
 

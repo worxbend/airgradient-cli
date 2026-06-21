@@ -542,6 +542,172 @@ fn config_show_prints_missing_server_url_without_warning() {
     assert_eq!(json["start_minimized"], true);
 }
 
+#[test]
+fn config_show_defaults_out_of_range_refresh_interval_with_warning() {
+    let dir = tempdir().expect("tempdir should be created");
+    let config_path = dir.path().join("config.json");
+    fs::write(
+        &config_path,
+        serde_json::json!({
+            "server_url": "http://192.168.1.201/",
+            "refresh_interval_secs": 1,
+            "notifications_enabled": false,
+            "start_minimized": true,
+            "future_desktop_field": "preserved"
+        })
+        .to_string(),
+    )
+    .expect("config should be written");
+
+    let assert = cli()
+        .args(["--config", path_str(&config_path), "config", "show"])
+        .assert()
+        .success()
+        .stderr(
+            predicate::str::contains("warning:")
+                .and(predicate::str::contains("refresh_interval_secs"))
+                .and(predicate::str::contains("using 30")),
+        );
+
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("stdout is utf8");
+    let json: Value = serde_json::from_str(&stdout).expect("stdout should be JSON");
+    assert_eq!(json["refresh_interval_secs"], 30);
+    assert_eq!(json["notifications_enabled"], false);
+    assert_eq!(json["start_minimized"], true);
+
+    let contents = fs::read_to_string(config_path).expect("config should remain readable");
+    let json: Value = serde_json::from_str(&contents).expect("config should be JSON");
+    assert_eq!(json["refresh_interval_secs"], 1);
+    assert_eq!(json["future_desktop_field"], "preserved");
+}
+
+#[test]
+fn config_show_defaults_wrong_known_field_types_with_warnings() {
+    let dir = tempdir().expect("tempdir should be created");
+    let config_path = dir.path().join("config.json");
+    fs::write(
+        &config_path,
+        serde_json::json!({
+            "server_url": 42,
+            "refresh_interval_secs": "fast",
+            "notifications_enabled": "yes",
+            "start_minimized": null
+        })
+        .to_string(),
+    )
+    .expect("config should be written");
+
+    let assert = cli()
+        .args(["--config", path_str(&config_path), "config", "show"])
+        .assert()
+        .success()
+        .stderr(
+            predicate::str::contains("server_url")
+                .and(predicate::str::contains("refresh_interval_secs"))
+                .and(predicate::str::contains("notifications_enabled"))
+                .and(predicate::str::contains("start_minimized")),
+        );
+
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("stdout is utf8");
+    let json: Value = serde_json::from_str(&stdout).expect("stdout should be JSON");
+    assert_eq!(json["server_url"], Value::Null);
+    assert_eq!(json["refresh_interval_secs"], 30);
+    assert_eq!(json["notifications_enabled"], true);
+    assert_eq!(json["start_minimized"], false);
+}
+
+#[test]
+fn config_set_url_repairs_malformed_server_url() {
+    let dir = tempdir().expect("tempdir should be created");
+    let config_path = dir.path().join("config.json");
+    fs::write(
+        &config_path,
+        serde_json::json!({
+            "server_url": "http://[::1",
+            "refresh_interval_secs": 45,
+            "notifications_enabled": false,
+            "start_minimized": true,
+            "future_desktop_field": "preserved"
+        })
+        .to_string(),
+    )
+    .expect("config should be written");
+
+    cli()
+        .args([
+            "--config",
+            path_str(&config_path),
+            "config",
+            "set-url",
+            "airgradient.local/status",
+        ])
+        .assert()
+        .success();
+
+    let contents = fs::read_to_string(config_path).expect("config should be rewritten");
+    let json: Value = serde_json::from_str(&contents).expect("config should be JSON");
+    assert_eq!(json["server_url"], "http://airgradient.local/");
+    assert_eq!(json["refresh_interval_secs"], 45);
+    assert_eq!(json["notifications_enabled"], false);
+    assert_eq!(json["start_minimized"], true);
+    assert_eq!(json["future_desktop_field"], "preserved");
+}
+
+#[test]
+fn config_set_url_repairs_malformed_refresh_interval_and_preserves_unknown_fields() {
+    let dir = tempdir().expect("tempdir should be created");
+    let config_path = dir.path().join("config.json");
+    fs::write(
+        &config_path,
+        serde_json::json!({
+            "server_url": "http://192.168.1.201/",
+            "refresh_interval_secs": "fast",
+            "notifications_enabled": false,
+            "start_minimized": true,
+            "future_desktop_field": {
+                "nested": true
+            }
+        })
+        .to_string(),
+    )
+    .expect("config should be written");
+
+    cli()
+        .args([
+            "--config",
+            path_str(&config_path),
+            "config",
+            "set-url",
+            "https://airgradient.local/sensors?debug=true#now",
+        ])
+        .assert()
+        .success();
+
+    let contents = fs::read_to_string(config_path).expect("config should be rewritten");
+    let json: Value = serde_json::from_str(&contents).expect("config should be JSON");
+    assert_eq!(json["server_url"], "https://airgradient.local/");
+    assert_eq!(json["refresh_interval_secs"], 30);
+    assert_eq!(json["notifications_enabled"], false);
+    assert_eq!(json["start_minimized"], true);
+    assert_eq!(json["future_desktop_field"]["nested"], true);
+}
+
+#[test]
+fn config_show_rejects_non_object_top_level_json() {
+    let dir = tempdir().expect("tempdir should be created");
+    let config_path = dir.path().join("config.json");
+    fs::write(&config_path, "[]").expect("config should be written");
+
+    cli()
+        .args(["--config", path_str(&config_path), "config", "show"])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("error:")
+                .and(predicate::str::contains("must be a JSON object")),
+        );
+}
+
 fn path_str(path: &Path) -> &str {
     path.to_str().expect("test path should be utf8")
 }

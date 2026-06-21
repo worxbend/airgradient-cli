@@ -29,7 +29,7 @@ pub struct Config {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DisplayConfig {
     pub config: Config,
-    pub warning: Option<String>,
+    pub warnings: Vec<String>,
 }
 
 impl Default for Config {
@@ -65,6 +65,8 @@ pub enum ConfigError {
         #[source]
         source: serde_json::Error,
     },
+    #[error("config at {path} must be a JSON object")]
+    TopLevelNotObject { path: PathBuf },
     #[error("failed to create config directory {path}")]
     CreateDir {
         path: PathBuf,
@@ -134,7 +136,15 @@ pub fn normalized_display_config(mut config: Config) -> DisplayConfig {
         None
     };
 
-    DisplayConfig { config, warning }
+    DisplayConfig {
+        config,
+        warnings: warning.into_iter().collect(),
+    }
+}
+
+pub fn read_display_config(path: &Path) -> Result<DisplayConfig, ConfigError> {
+    let object = read_config_object(path)?;
+    Ok(display_config_from_object(&object))
 }
 
 pub fn write_config(path: &Path, config: &Config) -> Result<(), ConfigError> {
@@ -168,6 +178,10 @@ pub fn write_config(path: &Path, config: &Config) -> Result<(), ConfigError> {
 }
 
 fn existing_config_object(path: &Path) -> Result<Map<String, Value>, ConfigError> {
+    read_config_object(path)
+}
+
+fn read_config_object(path: &Path) -> Result<Map<String, Value>, ConfigError> {
     if !path.exists() {
         return Ok(Map::new());
     }
@@ -182,10 +196,12 @@ fn existing_config_object(path: &Path) -> Result<Map<String, Value>, ConfigError
         source,
     })?;
 
-    Ok(match value {
-        Value::Object(object) => object,
-        _ => Map::new(),
-    })
+    match value {
+        Value::Object(object) => Ok(object),
+        _ => Err(ConfigError::TopLevelNotObject {
+            path: path.to_path_buf(),
+        }),
+    }
 }
 
 pub fn set_url(path: &Path, url: &str) -> Result<Config, ConfigError> {
@@ -194,7 +210,8 @@ pub fn set_url(path: &Path, url: &str) -> Result<Config, ConfigError> {
 }
 
 fn set_normalized_url(path: &Path, normalized_url: &str) -> Result<Config, ConfigError> {
-    let mut config = read_config(path)?;
+    let object = read_config_object(path)?;
+    let mut config = config_from_object_lossy(&object);
     config.server_url = Some(normalized_url.to_owned());
     write_config(path, &config)?;
     Ok(config)
@@ -203,7 +220,8 @@ fn set_normalized_url(path: &Path, normalized_url: &str) -> Result<Config, Confi
 pub fn set_refresh_interval(path: &Path, seconds: u64) -> Result<Config, ConfigError> {
     validate_refresh_interval(seconds)?;
 
-    let mut config = read_config(path)?;
+    let object = read_config_object(path)?;
+    let mut config = config_from_object_lossy(&object);
     config.refresh_interval_secs = seconds;
     write_config(path, &config)?;
     Ok(config)
@@ -246,6 +264,138 @@ fn default_refresh_interval_secs() -> u64 {
 
 fn default_notifications_enabled() -> bool {
     true
+}
+
+fn display_config_from_object(object: &Map<String, Value>) -> DisplayConfig {
+    let mut config = Config::default();
+    let mut warnings = Vec::new();
+
+    config.server_url = parse_display_server_url(object.get("server_url"), &mut warnings);
+    config.refresh_interval_secs =
+        parse_refresh_interval(object.get("refresh_interval_secs"), &mut warnings);
+    config.notifications_enabled = parse_bool_field(
+        object.get("notifications_enabled"),
+        "notifications_enabled",
+        default_notifications_enabled(),
+        &mut warnings,
+    );
+    config.start_minimized = parse_bool_field(
+        object.get("start_minimized"),
+        "start_minimized",
+        false,
+        &mut warnings,
+    );
+
+    DisplayConfig { config, warnings }
+}
+
+fn config_from_object_lossy(object: &Map<String, Value>) -> Config {
+    let mut warnings = Vec::new();
+    Config {
+        server_url: parse_raw_server_url(object.get("server_url"), &mut warnings),
+        refresh_interval_secs: parse_refresh_interval(
+            object.get("refresh_interval_secs"),
+            &mut warnings,
+        ),
+        notifications_enabled: parse_bool_field(
+            object.get("notifications_enabled"),
+            "notifications_enabled",
+            default_notifications_enabled(),
+            &mut warnings,
+        ),
+        start_minimized: parse_bool_field(
+            object.get("start_minimized"),
+            "start_minimized",
+            false,
+            &mut warnings,
+        ),
+    }
+}
+
+fn parse_display_server_url(value: Option<&Value>, warnings: &mut Vec<String>) -> Option<String> {
+    let server_url = parse_raw_server_url(value, warnings)?;
+    if server_url.trim().is_empty() {
+        return Some(server_url);
+    }
+
+    match crate::device::normalize_base_url(&server_url) {
+        Ok(normalized) => Some(normalized.to_string()),
+        Err(error) => {
+            warnings.push(format!(
+                "stored server_url `{server_url}` could not be normalized: {error}"
+            ));
+            Some(server_url)
+        }
+    }
+}
+
+fn parse_raw_server_url(value: Option<&Value>, warnings: &mut Vec<String>) -> Option<String> {
+    match value {
+        None | Some(Value::Null) => None,
+        Some(Value::String(url)) => Some(url.clone()),
+        Some(value) => {
+            warnings.push(format!(
+                "invalid server_url: expected string or null, got {}; using null",
+                value_type(value)
+            ));
+            None
+        }
+    }
+}
+
+fn parse_refresh_interval(value: Option<&Value>, warnings: &mut Vec<String>) -> u64 {
+    match value {
+        None => DEFAULT_REFRESH_INTERVAL_SECS,
+        Some(Value::Number(number)) => {
+            if let Some(seconds) = number.as_u64()
+                && validate_refresh_interval(seconds).is_ok()
+            {
+                return seconds;
+            }
+
+            warnings.push(format!(
+                "invalid refresh_interval_secs: expected integer from {MIN_REFRESH_INTERVAL_SECS} to {MAX_REFRESH_INTERVAL_SECS}, got {number}; using {DEFAULT_REFRESH_INTERVAL_SECS}"
+            ));
+            DEFAULT_REFRESH_INTERVAL_SECS
+        }
+        Some(value) => {
+            warnings.push(format!(
+                "invalid refresh_interval_secs: expected integer from {MIN_REFRESH_INTERVAL_SECS} to {MAX_REFRESH_INTERVAL_SECS}, got {}; using {DEFAULT_REFRESH_INTERVAL_SECS}",
+                value_type(value)
+            ));
+            DEFAULT_REFRESH_INTERVAL_SECS
+        }
+    }
+}
+
+fn parse_bool_field(
+    value: Option<&Value>,
+    field: &str,
+    default: bool,
+    warnings: &mut Vec<String>,
+) -> bool {
+    match value {
+        None => default,
+        Some(Value::Bool(value)) => *value,
+        Some(value) => {
+            warnings.push(format!(
+                "invalid {field}: expected boolean, got {}; using {default}",
+                value_type(value)
+            ));
+            default
+        }
+    }
+}
+
+fn value_type(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "boolean",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    }
 }
 
 #[cfg(test)]

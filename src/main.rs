@@ -3,11 +3,7 @@ use std::{error::Error, process::ExitCode};
 use clap::Parser;
 use tracing_subscriber::{EnvFilter, fmt};
 
-pub mod cli;
-pub mod config;
-pub mod device;
-pub mod output;
-pub mod sensors;
+use airgradient_cli::cli;
 
 #[tokio::main]
 async fn main() -> ExitCode {

@@ -43,7 +43,19 @@ const HUMIDITY_COMPENSATED_KEYS: &[&str] = &[
 const HUMIDITY_KEYS: &[&str] = &["rhum", "humidity", "relativeHumidity", "relative_humidity"];
 const TVOC_KEYS: &[&str] = &["tvocIndex", "tvoc", "vocIndex", "voc_index", "tvoc_index"];
 const NOX_KEYS: &[&str] = &["noxIndex", "nox", "nox_index"];
+
+// Parser domain limits reject impossible transport/glitch values before they reach
+// shared presentation. The caps intentionally sit above normal threshold ranges.
 const MAX_AQI: f64 = 500.0;
+const MAX_CO2_PPM: f64 = 40_000.0;
+const MAX_TVOC_INDEX: f64 = 500.0;
+const MAX_NOX_INDEX: f64 = 500.0;
+const MAX_PM_MASS_UG_M3: f64 = 1_000.0;
+const MAX_PM03_COUNT_PER_DL: f64 = 1_000_000.0;
+const MIN_TEMPERATURE_C: f64 = -40.0;
+const MAX_TEMPERATURE_C: f64 = 85.0;
+const MIN_HUMIDITY_PERCENT: f64 = 0.0;
+const MAX_HUMIDITY_PERCENT: f64 = 100.0;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct SensorSnapshot {
@@ -61,22 +73,46 @@ pub struct SensorSnapshot {
 
 impl SensorSnapshot {
     pub fn from_airgradient_payload(payload: &Value) -> Self {
-        let pm25 = find_non_negative_number(payload, PM25_KEYS);
+        let pm25 = find_bounded_number(payload, PM25_KEYS, 0.0, MAX_PM_MASS_UG_M3);
         let explicit_aqi = find_bounded_number(payload, AQI_KEYS, 0.0, MAX_AQI);
 
         Self {
             aqi: explicit_aqi.or_else(|| pm25.map(us_aqi_from_pm25)),
-            co2: find_non_negative_number(payload, CO2_KEYS),
+            co2: find_bounded_number(payload, CO2_KEYS, 0.0, MAX_CO2_PPM),
             pm25,
-            pm1: find_non_negative_number(payload, PM1_KEYS),
-            pm10: find_non_negative_number(payload, PM10_KEYS),
-            pm03_count: find_non_negative_number(payload, PM03_COUNT_KEYS),
-            tvoc: find_non_negative_number(payload, TVOC_KEYS),
-            nox: find_non_negative_number(payload, NOX_KEYS),
-            temperature_c: find_number(payload, TEMPERATURE_COMPENSATED_KEYS)
-                .or_else(|| find_number(payload, TEMPERATURE_KEYS)),
-            humidity: find_bounded_number(payload, HUMIDITY_COMPENSATED_KEYS, 0.0, 100.0)
-                .or_else(|| find_bounded_number(payload, HUMIDITY_KEYS, 0.0, 100.0)),
+            pm1: find_bounded_number(payload, PM1_KEYS, 0.0, MAX_PM_MASS_UG_M3),
+            pm10: find_bounded_number(payload, PM10_KEYS, 0.0, MAX_PM_MASS_UG_M3),
+            pm03_count: find_bounded_number(payload, PM03_COUNT_KEYS, 0.0, MAX_PM03_COUNT_PER_DL),
+            tvoc: find_bounded_number(payload, TVOC_KEYS, 0.0, MAX_TVOC_INDEX),
+            nox: find_bounded_number(payload, NOX_KEYS, 0.0, MAX_NOX_INDEX),
+            temperature_c: find_bounded_number(
+                payload,
+                TEMPERATURE_COMPENSATED_KEYS,
+                MIN_TEMPERATURE_C,
+                MAX_TEMPERATURE_C,
+            )
+            .or_else(|| {
+                find_bounded_number(
+                    payload,
+                    TEMPERATURE_KEYS,
+                    MIN_TEMPERATURE_C,
+                    MAX_TEMPERATURE_C,
+                )
+            }),
+            humidity: find_bounded_number(
+                payload,
+                HUMIDITY_COMPENSATED_KEYS,
+                MIN_HUMIDITY_PERCENT,
+                MAX_HUMIDITY_PERCENT,
+            )
+            .or_else(|| {
+                find_bounded_number(
+                    payload,
+                    HUMIDITY_KEYS,
+                    MIN_HUMIDITY_PERCENT,
+                    MAX_HUMIDITY_PERCENT,
+                )
+            }),
         }
     }
 }
@@ -133,10 +169,6 @@ fn find_number(value: &Value, keys: &[&str]) -> Option<f64> {
     }
 }
 
-fn find_non_negative_number(value: &Value, keys: &[&str]) -> Option<f64> {
-    find_number(value, keys).filter(|value| *value >= 0.0)
-}
-
 fn find_bounded_number(value: &Value, keys: &[&str], min: f64, max: f64) -> Option<f64> {
     find_number(value, keys).filter(|value| (min..=max).contains(value))
 }
@@ -154,7 +186,9 @@ fn value_as_number(value: &Value) -> Option<f64> {
 }
 
 fn key_matches(actual: &str, expected: &str) -> bool {
-    normalized_key(actual) == normalized_key(expected)
+    actual.eq_ignore_ascii_case(expected)
+        || (normalized_key(actual) == normalized_key(expected)
+            && numeric_runs(actual) == numeric_runs(expected))
 }
 
 fn normalized_key(key: &str) -> String {
@@ -162,6 +196,25 @@ fn normalized_key(key: &str) -> String {
         .filter(|character| character.is_ascii_alphanumeric())
         .flat_map(char::to_lowercase)
         .collect()
+}
+
+fn numeric_runs(key: &str) -> Vec<String> {
+    let mut runs = Vec::new();
+    let mut current = String::new();
+
+    for character in key.chars() {
+        if character.is_ascii_digit() {
+            current.push(character);
+        } else if !current.is_empty() {
+            runs.push(std::mem::take(&mut current));
+        }
+    }
+
+    if !current.is_empty() {
+        runs.push(current);
+    }
+
+    runs
 }
 
 #[cfg(test)]
@@ -326,6 +379,22 @@ mod tests {
     }
 
     #[test]
+    fn treats_valid_explicit_aqi_as_precedent_over_invalid_pm25() {
+        let snapshot = parse_snapshot(&json!({ "aqi": 42.0, "pm02": 1001.0 }));
+
+        assert_eq!(snapshot.aqi, Some(42.0));
+        assert_eq!(snapshot.pm25, None);
+    }
+
+    #[test]
+    fn ignores_invalid_explicit_aqi_without_invalid_pm25_fallback() {
+        let snapshot = parse_snapshot(&json!({ "aqi": 501.0, "pm02": 1001.0 }));
+
+        assert_eq!(snapshot.aqi, None);
+        assert_eq!(snapshot.pm25, None);
+    }
+
+    #[test]
     fn treats_negative_co2_as_missing() {
         let snapshot = parse_snapshot(&json!({ "co2": -1.0 }));
 
@@ -353,6 +422,86 @@ mod tests {
         let snapshot = parse_snapshot(&json!({ "noxIndex": -1.0 }));
 
         assert_eq!(snapshot.nox, None);
+    }
+
+    #[test]
+    fn treats_absurdly_high_sensor_values_as_missing() {
+        let snapshot = parse_snapshot(&json!({
+            "co2": 40_000.1,
+            "pm02": 1_000.1,
+            "pm01": 1_000.1,
+            "pm10": 1_000.1,
+            "pm003Count": 1_000_000.1,
+            "tvocIndex": 500.1,
+            "noxIndex": 500.1,
+            "atmp": 85.1,
+            "rhum": 100.1
+        }));
+
+        assert_eq!(snapshot.co2, None);
+        assert_eq!(snapshot.pm25, None);
+        assert_eq!(snapshot.aqi, None);
+        assert_eq!(snapshot.pm1, None);
+        assert_eq!(snapshot.pm10, None);
+        assert_eq!(snapshot.pm03_count, None);
+        assert_eq!(snapshot.tvoc, None);
+        assert_eq!(snapshot.nox, None);
+        assert_eq!(snapshot.temperature_c, None);
+        assert_eq!(snapshot.humidity, None);
+    }
+
+    #[test]
+    fn treats_absurdly_high_numeric_strings_as_missing() {
+        let snapshot = parse_snapshot(&json!({
+            "co2": "40000.1",
+            "pm02": "1000.1",
+            "pm01": "1000.1",
+            "pm10": "1000.1",
+            "pm003Count": "1000000.1",
+            "tvocIndex": "500.1",
+            "noxIndex": "500.1",
+            "atmp": "85.1",
+            "rhum": "100.1",
+            "aqi": "500.1"
+        }));
+
+        assert_eq!(snapshot.co2, None);
+        assert_eq!(snapshot.pm25, None);
+        assert_eq!(snapshot.aqi, None);
+        assert_eq!(snapshot.pm1, None);
+        assert_eq!(snapshot.pm10, None);
+        assert_eq!(snapshot.pm03_count, None);
+        assert_eq!(snapshot.tvoc, None);
+        assert_eq!(snapshot.nox, None);
+        assert_eq!(snapshot.temperature_c, None);
+        assert_eq!(snapshot.humidity, None);
+    }
+
+    #[test]
+    fn keeps_sensor_values_at_domain_upper_bounds_valid() {
+        let snapshot = parse_snapshot(&json!({
+            "co2": 40_000.0,
+            "pm02": 1_000.0,
+            "pm01": 1_000.0,
+            "pm10": 1_000.0,
+            "pm003Count": 1_000_000.0,
+            "tvocIndex": 500.0,
+            "noxIndex": 500.0,
+            "atmp": 85.0,
+            "rhum": 100.0,
+            "aqi": 500.0
+        }));
+
+        assert_eq!(snapshot.co2, Some(40_000.0));
+        assert_eq!(snapshot.pm25, Some(1_000.0));
+        assert_eq!(snapshot.aqi, Some(500.0));
+        assert_eq!(snapshot.pm1, Some(1_000.0));
+        assert_eq!(snapshot.pm10, Some(1_000.0));
+        assert_eq!(snapshot.pm03_count, Some(1_000_000.0));
+        assert_eq!(snapshot.tvoc, Some(500.0));
+        assert_eq!(snapshot.nox, Some(500.0));
+        assert_eq!(snapshot.temperature_c, Some(85.0));
+        assert_eq!(snapshot.humidity, Some(100.0));
     }
 
     #[test]

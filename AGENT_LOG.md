@@ -273,3 +273,97 @@ M  src/device.rs
 M  src/main.rs
 M  src/sensors/air_quality.rs
 M  tests/cli.rs
+2026-06-21T14:32:09Z iteration 4 started remaining=16191s
+2026-06-21T14:32:09Z iteration 4 preplanner effective budgets untracked_scan_max_bytes=536870912 untracked_scan_max_count=10000 snapshot_copy_max_bytes=536870912 snapshot_copy_max_count=10000 snapshot_copy_max_file_bytes=134217728
+2026-06-21T14:32:09Z iteration 4 disposable preplanner repo created path=/tmp/agent-loop-preplanner-repo-qtig1q5w/repo copied_entries=21
+2026-06-21T14:32:09Z iteration 4 ideator phase started count=3
+2026-06-21T14:32:09Z iteration 4 ideator phase concurrency workers=3
+2026-06-21T14:32:09Z iteration 4 ideator 1 role="the pragmatist" started
+2026-06-21T14:32:09Z iteration 4 ideator 2 role="the architect" started
+2026-06-21T14:32:09Z iteration 4 ideator 3 role="the contrarian" started
+2026-06-21T14:32:17Z iteration 4 ideator 1 role="the pragmatist" completed status=0
+2026-06-21T14:32:19Z iteration 4 ideator 2 role="the architect" completed status=0
+2026-06-21T14:32:22Z iteration 4 ideator 3 role="the contrarian" completed status=0
+2026-06-21T14:32:22Z iteration 4 ideator phase completed approaches=3
+2026-06-21T14:32:22Z iteration 4 selector started approaches=3
+2026-06-21T14:32:32Z iteration 4 selector completed status=0
+2026-06-21T14:32:32Z iteration 4 disposable preplanner repo cleanup path=/tmp/agent-loop-preplanner-repo-qtig1q5w/repo
+2026-06-21T14:32:32Z iteration 4 selector rejected alternative role="the pragmatist" approach="Contract-First Stabilization Before TUI: treat iteration 4 as a boundary-hardening pass that makes fetch settings, partial config handling, and sensor-domain policy explicit bef..." reason="Strong on boundary hardening, but selected too much of Phase 4A as an isolated cleanup pass and did not explicitly preserve a small TUI architecture proof to prevent over-design."
+2026-06-21T14:32:32Z iteration 4 selector rejected alternative role="the architect" approach="Contract-First TUI Enablement: stabilize the shared runtime and data contracts before drawing the dashboard, then let the TUI consume only those hardened seams." reason="Closest to the selected direction, but it framed the work too broadly as architectural enablement; the Planner should keep the scope narrower and explicitly guard against turning contract cleanup into general refactoring."
+2026-06-21T14:32:32Z iteration 4 selector rejected alternative role="the contrarian" approach="Contract-First TUI Gate: pause visible TUI work until the CLI/runtime/config contracts are made hard to break, then build the dashboard as a thin consumer of those contracts." reason="Correctly identifies TUI as a contract amplifier, but the hard gate on visible TUI work is too conservative because acceptance criteria still require a working dashboard and the design needs at least minimal validation against TUI state/..."
+2026-06-21T14:32:32Z iteration 4 selector alternatives persisted count=3
+2026-06-21T14:32:32Z iteration 4 selector structured alternatives persisted count=3
+2026-06-21T14:32:32Z iteration 4 planner started
+2026-06-21T14:32:56Z iteration 4 plan: 5 task(s) in 4 phase(s). This iteration keeps the strategic focus on contracts needed before a live dashboard: shared fetch runtime settings, raw-plus-typed config tolerance, defensible sensor validation, and parser priority confidence. The only TUI work is a narrow pure state-machine proof so future Ratatui work can reuse stable semantics without taking on terminal layout or event-loop complexity yet.
+2026-06-21T14:32:56Z iteration 4 phase 1 started parallel=False tasks=1
+2026-06-21T14:34:29Z iteration 4 task t1 ('Extract shared fetch runtime settings') status=0
+2026-06-21T14:34:29Z iteration 4 phase 2 started parallel=True tasks=2
+2026-06-21T14:36:32Z iteration 4 task t3 ('Finalize sensor domain validation policy') status=0
+2026-06-21T14:37:32Z iteration 4 task t2 ('Harden raw config display and repair') status=0
+2026-06-21T14:37:32Z iteration 4 phase 3 started parallel=False tasks=1
+2026-06-21T14:40:27Z iteration 4 task t4 ('Add parser priority fixtures') status=0
+2026-06-21T14:40:27Z iteration 4 phase 4 started parallel=False tasks=1
+2026-06-21T14:42:25Z iteration 4 task t5 ('Prove TUI-facing state contracts without terminal UI') status=0
+2026-06-21T14:42:25Z iteration 4 reviewer started
+
+## Reviewer Summary: Iteration 4
+
+Date: 2026-06-21
+Reviewer stance: fresh senior review; implementation inspected through `git diff`, full changed-file context, new untracked files, fixtures, and validation commands.
+
+### What Was Done
+
+- Added `device::FetchSettings` and routed one-shot CLI fetching through a single reusable client-construction path.
+- Added raw-object config display/repair paths so malformed known fields default with warnings while unknown top-level sibling fields remain preserved.
+- Added repair coverage for malformed `server_url` and malformed `refresh_interval_secs`.
+- Added upper-bound parser guardrails for CO2, TVOC, NOx, PM mass, PM0.3 count, temperature, AQI, and humidity, including numeric-string coverage.
+- Added parser fixtures for AirGradient-style payloads, alternate names, nested conflicts, invalid/missing values, and compensated-field fallback.
+- Added `src/lib.rs` and a pure `tui::app::TuiApp` state model with tests for success/failure transitions, previous snapshot preservation, trend baseline, and refresh interval bounds.
+
+### Verification
+
+- `cargo test` passed: 57 library unit tests, 28 CLI integration tests, and 34 sensor fixture integration tests.
+- `cargo fmt --check` passed.
+- `cargo clippy --all-targets --all-features -- -D warnings` passed.
+
+### Findings
+
+- High: `--tui` is still accepted but not implemented, so the main product acceptance criterion remains open.
+- Medium: bounded sensor lookup selects the first syntactically numeric matching value and only then applies bounds. An invalid higher-priority field can suppress a later valid alternate or nested candidate for the same metric.
+- Medium: `tests/sensor_parsing.rs` imports source modules through `#[path = "../src/sensors/mod.rs"]` instead of the library crate, causing internal sensor unit tests to rerun in the integration binary and weakening the public API contract.
+- Medium: non-object top-level config JSON remains a hard error for display and repair. This is a reasonable preservation boundary, but it should be documented explicitly.
+- Low: sensor upper bounds are practical glitch guards rather than hardware-validated maxima; they need documentation and later real-device validation.
+- Low: `TuiApp` already stores fetch settings and a client, but no runtime consumes them yet; the next TUI pass should either wire them into the event loop or reduce the public state.
+
+### Top Improvement Proposals
+
+1. Fix bounded parser candidate selection so invalid values are skipped and valid alternates/nested candidates can still populate the metric.
+2. Convert sensor fixture integration tests to use `airgradient_cli::sensors::parse_snapshot` through the library crate and remove source-path imports.
+3. Document config repair limits, sensor upper-bound policy, and the status of `AIRGRADIENT_CLI_FETCH_TIMEOUT_MS`.
+4. Move into the functional Ratatui dashboard: dependencies, terminal setup, event loop, immediate/interval refresh, keyboard controls, and render smoke tests.
+5. Keep TUI rendering tied to the shared metric presentation spine and the existing `TuiApp` state transitions to avoid drift from one-shot output.
+2026-06-21T14:45:09Z iteration 4 reviewer completed status=0
+2026-06-21T14:45:09Z iteration 4 memory updated
+2026-06-21T14:45:09Z iteration 4 completed validation_status=0
+2026-06-21T14:45:09Z iteration 4 checkpoint started
+2026-06-21T14:45:09Z iteration 4 checkpoint status before commit:
+M  AGENT_LOG.md
+M  ALTERNATIVES.jsonl
+M  MEMORY.md
+M  PLAN.md
+M  SCORES.jsonl
+M  src/cli.rs
+M  src/config.rs
+M  src/device.rs
+A  src/lib.rs
+M  src/main.rs
+M  src/sensors/air_quality.rs
+A  src/tui/app.rs
+A  src/tui/mod.rs
+M  tests/cli.rs
+A  tests/fixtures/alternate_field_names_payload.json
+A  tests/fixtures/compensated_fallback_payload.json
+A  tests/fixtures/current_airgradient_payload.json
+A  tests/fixtures/missing_values_payload.json
+A  tests/fixtures/nested_conflicting_payload.json
+A  tests/sensor_parsing.rs

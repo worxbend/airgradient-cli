@@ -127,9 +127,8 @@ async fn run_config_command(command: &ConfigCommand, cli: &Cli) -> Result<(), Cl
             println!("{}", path.display());
         }
         ConfigCommand::Show => {
-            let config = config::read_config(&path)?;
-            let display = config::normalized_display_config(config);
-            if let Some(warning) = display.warning {
+            let display = config::read_display_config(&path)?;
+            for warning in display.warnings {
                 eprintln!("warning: {warning}");
             }
             println!("{}", serde_json::to_string_pretty(&display.config)?);
@@ -152,13 +151,11 @@ async fn run_fetch(cli: &Cli, json: bool) -> Result<(), CliError> {
     let config = effective_config(&path, cli)?;
     let server_url = required_server_url(&config)?;
     let base_url = device::normalize_base_url(&server_url)?;
+    let fetch_settings = fetch_settings()?;
+    let client = fetch_settings.client()?;
 
     let started = Instant::now();
-    let payload = if let Some(timeout) = fetch_timeout_override()? {
-        device::fetch_current_measures_with_timeout(&base_url, timeout).await?
-    } else {
-        device::fetch_current_measures(&base_url).await?
-    };
+    let payload = device::fetch_current_measures_with_client(&client, &base_url).await?;
     let fetch_duration = started.elapsed();
     let snapshot = sensors::parse_snapshot(&payload);
     let metadata = OutputMetadata {
@@ -198,16 +195,16 @@ fn effective_config(path: &Path, cli: &Cli) -> Result<Config, CliError> {
     Ok(config)
 }
 
-fn fetch_timeout_override() -> Result<Option<Duration>, CliError> {
+fn fetch_settings() -> Result<device::FetchSettings, CliError> {
     let Ok(value) = env::var("AIRGRADIENT_CLI_FETCH_TIMEOUT_MS") else {
-        return Ok(None);
+        return Ok(device::FetchSettings::default());
     };
 
     let millis = value
         .parse::<u64>()
         .map_err(|source| CliError::InvalidFetchTimeoutOverride { value, source })?;
 
-    Ok(Some(Duration::from_millis(millis)))
+    Ok(device::FetchSettings::new(Duration::from_millis(millis)))
 }
 
 fn required_server_url(config: &Config) -> Result<String, CliError> {
