@@ -626,3 +626,89 @@ M  SCORES.jsonl
 M  src/tui/runtime.rs
 M  tests/cli.rs
 M  tests/tui_render.rs
+2026-06-21T15:22:07Z iteration 8 started remaining=13193s
+2026-06-21T15:22:07Z iteration 8 preplanner effective budgets untracked_scan_max_bytes=536870912 untracked_scan_max_count=10000 snapshot_copy_max_bytes=536870912 snapshot_copy_max_count=10000 snapshot_copy_max_file_bytes=134217728
+2026-06-21T15:22:07Z iteration 8 disposable preplanner repo created path=/tmp/agent-loop-preplanner-repo-62b_o91k/repo copied_entries=34
+2026-06-21T15:22:07Z iteration 8 ideator phase started count=3
+2026-06-21T15:22:07Z iteration 8 ideator phase concurrency workers=3
+2026-06-21T15:22:07Z iteration 8 ideator 1 role="the pragmatist" started
+2026-06-21T15:22:07Z iteration 8 ideator 2 role="the architect" started
+2026-06-21T15:22:07Z iteration 8 ideator 3 role="the contrarian" started
+2026-06-21T15:22:16Z iteration 8 ideator 1 role="the pragmatist" completed status=0
+2026-06-21T15:22:16Z iteration 8 ideator 3 role="the contrarian" completed status=0
+2026-06-21T15:22:17Z iteration 8 ideator 2 role="the architect" completed status=0
+2026-06-21T15:22:17Z iteration 8 ideator phase completed approaches=3
+2026-06-21T15:22:17Z iteration 8 selector started approaches=3
+2026-06-21T15:22:28Z iteration 8 selector completed status=0
+2026-06-21T15:22:28Z iteration 8 disposable preplanner repo cleanup path=/tmp/agent-loop-preplanner-repo-62b_o91k/repo
+2026-06-21T15:22:28Z iteration 8 selector rejected alternative role="the pragmatist" approach="Runtime Contract First: stabilize the TUI around explicit ownership, observable state, and time semantics before expanding end-to-end coverage or release hygiene." reason="Not rejected in substance; it is selected as part of the synthesis. Its framing is strong, but the synthesized version makes the deferral of Phase 8B/8C more explicit so the Planner does not dilute the iteration with release or broad int..."
+2026-06-21T15:22:28Z iteration 8 selector rejected alternative role="the contrarian" approach="Contract-First Runtime Freeze: define the TUI runtime as a small, explicit state machine with strict lifecycle and timing contracts before touching broader UX, release, or PTY w..." reason="Not selected as-is because its 'runtime freeze' framing could imply too much abstraction or delay all external validation. The useful part is preserving a narrow contract-first pass, while avoiding a heavier state-machine redesign unless..."
+2026-06-21T15:22:28Z iteration 8 selector rejected alternative role="the architect" approach="Runtime Contract First: treat Phase 8 as a stabilization pass around the TUI runtime boundary, making lifecycle, timing, and embedding assumptions explicit before expanding end-..." reason="Not rejected in substance; it aligns closely with the selected strategy. The synthesis sharpens the scope by naming the exact runtime semantics that should guide planning and by positioning PTY/release work as follow-on confirmation rath..."
+2026-06-21T15:22:28Z iteration 8 selector alternatives persisted count=3
+2026-06-21T15:22:28Z iteration 8 selector structured alternatives persisted count=3
+2026-06-21T15:22:28Z iteration 8 planner started
+2026-06-21T15:23:24Z iteration 8 plan: 5 task(s) in 4 phase(s). This iteration deliberately stabilizes the TUI runtime contract before adding PTY, release, or packaging work. Phase 1 creates the shared state API needed by both runtime and rendering. Phase 2 can run in parallel because fetch lifecycle ownership is isolated to runtime while visual status work is isolated to UI/render tests after the app contract exists. Timing and async/blocking behavior both live in the runtime loop, so they remain sequential to avoid conflicting edits and unclear semantics.
+2026-06-21T15:23:24Z iteration 8 phase 1 started parallel=False tasks=1
+2026-06-21T15:26:07Z iteration 8 task t1 ('Define TUI Runtime State Contract') status=0
+2026-06-21T15:26:07Z iteration 8 phase 2 started parallel=True tasks=2
+2026-06-21T15:27:58Z iteration 8 task t3 ('Render In-Flight Fetch Status') status=0
+2026-06-21T15:28:53Z iteration 8 task t2 ('Make Fetch Ownership Explicit') status=0
+2026-06-21T15:28:53Z iteration 8 phase 3 started parallel=False tasks=1
+2026-06-21T15:31:31Z iteration 8 task t4 ('Use Wall-Clock Refresh Scheduling') status=0
+2026-06-21T15:31:31Z iteration 8 phase 4 started parallel=False tasks=1
+2026-06-21T15:34:32Z iteration 8 task t5 ('Remove Blocking Runtime Assumption') status=0
+2026-06-21T15:34:32Z iteration 8 reviewer started
+
+## Reviewer Summary: Iteration 8
+
+Date: 2026-06-21
+Reviewer stance: fresh senior review; implementation inspected through `git diff`, full touched-file context, runtime/UI tests, plan/log context, and validation commands.
+
+### What Was Done
+
+- Simplified `TuiApp` so it no longer publicly stores `FetchSettings` or a `reqwest::Client`; render state is now pure dashboard state again.
+- Added explicit fetch lifecycle state to `TuiApp` with `is_fetching`, `begin_fetch`, `finish_fetch_success`, and `finish_fetch_failure`.
+- Rendered in-flight states in the dashboard: initial `fetching`, active `refreshing`, missing config, waiting, updated, and fetch failed.
+- Made `BackgroundMeasureFetcher` track request ids plus an active `JoinHandle`; quit and fatal runtime errors abort pending fetches and clear the visible pending state.
+- Added stale-completion protection so canceled fetch results cannot mutate the app after cancellation.
+- Replaced synthetic scheduler time advancement with wall-clock sampling via a small `RuntimeClock` abstraction.
+- Moved crossterm `poll` and `read` calls into `tokio::task::spawn_blocking`, with a current-thread runtime regression test proving fetch tasks still progress while terminal polling blocks.
+- Added runtime tests for pending-fetch cancellation on quit/draw/poll/read failure, stale result discard, early false polls, delayed polls, manual-refresh interval reset, and current-thread progress.
+- Added TUI render tests for missing-config pending state, first-fetch status, and refreshing-with-last-success state.
+
+### Verification
+
+- `cargo test` passed: 84 library unit tests, 28 CLI integration tests, 12 sensor parsing integration tests, and 11 TUI render integration tests.
+- `cargo fmt --check` passed.
+- `cargo clippy --all-targets --all-features -- -D warnings` passed.
+
+### Findings
+
+- Medium: pending background fetches are now aborted, but `BackgroundMeasureFetcher::cancel_fetch` does not await or otherwise observe the aborted `JoinHandle`. Cleanup requests cancellation and discards stale messages, but it does not prove the task has stopped before `run` returns, and a panicked fetch task would be silently detached.
+- Medium: the runtime harness is strong, but the real crossterm path is still not covered by a pseudo-terminal integration test that starts the binary, sends `q`/`Esc`, and verifies terminal setup/cleanup behavior.
+- Medium: the TUI fetch contract is not covered end to end with a real HTTP server in TUI mode. Harness tests cover scheduling, but the binary path still needs proof that `--tui --url <server>` requests `/measures/current` and respects URL/refresh overrides.
+- Medium: layout tests remain mostly string-presence checks. They prove nonblank rendering and some clipping behavior, but not coordinate-level layout, absence of overlap, or a documented minimum supported terminal size.
+- Low: while `fetching`/`refreshing` status works, stale error-panel behavior during a retry remains a UX decision. The current implementation can show `refreshing` in the top bar while the previous error panel remains visible until the new result arrives.
+- Low: `color-eyre` remains in `Cargo.toml` and `Cargo.lock` even though no code path uses it.
+
+### Top Improvement Proposals
+
+1. Add PTY-based integration coverage for the real TUI startup/quit path, skipped cleanly when PTY support is unavailable.
+2. Add a real HTTP-server TUI integration test for `/measures/current`, URL override precedence, refresh override precedence, startup success/failure, and at least one manual or interval refresh path.
+3. Decide and test the final cancellation contract: request-only abort, awaited abort/shutdown, or explicit documented detachment; avoid silently losing fetch-task panics.
+4. Strengthen layout assertions with coordinate or snapshot checks and define the minimum supported terminal size.
+5. Remove unused `color-eyre`, then add packaging/install notes and dependency-audit guidance.
+2026-06-21T15:37:33Z iteration 8 reviewer completed status=0
+2026-06-21T15:37:33Z iteration 8 memory updated
+2026-06-21T15:37:33Z iteration 8 completed validation_status=0
+2026-06-21T15:37:33Z iteration 8 checkpoint started
+2026-06-21T15:37:33Z iteration 8 checkpoint status before commit:
+M  AGENT_LOG.md
+M  ALTERNATIVES.jsonl
+M  MEMORY.md
+M  PLAN.md
+M  SCORES.jsonl
+M  src/tui/app.rs
+M  src/tui/runtime.rs
+M  src/tui/ui.rs
+M  tests/tui_render.rs

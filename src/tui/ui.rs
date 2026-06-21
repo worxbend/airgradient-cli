@@ -82,6 +82,10 @@ fn render_aqi(frame: &mut Frame<'_>, area: Rect, metric: &Metric, app: &TuiApp) 
     let status = metric.status.label();
     let message = if app.configured_url.is_none() {
         "Set a device URL with config set-url or pass a URL override."
+    } else if app.is_fetching && app.current_snapshot.is_none() {
+        "Fetching the first air quality reading."
+    } else if app.is_fetching {
+        "Refreshing; showing the latest successful reading."
     } else if app.current_snapshot.is_none() {
         "Waiting for the first successful reading."
     } else {
@@ -228,6 +232,14 @@ fn metric_value(metric: &Metric) -> &str {
 fn fetch_status(app: &TuiApp) -> Span<'static> {
     if app.configured_url.is_none() {
         return Span::styled("missing config", theme::error_style());
+    }
+
+    if app.is_fetching {
+        if app.current_snapshot.is_some() {
+            return Span::styled("refreshing", theme::muted_style());
+        }
+
+        return Span::styled("fetching", theme::muted_style());
     }
 
     if app.current_error.is_some() {

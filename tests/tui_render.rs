@@ -1,12 +1,10 @@
 use std::time::{Duration, SystemTime};
 
 use airgradient_cli::{
-    device::FetchSettings,
     sensors::SensorSnapshot,
     tui::{app::TuiApp, ui},
 };
 use ratatui::{Terminal, backend::TestBackend};
-use reqwest::Client;
 use url::Url;
 
 struct Rendered {
@@ -44,12 +42,11 @@ fn render_at(app: &TuiApp, width: u16, height: u16) -> Rendered {
 }
 
 fn app(configured_url: Option<Url>) -> TuiApp {
-    TuiApp::with_client(
-        configured_url,
-        Duration::from_secs(30),
-        FetchSettings::default(),
-        Client::new(),
-    )
+    TuiApp::new(configured_url, Duration::from_secs(30))
+}
+
+fn device_url() -> Url {
+    Url::parse("http://192.168.1.201/").expect("url should parse")
 }
 
 fn populated_snapshot() -> SensorSnapshot {
@@ -98,11 +95,67 @@ fn renders_useful_dashboard_without_configured_url() {
 }
 
 #[test]
+fn renders_missing_config_without_pending_fetch_status() {
+    let mut app = app(None);
+    app.begin_fetch();
+
+    let output = render(&app);
+
+    assert_nonblank(&output);
+    assert!(output.output.contains("missing config"));
+    assert!(!output.output.contains("fetching"));
+    assert!(!output.output.contains("refreshing"));
+    assert!(output.output.contains("Set a device URL"));
+}
+
+#[test]
+fn renders_initial_fetching_status_without_snapshot() {
+    let mut app = app(Some(device_url()));
+    app.begin_fetch();
+
+    let output = render(&app);
+
+    assert_nonblank(&output);
+    assert!(output.output.contains("fetching"));
+    assert!(
+        output
+            .output
+            .contains("Fetching the first air quality reading.")
+    );
+    assert!(output.output.contains("--"));
+    assert!(!output.output.contains("fetch failed"));
+}
+
+#[test]
+fn renders_refreshing_status_while_preserving_previous_success() {
+    let mut app = app(Some(device_url()));
+    app.finish_fetch_success(
+        populated_snapshot(),
+        Duration::from_millis(125),
+        SystemTime::now(),
+    );
+    app.begin_fetch();
+
+    let output = render(&app);
+
+    assert_nonblank(&output);
+    assert!(output.output.contains("refreshing"));
+    assert!(
+        output
+            .output
+            .contains("Refreshing; showing the latest successful reading.")
+    );
+    assert!(output.output.contains("AQI"));
+    assert!(output.output.contains("42"));
+    assert!(output.output.contains("CO2"));
+    assert!(output.output.contains("612"));
+    assert!(!output.output.contains("waiting for first fetch"));
+}
+
+#[test]
 fn renders_populated_snapshot() {
-    let mut app = app(Some(
-        Url::parse("http://192.168.1.201/").expect("url should parse"),
-    ));
-    app.apply_success(
+    let mut app = app(Some(device_url()));
+    app.finish_fetch_success(
         populated_snapshot(),
         Duration::from_millis(125),
         SystemTime::now(),
@@ -123,15 +176,13 @@ fn renders_populated_snapshot() {
 
 #[test]
 fn renders_active_error_without_dropping_previous_successful_snapshot() {
-    let mut app = app(Some(
-        Url::parse("http://192.168.1.201/").expect("url should parse"),
-    ));
-    app.apply_success(
+    let mut app = app(Some(device_url()));
+    app.finish_fetch_success(
         populated_snapshot(),
         Duration::from_millis(110),
         SystemTime::now(),
     );
-    app.apply_failure("request timed out", Duration::from_millis(250));
+    app.finish_fetch_failure("request timed out", Duration::from_millis(250));
 
     let output = render(&app);
 
@@ -147,10 +198,8 @@ fn renders_active_error_without_dropping_previous_successful_snapshot() {
 
 #[test]
 fn renders_requested_compact_sizes_without_panics() {
-    let mut app = app(Some(
-        Url::parse("http://192.168.1.201/").expect("url should parse"),
-    ));
-    app.apply_success(
+    let mut app = app(Some(device_url()));
+    app.finish_fetch_success(
         populated_snapshot(),
         Duration::from_millis(125),
         SystemTime::now(),
@@ -172,7 +221,7 @@ fn truncates_long_configured_url_predictably_on_compact_width() {
         Url::parse("https://very-long-airgradient-device-name.example.internal:8443/")
             .expect("url should parse"),
     ));
-    app.apply_success(
+    app.finish_fetch_success(
         populated_snapshot(),
         Duration::from_millis(125),
         SystemTime::now(),
@@ -192,10 +241,8 @@ fn truncates_long_configured_url_predictably_on_compact_width() {
 
 #[test]
 fn renders_all_missing_metric_values_after_success() {
-    let mut app = app(Some(
-        Url::parse("http://192.168.1.201/").expect("url should parse"),
-    ));
-    app.apply_success(
+    let mut app = app(Some(device_url()));
+    app.finish_fetch_success(
         SensorSnapshot::default(),
         Duration::from_millis(125),
         SystemTime::now(),
@@ -215,7 +262,7 @@ fn renders_all_missing_metric_values_after_success() {
 #[test]
 fn renders_long_config_error_without_losing_controls() {
     let mut app = app(None);
-    app.apply_failure(
+    app.finish_fetch_failure(
         "configuration error: server_url contains an unsupported scheme and a very long explanatory message",
         Duration::from_millis(5),
     );
@@ -237,15 +284,13 @@ fn renders_long_config_error_without_losing_controls() {
 
 #[test]
 fn renders_long_fetch_error_with_last_success_on_narrow_width() {
-    let mut app = app(Some(
-        Url::parse("http://192.168.1.201/").expect("url should parse"),
-    ));
-    app.apply_success(
+    let mut app = app(Some(device_url()));
+    app.finish_fetch_success(
         populated_snapshot(),
         Duration::from_millis(110),
         SystemTime::now(),
     );
-    app.apply_failure(
+    app.finish_fetch_failure(
         "request failed after retries: connection timed out while reading response headers from the device",
         Duration::from_millis(250),
     );

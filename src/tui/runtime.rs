@@ -15,6 +15,7 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 use reqwest::Client;
 use serde_json::Value;
 use thiserror::Error;
+use tokio::task::JoinHandle;
 use url::Url;
 
 use crate::{
@@ -57,11 +58,9 @@ pub async fn run(options: RuntimeOptions) -> Result<(), RuntimeError> {
 
     let effective_config = EffectiveConfig::resolve(&options);
     let fetch_client = options.fetch_settings.client()?;
-    let mut app = TuiApp::with_client(
+    let mut app = TuiApp::new(
         effective_config.configured_url,
         effective_config.refresh_interval,
-        options.fetch_settings,
-        fetch_client.clone(),
     );
 
     if let Some(error) = effective_config.current_error {
@@ -71,7 +70,7 @@ pub async fn run(options: RuntimeOptions) -> Result<(), RuntimeError> {
     let mut terminal = CrosstermRuntime::default();
     let mut fetcher = BackgroundMeasureFetcher::new(fetch_client);
 
-    run_with_adapters(&mut terminal, &mut app, &mut fetcher)
+    run_with_adapters(&mut terminal, &mut app, &mut fetcher).await
 }
 
 fn ensure_interactive_terminal() -> Result<(), RuntimeError> {
@@ -82,7 +81,7 @@ fn ensure_interactive_terminal() -> Result<(), RuntimeError> {
     }
 }
 
-fn run_with_adapters<T, F>(
+async fn run_with_adapters<T, F>(
     terminal: &mut T,
     app: &mut TuiApp,
     fetcher: &mut F,
@@ -93,7 +92,8 @@ where
 {
     terminal.enter()?;
 
-    let result = run_loop(terminal, app, fetcher);
+    let mut clock = SystemClock;
+    let result = run_loop(terminal, app, fetcher, &mut clock).await;
     let cleanup_result = terminal.cleanup();
 
     match (result, cleanup_result) {
@@ -118,35 +118,56 @@ impl RuntimeError {
     }
 }
 
-fn run_loop<T, F>(terminal: &mut T, app: &mut TuiApp, fetcher: &mut F) -> Result<(), RuntimeError>
+async fn run_loop<T, F, C>(
+    terminal: &mut T,
+    app: &mut TuiApp,
+    fetcher: &mut F,
+    clock: &mut C,
+) -> Result<(), RuntimeError>
 where
     T: TerminalRuntime,
     F: MeasureFetchWorker,
+    C: RuntimeClock,
 {
     let mut fetch_scheduler = FetchScheduler::default();
 
-    if app.configured_url.is_some() {
-        fetch_scheduler.request_refresh(app, fetcher);
-        fetch_scheduler.apply_ready_results(app, fetcher);
-    }
-
-    terminal.draw(app)?;
-    let mut now = Instant::now();
-    let mut next_refresh = now + app.refresh_interval;
-
-    loop {
-        if fetch_scheduler.apply_ready_results(app, fetcher) {
-            terminal.draw(app)?;
+    let result = async {
+        if app.configured_url.is_some() {
+            fetch_scheduler.request_refresh(app, fetcher);
+            fetch_scheduler.apply_ready_results(app, fetcher);
         }
 
-        let time_until_refresh = next_refresh.saturating_duration_since(now);
-        let poll_timeout = time_until_refresh.min(FETCH_RESULT_POLL_INTERVAL);
+        terminal.draw(app)?;
+        let mut now = clock.now();
+        let mut next_refresh = now + app.refresh_interval;
 
-        if terminal.poll_event(poll_timeout)? {
-            now = Instant::now();
-            match terminal.read_event()? {
-                RuntimeEvent::Quit => break,
-                RuntimeEvent::Refresh => {
+        loop {
+            if fetch_scheduler.apply_ready_results(app, fetcher) {
+                terminal.draw(app)?;
+            }
+
+            now = clock.now();
+            let time_until_refresh = next_refresh.saturating_duration_since(now);
+            let poll_timeout = time_until_refresh.min(FETCH_RESULT_POLL_INTERVAL);
+
+            if terminal.poll_event(poll_timeout).await? {
+                let _poll_returned_at = clock.now();
+                match terminal.read_event().await? {
+                    RuntimeEvent::Quit => break,
+                    RuntimeEvent::Refresh => {
+                        now = clock.now();
+                        if app.configured_url.is_some() {
+                            fetch_scheduler.request_refresh(app, fetcher);
+                            fetch_scheduler.apply_ready_results(app, fetcher);
+                        }
+                        next_refresh = now + app.refresh_interval;
+                        terminal.draw(app)?;
+                    }
+                    RuntimeEvent::Ignored => {}
+                }
+
+                now = clock.now();
+                if now >= next_refresh {
                     if app.configured_url.is_some() {
                         fetch_scheduler.request_refresh(app, fetcher);
                         fetch_scheduler.apply_ready_results(app, fetcher);
@@ -154,24 +175,40 @@ where
                     next_refresh = now + app.refresh_interval;
                     terminal.draw(app)?;
                 }
-                RuntimeEvent::Ignored => {}
+
+                continue;
             }
 
-            continue;
+            now = clock.now();
+            if now >= next_refresh {
+                if app.configured_url.is_some() {
+                    fetch_scheduler.request_refresh(app, fetcher);
+                    fetch_scheduler.apply_ready_results(app, fetcher);
+                }
+                next_refresh = now + app.refresh_interval;
+                terminal.draw(app)?;
+            }
         }
 
-        now += poll_timeout;
-        if now >= next_refresh {
-            if app.configured_url.is_some() {
-                fetch_scheduler.request_refresh(app, fetcher);
-                fetch_scheduler.apply_ready_results(app, fetcher);
-            }
-            next_refresh = now + app.refresh_interval;
-            terminal.draw(app)?;
-        }
+        Ok(())
     }
+    .await;
 
-    Ok(())
+    fetch_scheduler.cancel_pending_fetch(app, fetcher);
+
+    result
+}
+
+trait RuntimeClock {
+    fn now(&mut self) -> Instant;
+}
+
+struct SystemClock;
+
+impl RuntimeClock for SystemClock {
+    fn now(&mut self) -> Instant {
+        Instant::now()
+    }
 }
 
 #[derive(Debug, Default)]
@@ -181,7 +218,7 @@ struct FetchScheduler {
 }
 
 impl FetchScheduler {
-    fn request_refresh<F>(&mut self, app: &TuiApp, fetcher: &mut F)
+    fn request_refresh<F>(&mut self, app: &mut TuiApp, fetcher: &mut F)
     where
         F: MeasureFetchWorker,
     {
@@ -196,12 +233,18 @@ impl FetchScheduler {
 
         fetcher.start_fetch(base_url);
         self.in_flight = true;
+        app.begin_fetch();
     }
 
     fn apply_ready_results<F>(&mut self, app: &mut TuiApp, fetcher: &mut F) -> bool
     where
         F: MeasureFetchWorker,
     {
+        if !self.in_flight {
+            while fetcher.try_recv_fetch().is_some() {}
+            return false;
+        }
+
         let mut applied_result = false;
 
         while let Some(completion) = fetcher.try_recv_fetch() {
@@ -211,10 +254,14 @@ impl FetchScheduler {
             match completion.result {
                 Ok(payload) => {
                     let snapshot = sensors::parse_snapshot(&payload);
-                    app.apply_success(snapshot, completion.duration, completion.completed_at);
+                    app.finish_fetch_success(
+                        snapshot,
+                        completion.duration,
+                        completion.completed_at,
+                    );
                 }
                 Err(error) => {
-                    app.apply_failure(error, completion.duration);
+                    app.finish_fetch_failure(error, completion.duration);
                 }
             }
 
@@ -225,6 +272,19 @@ impl FetchScheduler {
         }
 
         applied_result
+    }
+
+    fn cancel_pending_fetch<F>(&mut self, app: &mut TuiApp, fetcher: &mut F)
+    where
+        F: MeasureFetchWorker,
+    {
+        if self.in_flight {
+            fetcher.cancel_fetch();
+        }
+
+        self.in_flight = false;
+        self.follow_up_requested = false;
+        app.is_fetching = false;
     }
 }
 
@@ -238,12 +298,16 @@ struct FetchCompletion {
 trait MeasureFetchWorker {
     fn start_fetch(&mut self, base_url: Url);
     fn try_recv_fetch(&mut self) -> Option<FetchCompletion>;
+    fn cancel_fetch(&mut self);
 }
 
 struct BackgroundMeasureFetcher {
     client: Client,
-    sender: Sender<FetchCompletion>,
-    receiver: Receiver<FetchCompletion>,
+    sender: Sender<BackgroundFetchMessage>,
+    receiver: Receiver<BackgroundFetchMessage>,
+    active_request_id: Option<u64>,
+    next_request_id: u64,
+    active_handle: Option<JoinHandle<()>>,
 }
 
 impl BackgroundMeasureFetcher {
@@ -253,30 +317,66 @@ impl BackgroundMeasureFetcher {
             client,
             sender,
             receiver,
+            active_request_id: None,
+            next_request_id: 0,
+            active_handle: None,
         }
     }
 }
 
+#[derive(Debug)]
+struct BackgroundFetchMessage {
+    request_id: u64,
+    completion: FetchCompletion,
+}
+
 impl MeasureFetchWorker for BackgroundMeasureFetcher {
     fn start_fetch(&mut self, base_url: Url) {
+        self.cancel_fetch();
+
+        let request_id = self.next_request_id;
+        self.next_request_id = self.next_request_id.wrapping_add(1);
+        self.active_request_id = Some(request_id);
+
         let client = self.client.clone();
         let sender = self.sender.clone();
 
-        tokio::spawn(async move {
+        self.active_handle = Some(tokio::spawn(async move {
             let started = Instant::now();
             let result = device::fetch_current_measures_with_client(&client, &base_url)
                 .await
                 .map_err(|error| error.to_string());
-            let _ = sender.send(FetchCompletion {
-                result,
-                duration: started.elapsed(),
-                completed_at: SystemTime::now(),
+            let _ = sender.send(BackgroundFetchMessage {
+                request_id,
+                completion: FetchCompletion {
+                    result,
+                    duration: started.elapsed(),
+                    completed_at: SystemTime::now(),
+                },
             });
-        });
+        }));
     }
 
     fn try_recv_fetch(&mut self) -> Option<FetchCompletion> {
-        self.receiver.try_recv().ok()
+        while let Ok(message) = self.receiver.try_recv() {
+            if Some(message.request_id) == self.active_request_id {
+                self.active_request_id = None;
+                self.active_handle = None;
+                return Some(message.completion);
+            }
+        }
+
+        None
+    }
+
+    fn cancel_fetch(&mut self) {
+        self.active_request_id = None;
+
+        if let Some(handle) = self.active_handle.take() {
+            handle.abort();
+        }
+
+        while self.receiver.try_recv().is_ok() {}
     }
 }
 
@@ -290,8 +390,8 @@ enum RuntimeEvent {
 trait TerminalRuntime {
     fn enter(&mut self) -> Result<(), RuntimeError>;
     fn draw(&mut self, app: &TuiApp) -> Result<(), RuntimeError>;
-    fn poll_event(&mut self, timeout: Duration) -> Result<bool, RuntimeError>;
-    fn read_event(&mut self) -> Result<RuntimeEvent, RuntimeError>;
+    async fn poll_event(&mut self, timeout: Duration) -> Result<bool, RuntimeError>;
+    async fn read_event(&mut self) -> Result<RuntimeEvent, RuntimeError>;
     fn cleanup(&mut self) -> Result<(), RuntimeError>;
 }
 
@@ -310,12 +410,13 @@ impl TerminalRuntime for CrosstermRuntime {
         self.session_mut()?.draw(app)
     }
 
-    fn poll_event(&mut self, timeout: Duration) -> Result<bool, RuntimeError> {
-        Ok(event::poll(timeout)?)
+    async fn poll_event(&mut self, timeout: Duration) -> Result<bool, RuntimeError> {
+        blocking_terminal_call(move || event::poll(timeout)).await
     }
 
-    fn read_event(&mut self) -> Result<RuntimeEvent, RuntimeError> {
-        match event::read()? {
+    async fn read_event(&mut self) -> Result<RuntimeEvent, RuntimeError> {
+        let event = blocking_terminal_call(event::read).await?;
+        match event {
             Event::Key(key) if key.kind == KeyEventKind::Press => Ok(match key.code {
                 KeyCode::Char('q') | KeyCode::Esc => RuntimeEvent::Quit,
                 KeyCode::Char('r') | KeyCode::Char('R') => RuntimeEvent::Refresh,
@@ -331,6 +432,18 @@ impl TerminalRuntime for CrosstermRuntime {
             None => Ok(()),
         }
     }
+}
+
+async fn blocking_terminal_call<T>(
+    call: impl FnOnce() -> io::Result<T> + Send + 'static,
+) -> Result<T, RuntimeError>
+where
+    T: Send + 'static,
+{
+    tokio::task::spawn_blocking(call)
+        .await
+        .map_err(|error| io::Error::other(format!("terminal task failed: {error}")))?
+        .map_err(RuntimeError::from)
 }
 
 impl CrosstermRuntime {
@@ -530,7 +643,15 @@ impl Drop for TerminalSession {
 mod tests {
     use super::*;
     use serde_json::json;
-    use std::collections::VecDeque;
+    use std::{
+        cell::Cell,
+        collections::VecDeque,
+        rc::Rc,
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
+    };
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum RuntimeCall {
@@ -545,6 +666,10 @@ mod tests {
     struct HarnessTerminal {
         events: VecDeque<RuntimeEvent>,
         polls: VecDeque<Result<bool, io::Error>>,
+        clock: Rc<Cell<Instant>>,
+        poll_timeouts: Vec<Duration>,
+        poll_advances: VecDeque<Duration>,
+        read_advances: VecDeque<Duration>,
         draw_error: Option<io::Error>,
         read_error: Option<io::Error>,
         cleanup_error: Option<io::Error>,
@@ -558,6 +683,10 @@ mod tests {
             Self {
                 events: events.into_iter().collect(),
                 polls: VecDeque::new(),
+                clock: test_clock_start(),
+                poll_timeouts: Vec::new(),
+                poll_advances: VecDeque::new(),
+                read_advances: VecDeque::new(),
                 draw_error: None,
                 read_error: None,
                 cleanup_error: None,
@@ -590,6 +719,25 @@ mod tests {
             self.cleanup_error = Some(io::Error::other(message));
             self
         }
+
+        fn with_clock(mut self, clock: Rc<Cell<Instant>>) -> Self {
+            self.clock = clock;
+            self
+        }
+
+        fn poll_advance(mut self, duration: Duration) -> Self {
+            self.poll_advances.push_back(duration);
+            self
+        }
+
+        fn read_advance(mut self, duration: Duration) -> Self {
+            self.read_advances.push_back(duration);
+            self
+        }
+
+        fn advance_clock(&self, duration: Duration) {
+            self.clock.set(self.clock.get() + duration);
+        }
     }
 
     impl TerminalRuntime for HarnessTerminal {
@@ -607,16 +755,23 @@ mod tests {
             Ok(())
         }
 
-        fn poll_event(&mut self, _timeout: Duration) -> Result<bool, RuntimeError> {
+        async fn poll_event(&mut self, timeout: Duration) -> Result<bool, RuntimeError> {
             self.calls.push(RuntimeCall::Poll);
+            self.poll_timeouts.push(timeout);
+            if let Some(duration) = self.poll_advances.pop_front() {
+                self.advance_clock(duration);
+            }
             if let Some(result) = self.polls.pop_front() {
                 return result.map_err(RuntimeError::from);
             }
             Ok(!self.events.is_empty())
         }
 
-        fn read_event(&mut self) -> Result<RuntimeEvent, RuntimeError> {
+        async fn read_event(&mut self) -> Result<RuntimeEvent, RuntimeError> {
             self.calls.push(RuntimeCall::Read);
+            if let Some(duration) = self.read_advances.pop_front() {
+                self.advance_clock(duration);
+            }
             if let Some(error) = self.read_error.take() {
                 return Err(error.into());
             }
@@ -634,27 +789,88 @@ mod tests {
     }
 
     #[derive(Debug)]
+    struct FakeClock {
+        now: Rc<Cell<Instant>>,
+    }
+
+    impl FakeClock {
+        fn new(now: Rc<Cell<Instant>>) -> Self {
+            Self { now }
+        }
+    }
+
+    impl RuntimeClock for FakeClock {
+        fn now(&mut self) -> Instant {
+            self.now.get()
+        }
+    }
+
+    fn test_clock_start() -> Rc<Cell<Instant>> {
+        Rc::new(Cell::new(Instant::now()))
+    }
+
+    async fn run_with_harness_clock<T, F>(
+        terminal: &mut T,
+        app: &mut TuiApp,
+        fetcher: &mut F,
+        clock: Rc<Cell<Instant>>,
+    ) -> Result<(), RuntimeError>
+    where
+        T: TerminalRuntime,
+        F: MeasureFetchWorker,
+    {
+        terminal.enter()?;
+
+        let mut clock = FakeClock::new(clock);
+        let result = run_loop(terminal, app, fetcher, &mut clock).await;
+        let cleanup_result = terminal.cleanup();
+
+        match (result, cleanup_result) {
+            (Ok(()), Ok(())) => Ok(()),
+            (Err(primary), Ok(())) => Err(primary),
+            (Ok(()), Err(cleanup)) => Err(cleanup),
+            (Err(primary), Err(cleanup)) => {
+                Err(RuntimeError::with_cleanup_failure(primary, cleanup))
+            }
+        }
+    }
+
+    #[derive(Debug)]
     struct HarnessFetcher {
         completions: VecDeque<Option<Result<Value, String>>>,
+        stale_completions_after_cancel: VecDeque<Result<Value, String>>,
         calls: Vec<Url>,
         active_fetch: bool,
+        canceled_fetches: usize,
     }
 
     impl HarnessFetcher {
         fn new(results: impl IntoIterator<Item = Result<Value, String>>) -> Self {
             Self {
                 completions: results.into_iter().map(Some).collect(),
+                stale_completions_after_cancel: VecDeque::new(),
                 calls: Vec::new(),
                 active_fetch: false,
+                canceled_fetches: 0,
             }
         }
 
         fn pending_then(results: impl IntoIterator<Item = Option<Result<Value, String>>>) -> Self {
             Self {
                 completions: results.into_iter().collect(),
+                stale_completions_after_cancel: VecDeque::new(),
                 calls: Vec::new(),
                 active_fetch: false,
+                canceled_fetches: 0,
             }
+        }
+
+        fn with_stale_after_cancel(
+            mut self,
+            results: impl IntoIterator<Item = Result<Value, String>>,
+        ) -> Self {
+            self.stale_completions_after_cancel = results.into_iter().collect();
+            self
         }
     }
 
@@ -670,7 +886,14 @@ mod tests {
 
         fn try_recv_fetch(&mut self) -> Option<FetchCompletion> {
             if !self.active_fetch {
-                return None;
+                return self
+                    .stale_completions_after_cancel
+                    .pop_front()
+                    .map(|result| FetchCompletion {
+                        result,
+                        duration: Duration::from_millis(25),
+                        completed_at: SystemTime::UNIX_EPOCH + Duration::from_secs(60),
+                    });
             }
 
             let result = self.completions.pop_front()??;
@@ -681,15 +904,115 @@ mod tests {
                 completed_at: SystemTime::UNIX_EPOCH + Duration::from_secs(60),
             })
         }
+
+        fn cancel_fetch(&mut self) {
+            if self.active_fetch {
+                self.canceled_fetches += 1;
+                self.active_fetch = false;
+            }
+        }
+    }
+
+    #[derive(Debug)]
+    struct BlockingPollTerminal {
+        poll_delay: Duration,
+        cleanup_called: bool,
+    }
+
+    impl BlockingPollTerminal {
+        fn new(poll_delay: Duration) -> Self {
+            Self {
+                poll_delay,
+                cleanup_called: false,
+            }
+        }
+    }
+
+    impl TerminalRuntime for BlockingPollTerminal {
+        fn enter(&mut self) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn draw(&mut self, _app: &TuiApp) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        async fn poll_event(&mut self, _timeout: Duration) -> Result<bool, RuntimeError> {
+            let poll_delay = self.poll_delay;
+            blocking_terminal_call(move || {
+                std::thread::sleep(poll_delay);
+                Ok(true)
+            })
+            .await
+        }
+
+        async fn read_event(&mut self) -> Result<RuntimeEvent, RuntimeError> {
+            Ok(RuntimeEvent::Quit)
+        }
+
+        fn cleanup(&mut self) -> Result<(), RuntimeError> {
+            self.cleanup_called = true;
+            Ok(())
+        }
+    }
+
+    #[derive(Debug)]
+    struct YieldingFetcher {
+        sender: Sender<FetchCompletion>,
+        receiver: Receiver<FetchCompletion>,
+        completed: Arc<AtomicBool>,
+        active_handle: Option<JoinHandle<()>>,
+        calls: Vec<Url>,
+    }
+
+    impl YieldingFetcher {
+        fn new(completed: Arc<AtomicBool>) -> Self {
+            let (sender, receiver) = mpsc::channel();
+            Self {
+                sender,
+                receiver,
+                completed,
+                active_handle: None,
+                calls: Vec::new(),
+            }
+        }
+    }
+
+    impl MeasureFetchWorker for YieldingFetcher {
+        fn start_fetch(&mut self, base_url: Url) {
+            assert!(
+                self.active_handle.is_none(),
+                "scheduler started overlapping yielding fetches"
+            );
+            self.calls.push(base_url);
+
+            let sender = self.sender.clone();
+            let completed = self.completed.clone();
+            self.active_handle = Some(tokio::spawn(async move {
+                tokio::task::yield_now().await;
+                completed.store(true, Ordering::SeqCst);
+                let _ = sender.send(FetchCompletion {
+                    result: Ok(successful_payload()),
+                    duration: Duration::from_millis(1),
+                    completed_at: SystemTime::UNIX_EPOCH + Duration::from_secs(60),
+                });
+            }));
+        }
+
+        fn try_recv_fetch(&mut self) -> Option<FetchCompletion> {
+            self.receiver.try_recv().ok()
+        }
+
+        fn cancel_fetch(&mut self) {
+            if let Some(handle) = self.active_handle.take() {
+                handle.abort();
+            }
+            while self.receiver.try_recv().is_ok() {}
+        }
     }
 
     fn app(configured_url: Option<Url>) -> TuiApp {
-        TuiApp::with_client(
-            configured_url,
-            Duration::from_secs(30),
-            FetchSettings::default(),
-            Client::new(),
-        )
+        TuiApp::new(configured_url, Duration::from_secs(30))
     }
 
     fn configured_url() -> Url {
@@ -735,6 +1058,7 @@ mod tests {
         let mut app = app(None);
 
         run_with_adapters(&mut terminal, &mut app, &mut fetcher)
+            .await
             .expect("runtime should quit cleanly");
 
         assert_eq!(
@@ -759,6 +1083,7 @@ mod tests {
         let mut app = app(Some(url.clone()));
 
         run_with_adapters(&mut terminal, &mut app, &mut fetcher)
+            .await
             .expect("runtime should quit cleanly");
 
         assert_eq!(fetcher.calls, [url]);
@@ -780,6 +1105,7 @@ mod tests {
         let mut app = app(Some(configured_url()));
 
         run_with_adapters(&mut terminal, &mut app, &mut fetcher)
+            .await
             .expect("runtime should quit cleanly");
 
         assert_eq!(app.current_snapshot, None);
@@ -799,6 +1125,7 @@ mod tests {
         let mut app = app(Some(url.clone()));
 
         run_with_adapters(&mut terminal, &mut app, &mut fetcher)
+            .await
             .expect("runtime should quit cleanly");
 
         assert_eq!(fetcher.calls, [url]);
@@ -817,9 +1144,12 @@ mod tests {
 
     #[tokio::test]
     async fn interval_refresh_starts_after_refresh_deadline() {
-        let mut terminal = HarnessTerminal::with_events([RuntimeEvent::Quit]);
+        let clock = test_clock_start();
+        let mut terminal =
+            HarnessTerminal::with_events([RuntimeEvent::Quit]).with_clock(clock.clone());
         for _ in 0..50 {
             terminal.polls.push_back(Ok(false));
+            terminal.poll_advances.push_back(Duration::from_millis(100));
         }
         let mut fetcher =
             HarnessFetcher::new([Ok(successful_payload()), Ok(later_successful_payload())]);
@@ -827,7 +1157,8 @@ mod tests {
         let mut app = app(Some(url.clone()));
         app.refresh_interval = Duration::from_secs(5);
 
-        run_with_adapters(&mut terminal, &mut app, &mut fetcher)
+        run_with_harness_clock(&mut terminal, &mut app, &mut fetcher, clock)
+            .await
             .expect("runtime should quit cleanly");
 
         assert_eq!(fetcher.calls, [url.clone(), url]);
@@ -846,6 +1177,90 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn early_false_polls_do_not_fire_interval_refresh_early() {
+        let clock = test_clock_start();
+        let mut terminal =
+            HarnessTerminal::with_events([RuntimeEvent::Quit]).with_clock(clock.clone());
+        for _ in 0..50 {
+            terminal.polls.push_back(Ok(false));
+            terminal.poll_advances.push_back(Duration::ZERO);
+        }
+        let url = configured_url();
+        let mut fetcher = HarnessFetcher::new([Ok(successful_payload())]);
+        let mut app = app(Some(url.clone()));
+        app.refresh_interval = Duration::from_secs(5);
+
+        run_with_harness_clock(&mut terminal, &mut app, &mut fetcher, clock)
+            .await
+            .expect("runtime should quit cleanly");
+
+        assert_eq!(fetcher.calls, [url]);
+        assert!(
+            terminal
+                .poll_timeouts
+                .iter()
+                .all(|timeout| *timeout <= FETCH_RESULT_POLL_INTERVAL)
+        );
+    }
+
+    #[tokio::test]
+    async fn delayed_false_poll_handles_at_most_one_interval_deadline() {
+        let clock = test_clock_start();
+        let mut terminal = HarnessTerminal::with_events([RuntimeEvent::Quit])
+            .with_clock(clock.clone())
+            .poll_advance(Duration::from_secs(16));
+        terminal.polls.push_back(Ok(false));
+        let url = configured_url();
+        let mut fetcher =
+            HarnessFetcher::new([Ok(successful_payload()), Ok(later_successful_payload())]);
+        let mut app = app(Some(url.clone()));
+        app.refresh_interval = Duration::from_secs(5);
+
+        run_with_harness_clock(&mut terminal, &mut app, &mut fetcher, clock)
+            .await
+            .expect("runtime should quit cleanly");
+
+        assert_eq!(fetcher.calls, [url.clone(), url]);
+        assert_eq!(
+            app.current_snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.aqi),
+            Some(55.0)
+        );
+    }
+
+    #[tokio::test]
+    async fn manual_refresh_resets_interval_from_event_read_time() {
+        let clock = test_clock_start();
+        let mut terminal =
+            HarnessTerminal::with_events([RuntimeEvent::Refresh, RuntimeEvent::Quit])
+                .with_clock(clock.clone())
+                .poll_advance(Duration::from_secs(2))
+                .read_advance(Duration::from_secs(3))
+                .poll_advance(Duration::from_secs(4));
+        terminal.polls.push_back(Ok(true));
+        terminal.polls.push_back(Ok(false));
+        terminal.polls.push_back(Ok(true));
+        let url = configured_url();
+        let mut fetcher =
+            HarnessFetcher::new([Ok(successful_payload()), Ok(later_successful_payload())]);
+        let mut app = app(Some(url.clone()));
+        app.refresh_interval = Duration::from_secs(5);
+
+        run_with_harness_clock(&mut terminal, &mut app, &mut fetcher, clock)
+            .await
+            .expect("runtime should quit cleanly");
+
+        assert_eq!(fetcher.calls, [url.clone(), url]);
+        assert_eq!(
+            app.current_snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.aqi),
+            Some(55.0)
+        );
+    }
+
+    #[tokio::test]
     async fn manual_refresh_during_in_flight_fetch_is_coalesced() {
         let mut terminal =
             HarnessTerminal::with_events([RuntimeEvent::Refresh, RuntimeEvent::Quit]);
@@ -859,6 +1274,7 @@ mod tests {
         let mut app = app(Some(url.clone()));
 
         run_with_adapters(&mut terminal, &mut app, &mut fetcher)
+            .await
             .expect("runtime should quit cleanly");
 
         assert_eq!(fetcher.calls, [url.clone(), url]);
@@ -886,6 +1302,7 @@ mod tests {
         let mut app = app(Some(url.clone()));
 
         run_with_adapters(&mut terminal, &mut app, &mut fetcher)
+            .await
             .expect("runtime should quit cleanly");
 
         assert_eq!(fetcher.calls, [url.clone(), url]);
@@ -905,11 +1322,107 @@ mod tests {
         let mut app = app(Some(configured_url()));
 
         run_with_adapters(&mut terminal, &mut app, &mut fetcher)
+            .await
             .expect("runtime should quit cleanly");
 
         assert_eq!(fetcher.calls.len(), 1);
+        assert_eq!(fetcher.canceled_fetches, 1);
         assert_eq!(terminal.calls.last(), Some(&RuntimeCall::Cleanup));
         assert_eq!(app.current_snapshot, None);
+        assert!(!app.is_fetching);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn current_thread_runtime_progresses_fetch_while_terminal_poll_blocks() {
+        let fetch_completed = Arc::new(AtomicBool::new(false));
+        let mut terminal = BlockingPollTerminal::new(Duration::from_millis(25));
+        let mut fetcher = YieldingFetcher::new(fetch_completed.clone());
+        let mut app = app(Some(configured_url()));
+
+        run_with_adapters(&mut terminal, &mut app, &mut fetcher)
+            .await
+            .expect("runtime should quit cleanly");
+
+        assert!(terminal.cleanup_called);
+        assert_eq!(fetcher.calls.len(), 1);
+        assert!(
+            fetch_completed.load(Ordering::SeqCst),
+            "background fetch task should progress while terminal polling is blocking"
+        );
+    }
+
+    #[tokio::test]
+    async fn draw_failure_cancels_pending_fetch() {
+        let mut terminal = HarnessTerminal::with_quit().fail_draw("draw failed");
+        let mut fetcher = HarnessFetcher::pending_then([None]);
+        let mut app = app(Some(configured_url()));
+
+        let error = run_with_adapters(&mut terminal, &mut app, &mut fetcher)
+            .await
+            .expect_err("draw failure should be returned");
+
+        assert_eq!(terminal_error_message(&error), "draw failed");
+        assert_eq!(fetcher.calls.len(), 1);
+        assert_eq!(fetcher.canceled_fetches, 1);
+        assert_eq!(app.current_snapshot, None);
+        assert!(!app.is_fetching);
+        assert!(terminal.cleanup_called);
+    }
+
+    #[tokio::test]
+    async fn poll_failure_cancels_pending_fetch() {
+        let mut terminal = HarnessTerminal::with_events([]).fail_poll("poll failed");
+        let mut fetcher = HarnessFetcher::pending_then([None]);
+        let mut app = app(Some(configured_url()));
+
+        let error = run_with_adapters(&mut terminal, &mut app, &mut fetcher)
+            .await
+            .expect_err("poll failure should be returned");
+
+        assert_eq!(terminal_error_message(&error), "poll failed");
+        assert_eq!(fetcher.calls.len(), 1);
+        assert_eq!(fetcher.canceled_fetches, 1);
+        assert_eq!(app.current_snapshot, None);
+        assert!(!app.is_fetching);
+        assert!(terminal.cleanup_called);
+    }
+
+    #[tokio::test]
+    async fn read_failure_cancels_pending_fetch() {
+        let mut terminal =
+            HarnessTerminal::with_events([RuntimeEvent::Quit]).fail_read("read failed");
+        let mut fetcher = HarnessFetcher::pending_then([None]);
+        let mut app = app(Some(configured_url()));
+
+        let error = run_with_adapters(&mut terminal, &mut app, &mut fetcher)
+            .await
+            .expect_err("read failure should be returned");
+
+        assert_eq!(terminal_error_message(&error), "read failed");
+        assert_eq!(fetcher.calls.len(), 1);
+        assert_eq!(fetcher.canceled_fetches, 1);
+        assert_eq!(app.current_snapshot, None);
+        assert!(!app.is_fetching);
+        assert!(terminal.cleanup_called);
+    }
+
+    #[test]
+    fn stale_completion_after_cancellation_does_not_mutate_app() {
+        let url = configured_url();
+        let mut app = app(Some(url.clone()));
+        let mut fetcher = HarnessFetcher::pending_then([None])
+            .with_stale_after_cancel([Ok(successful_payload())]);
+        let mut scheduler = FetchScheduler::default();
+
+        scheduler.request_refresh(&mut app, &mut fetcher);
+        scheduler.cancel_pending_fetch(&mut app, &mut fetcher);
+
+        assert!(!scheduler.apply_ready_results(&mut app, &mut fetcher));
+        assert_eq!(fetcher.calls, [url]);
+        assert_eq!(fetcher.canceled_fetches, 1);
+        assert_eq!(app.current_snapshot, None);
+        assert_eq!(app.current_error, None);
+        assert!(!app.is_fetching);
     }
 
     #[tokio::test]
@@ -919,6 +1432,7 @@ mod tests {
         let mut app = app(None);
 
         let error = run_with_adapters(&mut terminal, &mut app, &mut fetcher)
+            .await
             .expect_err("draw failure should be returned");
 
         assert_eq!(terminal_error_message(&error), "draw failed");
@@ -938,6 +1452,7 @@ mod tests {
         let mut app = app(None);
 
         let error = run_with_adapters(&mut terminal, &mut app, &mut fetcher)
+            .await
             .expect_err("draw failure should be returned with cleanup context");
 
         assert_eq!(terminal_error_message(&error), "draw failed");
@@ -955,6 +1470,7 @@ mod tests {
         let mut app = app(None);
 
         let error = run_with_adapters(&mut terminal, &mut app, &mut fetcher)
+            .await
             .expect_err("poll failure should be returned");
 
         assert_eq!(terminal_error_message(&error), "poll failed");
@@ -979,6 +1495,7 @@ mod tests {
         let mut app = app(None);
 
         let error = run_with_adapters(&mut terminal, &mut app, &mut fetcher)
+            .await
             .expect_err("poll failure should be returned with cleanup context");
 
         assert_eq!(terminal_error_message(&error), "poll failed");
@@ -997,6 +1514,7 @@ mod tests {
         let mut app = app(None);
 
         let error = run_with_adapters(&mut terminal, &mut app, &mut fetcher)
+            .await
             .expect_err("read failure should be returned");
 
         assert_eq!(terminal_error_message(&error), "read failed");
@@ -1022,6 +1540,7 @@ mod tests {
         let mut app = app(None);
 
         let error = run_with_adapters(&mut terminal, &mut app, &mut fetcher)
+            .await
             .expect_err("read failure should be returned with cleanup context");
 
         assert_eq!(terminal_error_message(&error), "read failed");
@@ -1039,6 +1558,7 @@ mod tests {
         let mut app = app(None);
 
         let error = run_with_adapters(&mut terminal, &mut app, &mut fetcher)
+            .await
             .expect_err("cleanup failure should be returned");
 
         assert_eq!(terminal_error_message(&error), "cleanup failed");

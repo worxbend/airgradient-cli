@@ -14,3 +14,6 @@
 [pattern] A small runtime adapter plus harness can verify TUI draw, event, fetch, and cleanup behavior without requiring a real terminal in every test.
 [learning] Non-blocking TUI fetches need lifecycle ownership too; responsiveness is incomplete if pending tasks cannot be cancelled or joined on exit.
 [anti-pattern] Advancing scheduler time by intended poll durations instead of observed wall-clock time makes event-loop tests pass while leaving drift and early-fire edge cases under-specified.
+[pattern] TUI render state should expose fetch lifecycle explicitly so the UI can distinguish first fetch, refresh with stale data, success, failure, and missing config.
+[pattern] Blocking terminal APIs can coexist with async fetch work when poll/read are isolated behind `spawn_blocking` and covered by current-thread runtime tests.
+[learning] Aborting a Tokio `JoinHandle` requests cancellation; without awaiting or observing the handle, cleanup owns cancellation intent rather than proof of task termination.

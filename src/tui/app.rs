@@ -3,12 +3,10 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use reqwest::Client;
 use url::Url;
 
 use crate::{
     config::{MAX_REFRESH_INTERVAL_SECS, MIN_REFRESH_INTERVAL_SECS},
-    device::{DeviceError, FetchSettings},
     sensors::{Metric, SensorSnapshot, metrics},
 };
 
@@ -25,31 +23,11 @@ pub struct TuiApp {
     pub current_error: Option<String>,
     pub configured_url: Option<Url>,
     pub refresh_interval: Duration,
-    pub fetch_settings: FetchSettings,
-    pub fetch_client: Client,
+    pub is_fetching: bool,
 }
 
 impl TuiApp {
-    pub fn new(
-        configured_url: Option<Url>,
-        refresh_interval: Duration,
-        fetch_settings: FetchSettings,
-    ) -> Result<Self, DeviceError> {
-        let fetch_client = fetch_settings.client()?;
-        Ok(Self::with_client(
-            configured_url,
-            refresh_interval,
-            fetch_settings,
-            fetch_client,
-        ))
-    }
-
-    pub fn with_client(
-        configured_url: Option<Url>,
-        refresh_interval: Duration,
-        fetch_settings: FetchSettings,
-        fetch_client: Client,
-    ) -> Self {
+    pub fn new(configured_url: Option<Url>, refresh_interval: Duration) -> Self {
         Self {
             current_snapshot: None,
             previous_successful_snapshot: None,
@@ -58,24 +36,29 @@ impl TuiApp {
             current_error: None,
             configured_url,
             refresh_interval: clamp_refresh_interval(refresh_interval),
-            fetch_settings,
-            fetch_client,
+            is_fetching: false,
         }
     }
 
-    pub fn apply_success(
+    pub fn begin_fetch(&mut self) {
+        self.is_fetching = self.configured_url.is_some();
+    }
+
+    pub fn finish_fetch_success(
         &mut self,
         snapshot: SensorSnapshot,
         fetch_duration: Duration,
         success_at: SystemTime,
     ) {
+        self.is_fetching = false;
         self.previous_successful_snapshot = self.current_snapshot.replace(snapshot);
         self.last_fetch_duration = Some(fetch_duration);
         self.last_success_at = Some(success_at);
         self.current_error = None;
     }
 
-    pub fn apply_failure(&mut self, error: impl fmt::Display, fetch_duration: Duration) {
+    pub fn finish_fetch_failure(&mut self, error: impl fmt::Display, fetch_duration: Duration) {
+        self.is_fetching = false;
         self.last_fetch_duration = Some(fetch_duration);
         self.current_error = Some(error.to_string());
     }
@@ -116,11 +99,13 @@ mod tests {
     use crate::sensors::Trend;
 
     fn app_with_refresh(refresh_interval: Duration) -> TuiApp {
-        TuiApp::with_client(
-            None,
-            refresh_interval,
-            FetchSettings::default(),
-            Client::new(),
+        TuiApp::new(None, refresh_interval)
+    }
+
+    fn app_with_url() -> TuiApp {
+        TuiApp::new(
+            Some(Url::parse("http://192.168.1.201/").expect("url should parse")),
+            Duration::from_secs(30),
         )
     }
 
@@ -138,13 +123,15 @@ mod tests {
         let success_at = SystemTime::UNIX_EPOCH + Duration::from_secs(42);
         let current = snapshot(42.0, 612.0);
 
-        app.apply_success(current.clone(), Duration::from_millis(128), success_at);
+        app.begin_fetch();
+        app.finish_fetch_success(current.clone(), Duration::from_millis(128), success_at);
 
         assert_eq!(app.current_snapshot, Some(current));
         assert_eq!(app.previous_successful_snapshot, None);
         assert_eq!(app.last_fetch_duration, Some(Duration::from_millis(128)));
         assert_eq!(app.last_success_at, Some(success_at));
         assert_eq!(app.current_error, None);
+        assert!(!app.is_fetching);
     }
 
     #[test]
@@ -152,34 +139,36 @@ mod tests {
         let mut app = app_with_refresh(Duration::from_secs(30));
         let first = snapshot(40.0, 600.0);
         let second = snapshot(45.0, 625.0);
-        app.apply_success(
+        app.finish_fetch_success(
             first.clone(),
             Duration::from_millis(90),
             SystemTime::UNIX_EPOCH,
         );
-        app.apply_success(
+        app.finish_fetch_success(
             second.clone(),
             Duration::from_millis(100),
             SystemTime::UNIX_EPOCH + Duration::from_secs(30),
         );
 
-        app.apply_failure("request timed out", Duration::from_millis(250));
+        app.begin_fetch();
+        app.finish_fetch_failure("request timed out", Duration::from_millis(250));
 
         assert_eq!(app.current_snapshot, Some(second));
         assert_eq!(app.previous_successful_snapshot, Some(first));
         assert_eq!(app.last_fetch_duration, Some(Duration::from_millis(250)));
         assert_eq!(app.current_error.as_deref(), Some("request timed out"));
+        assert!(!app.is_fetching);
     }
 
     #[test]
     fn trend_baseline_is_available_after_two_successes() {
         let mut app = app_with_refresh(Duration::from_secs(30));
-        app.apply_success(
+        app.finish_fetch_success(
             snapshot(40.0, 650.0),
             Duration::from_millis(50),
             SystemTime::UNIX_EPOCH,
         );
-        app.apply_success(
+        app.finish_fetch_success(
             snapshot(55.0, 620.0),
             Duration::from_millis(60),
             SystemTime::UNIX_EPOCH + Duration::from_secs(30),
@@ -212,5 +201,35 @@ mod tests {
             high.refresh_interval,
             Duration::from_secs(MAX_REFRESH_INTERVAL_SECS - 5)
         );
+    }
+
+    #[test]
+    fn begin_fetch_only_sets_pending_when_url_is_configured() {
+        let mut missing_url = TuiApp::new(None, Duration::from_secs(30));
+        missing_url.begin_fetch();
+        assert!(!missing_url.is_fetching);
+
+        let mut configured = app_with_url();
+        configured.begin_fetch();
+        assert!(configured.is_fetching);
+    }
+
+    #[test]
+    fn finish_fetch_success_and_failure_clear_pending_state() {
+        let mut success = app_with_url();
+        success.begin_fetch();
+        assert!(success.is_fetching);
+        success.finish_fetch_success(
+            snapshot(42.0, 612.0),
+            Duration::from_millis(128),
+            SystemTime::UNIX_EPOCH,
+        );
+        assert!(!success.is_fetching);
+
+        let mut failure = app_with_url();
+        failure.begin_fetch();
+        assert!(failure.is_fetching);
+        failure.finish_fetch_failure("request timed out", Duration::from_millis(250));
+        assert!(!failure.is_fetching);
     }
 }
