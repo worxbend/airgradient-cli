@@ -1,5 +1,7 @@
 use std::{
+    fmt, fs,
     io::{self, Read, Write},
+    path::PathBuf,
     sync::mpsc,
     thread,
     time::{Duration, Instant},
@@ -10,21 +12,42 @@ use portable_pty::{Child, CommandBuilder, ExitStatus, PtySize, native_pty_system
 const OUTPUT_DRAIN_TIMEOUT: Duration = Duration::from_millis(100);
 
 pub enum PtyRunResult {
-    Skipped(String),
+    Skipped(PtySpawnError),
     Completed { status: ExitStatus, output: Vec<u8> },
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PtySpawnError {
+    Unavailable(String),
+    Infrastructure(String),
+}
+
+impl fmt::Display for PtySpawnError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unavailable(detail) => {
+                write!(formatter, "PTY support unavailable: {detail}")
+            }
+            Self::Infrastructure(detail) => {
+                write!(formatter, "PTY test infrastructure error: {detail}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for PtySpawnError {}
 
 pub struct PtyTui {
     child: Box<dyn Child + Send + Sync>,
     writer: Box<dyn Write + Send>,
-    output_rx: mpsc::Receiver<Vec<u8>>,
+    output_rx: mpsc::Receiver<PtyOutputEvent>,
     output: Vec<u8>,
+    output_read_error: Option<PtyReadError>,
 }
 
 impl PtyTui {
-    pub fn spawn(args: &[&str]) -> Result<Self, String> {
-        let binary = std::env::var("CARGO_BIN_EXE_airgradient-cli")
-            .map_err(|error| format!("compiled binary path unavailable: {error}"))?;
+    pub fn spawn(args: &[&str]) -> Result<Self, PtySpawnError> {
+        let binary = compiled_binary_path()?;
 
         let pty_system = native_pty_system();
         let pair = pty_system
@@ -34,29 +57,38 @@ impl PtyTui {
                 pixel_width: 0,
                 pixel_height: 0,
             })
-            .map_err(|error| format!("failed to open PTY: {error}"))?;
+            .map_err(|error| {
+                PtySpawnError::Unavailable(format!(
+                    "failed to open a pseudo-terminal for TUI integration tests: {error}"
+                ))
+            })?;
 
-        let reader = pair
-            .master
-            .try_clone_reader()
-            .map_err(|error| format!("failed to clone PTY reader: {error}"))?;
-        let writer = pair
-            .master
-            .take_writer()
-            .map_err(|error| format!("failed to open PTY writer: {error}"))?;
+        let reader = pair.master.try_clone_reader().map_err(|error| {
+            PtySpawnError::Infrastructure(format!(
+                "failed to clone PTY reader after opening PTY: {error}"
+            ))
+        })?;
+        let writer = pair.master.take_writer().map_err(|error| {
+            PtySpawnError::Infrastructure(format!(
+                "failed to open PTY writer after opening PTY: {error}"
+            ))
+        })?;
 
         let (output_tx, output_rx) = mpsc::channel();
         thread::spawn(move || read_pty_output(reader, output_tx));
 
-        let mut command = CommandBuilder::new(binary);
+        let mut command = CommandBuilder::new(&binary);
         command.args(args);
         command.env("TERM", "xterm-256color");
         command.env("AIRGRADIENT_CLI_FETCH_TIMEOUT_MS", "1000");
 
-        let child = pair
-            .slave
-            .spawn_command(command)
-            .map_err(|error| format!("failed to spawn command in PTY: {error}"))?;
+        let child = pair.slave.spawn_command(command).map_err(|error| {
+            PtySpawnError::Infrastructure(format!(
+                "failed to spawn {} in PTY with args [{}]: {error}",
+                binary.display(),
+                args.join(" ")
+            ))
+        })?;
         drop(pair.slave);
 
         Ok(Self {
@@ -64,6 +96,7 @@ impl PtyTui {
             writer,
             output_rx,
             output: Vec::new(),
+            output_read_error: None,
         })
     }
 
@@ -98,32 +131,55 @@ impl PtyTui {
             match self.child.try_wait() {
                 Ok(Some(status)) => {
                     self.drain_output_for(OUTPUT_DRAIN_TIMEOUT);
+                    self.panic_on_output_read_error(Some(&status));
                     return PtyRunResult::Completed {
                         status,
                         output: self.output.clone(),
                     };
+                }
+                Ok(None) if self.output_read_error.is_some() => {
+                    let _ = self.child.kill();
+                    let child_status = self.child.wait();
+                    self.drain_output_for(OUTPUT_DRAIN_TIMEOUT);
+                    self.panic_on_output_read_error_with_child_status(format_cleanup_child_status(
+                        child_status.as_ref(),
+                    ));
                 }
                 Ok(None) if started.elapsed() < timeout => {
                     thread::sleep(Duration::from_millis(25));
                 }
                 Ok(None) => {
                     let _ = self.child.kill();
-                    let _ = self.child.wait();
+                    let child_status = self.child.wait();
                     self.drain_output_for(OUTPUT_DRAIN_TIMEOUT);
+                    let read_error = self.output_read_error.as_ref().map(|error| {
+                        format!(
+                            "\nPTY output reader failed before timeout cleanup completed: {error}"
+                        )
+                    });
+                    let child_status = format_cleanup_child_status(child_status.as_ref());
                     panic!(
-                        "TUI process did not exit within {:?}; output:\n{}",
+                        "TUI process did not exit within {:?}; child status after cleanup: {}; output:\n{}{}",
                         timeout,
-                        String::from_utf8_lossy(&self.output)
+                        child_status,
+                        String::from_utf8_lossy(&self.output),
+                        read_error.as_deref().unwrap_or("")
                     );
                 }
-                Err(error) => panic!("failed to poll TUI child status: {error}"),
+                Err(error) => panic!(
+                    "failed to poll TUI child status: {error}; output read error: {}; output:\n{}",
+                    self.output_read_error
+                        .as_ref()
+                        .map_or_else(|| "none".to_string(), ToString::to_string),
+                    String::from_utf8_lossy(&self.output)
+                ),
             }
         }
     }
 
     fn drain_output(&mut self) {
-        while let Ok(chunk) = self.output_rx.try_recv() {
-            self.output.extend_from_slice(&chunk);
+        while let Ok(event) = self.output_rx.try_recv() {
+            self.record_output_event(event);
         }
     }
 
@@ -132,13 +188,40 @@ impl PtyTui {
 
         while Instant::now() < deadline {
             match self.output_rx.recv_timeout(Duration::from_millis(10)) {
-                Ok(chunk) => self.output.extend_from_slice(&chunk),
+                Ok(event) => self.record_output_event(event),
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
             }
         }
 
         self.drain_output();
+    }
+
+    fn record_output_event(&mut self, event: PtyOutputEvent) {
+        match event {
+            PtyOutputEvent::Chunk(chunk) => self.output.extend_from_slice(&chunk),
+            PtyOutputEvent::ReadError(error) => {
+                self.output_read_error.get_or_insert(error);
+            }
+        }
+    }
+
+    fn panic_on_output_read_error(&self, child_status: Option<&ExitStatus>) {
+        if self.output_read_error.is_some() {
+            self.panic_on_output_read_error_with_child_status(format_child_status(child_status));
+        }
+    }
+
+    fn panic_on_output_read_error_with_child_status(&self, child_status: String) -> ! {
+        let read_error = self
+            .output_read_error
+            .as_ref()
+            .expect("read error should be present before panicking");
+        panic!(
+            "PTY output reader failed unexpectedly: {read_error}; child status: {}; output:\n{}",
+            child_status,
+            String::from_utf8_lossy(&self.output)
+        );
     }
 }
 
@@ -151,24 +234,107 @@ impl Drop for PtyTui {
     }
 }
 
-pub fn report_conditional_skip(prefix: &str, reason: &str, coverage: &str) {
+pub fn report_conditional_skip(prefix: &str, reason: &dyn fmt::Display, coverage: &str) {
     eprintln!("{prefix}: {reason}. {coverage}");
 }
 
-fn read_pty_output(mut reader: Box<dyn Read + Send>, output_tx: mpsc::Sender<Vec<u8>>) {
+fn compiled_binary_path() -> Result<PathBuf, PtySpawnError> {
+    let Some(binary) = std::env::var_os("CARGO_BIN_EXE_airgradient-cli") else {
+        return Err(PtySpawnError::Infrastructure(
+            "CARGO_BIN_EXE_airgradient-cli is not set; run this helper from Cargo integration tests so Cargo provides the compiled binary path".to_string(),
+        ));
+    };
+
+    if binary.is_empty() {
+        return Err(PtySpawnError::Infrastructure(
+            "CARGO_BIN_EXE_airgradient-cli is set to an empty path".to_string(),
+        ));
+    }
+
+    let binary = PathBuf::from(binary);
+    let metadata = fs::metadata(&binary).map_err(|error| {
+        PtySpawnError::Infrastructure(format!(
+            "CARGO_BIN_EXE_airgradient-cli points to {}, but it could not be inspected: {error}",
+            binary.display()
+        ))
+    })?;
+
+    if !metadata.is_file() {
+        return Err(PtySpawnError::Infrastructure(format!(
+            "CARGO_BIN_EXE_airgradient-cli points to {}, but that path is not a file",
+            binary.display()
+        )));
+    }
+
+    Ok(binary)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PtyReadError {
+    kind: io::ErrorKind,
+    raw_os_error: Option<i32>,
+    message: String,
+}
+
+impl From<io::Error> for PtyReadError {
+    fn from(error: io::Error) -> Self {
+        Self {
+            kind: error.kind(),
+            raw_os_error: error.raw_os_error(),
+            message: error.to_string(),
+        }
+    }
+}
+
+impl fmt::Display for PtyReadError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.raw_os_error {
+            Some(raw_os_error) => write!(
+                formatter,
+                "{} (kind: {:?}, raw OS error: {})",
+                self.message, self.kind, raw_os_error
+            ),
+            None => write!(formatter, "{} (kind: {:?})", self.message, self.kind),
+        }
+    }
+}
+
+enum PtyOutputEvent {
+    Chunk(Vec<u8>),
+    ReadError(PtyReadError),
+}
+
+fn read_pty_output(mut reader: Box<dyn Read + Send>, output_tx: mpsc::Sender<PtyOutputEvent>) {
     let mut buffer = [0; 4096];
 
     loop {
         match reader.read(&mut buffer) {
             Ok(0) => break,
             Ok(bytes_read) => {
-                if output_tx.send(buffer[..bytes_read].to_vec()).is_err() {
+                if output_tx
+                    .send(PtyOutputEvent::Chunk(buffer[..bytes_read].to_vec()))
+                    .is_err()
+                {
                     break;
                 }
             }
             Err(error) if is_closed_pty_error(&error) => break,
-            Err(_) => break,
+            Err(error) => {
+                let _ = output_tx.send(PtyOutputEvent::ReadError(error.into()));
+                break;
+            }
         }
+    }
+}
+
+fn format_child_status(child_status: Option<&ExitStatus>) -> String {
+    child_status.map_or_else(|| "unavailable".to_string(), ToString::to_string)
+}
+
+fn format_cleanup_child_status(child_status: Result<&ExitStatus, &io::Error>) -> String {
+    match child_status {
+        Ok(status) => status.to_string(),
+        Err(error) => format!("unavailable after cleanup failed: {error}"),
     }
 }
 
@@ -177,4 +343,75 @@ fn is_closed_pty_error(error: &io::Error) -> bool {
         error.kind(),
         io::ErrorKind::UnexpectedEof | io::ErrorKind::BrokenPipe | io::ErrorKind::ConnectionReset
     ) || error.raw_os_error() == Some(5)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn closed_pty_error_classification_accepts_expected_terminal_close_errors() {
+        for kind in [
+            io::ErrorKind::UnexpectedEof,
+            io::ErrorKind::BrokenPipe,
+            io::ErrorKind::ConnectionReset,
+        ] {
+            let error = io::Error::new(kind, "terminal closed");
+
+            assert!(
+                is_closed_pty_error(&error),
+                "{kind:?} should be treated as an expected closed-PTY read"
+            );
+        }
+    }
+
+    #[test]
+    fn closed_pty_error_classification_accepts_linux_eio() {
+        let error = io::Error::from_raw_os_error(5);
+
+        assert!(
+            is_closed_pty_error(&error),
+            "raw OS error 5 should be treated as an expected closed-PTY read"
+        );
+    }
+
+    #[test]
+    fn closed_pty_error_classification_rejects_unexpected_read_errors() {
+        for kind in [
+            io::ErrorKind::PermissionDenied,
+            io::ErrorKind::InvalidData,
+            io::ErrorKind::TimedOut,
+        ] {
+            let error = io::Error::new(kind, "unexpected reader failure");
+
+            assert!(
+                !is_closed_pty_error(&error),
+                "{kind:?} should be retained as an unexpected PTY read error"
+            );
+        }
+    }
+
+    #[test]
+    fn spawn_error_display_distinguishes_unavailable_from_infrastructure() {
+        let unavailable = PtySpawnError::Unavailable("openpty failed".to_string());
+        let infrastructure = PtySpawnError::Infrastructure("missing binary path".to_string());
+
+        assert_eq!(
+            unavailable.to_string(),
+            "PTY support unavailable: openpty failed"
+        );
+        assert_eq!(
+            infrastructure.to_string(),
+            "PTY test infrastructure error: missing binary path"
+        );
+    }
+
+    #[test]
+    fn spawn_error_variants_support_branching_without_string_matching() {
+        let unavailable = PtySpawnError::Unavailable("openpty failed".to_string());
+        let infrastructure = PtySpawnError::Infrastructure("missing binary path".to_string());
+
+        assert!(matches!(unavailable, PtySpawnError::Unavailable(_)));
+        assert!(matches!(infrastructure, PtySpawnError::Infrastructure(_)));
+    }
 }

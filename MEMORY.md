@@ -22,3 +22,4 @@
 [pattern] Compact TUI support is clearer when a minimum terminal size and below-minimum fallback are explicit contracts rather than incidental layout behavior.
 [learning] Conditional test coverage reported only through passing-test stderr can be invisible in normal CI output; surface skip state through summaries or explicit reporting.
 [anti-pattern] Conditional integration-test helpers must distinguish missing platform capability from test infrastructure failure; broad skip results can hide broken CI or missing binaries.
+[learning] PTY closed-read error codes are platform semantics, not universal constants; scope raw OS error handling to the OS where the code meaning is known.

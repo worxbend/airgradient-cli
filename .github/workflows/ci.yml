@@ -39,9 +39,15 @@ jobs:
             echo "### PTY-backed TUI coverage"
             echo
             if [ "${test_exit_code}" -ne 0 ]; then
-              echo "Result: PTY integration tests failed."
+              if grep -Eq "PTY test infrastructure (failed|error)" "${output_file}"; then
+                echo "Result: PTY test infrastructure failed."
+                echo
+                grep -E "PTY test infrastructure (failed|error)" "${output_file}" | sed 's/^/- /'
+              else
+                echo "Result: PTY integration tests failed."
+              fi
             elif grep -q "conditional PTY .* coverage skipped" "${output_file}"; then
-              echo "Result: skipped because this runner did not provide usable PTY support."
+              echo "Result: PTY-unavailable skip; no real pseudo-terminal coverage ran on this runner."
               echo
               grep "conditional PTY .* coverage skipped" "${output_file}" | sed 's/^/- /'
             else

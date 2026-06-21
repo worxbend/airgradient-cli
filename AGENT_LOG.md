@@ -964,3 +964,84 @@ A  tests/common/mod.rs
 A  tests/common/pty.rs
 M  tests/tui_fetch_contract.rs
 M  tests/tui_pty.rs
+2026-06-21T16:12:24Z iteration 12 started remaining=10176s
+2026-06-21T16:12:24Z iteration 12 preplanner effective budgets untracked_scan_max_bytes=536870912 untracked_scan_max_count=10000 snapshot_copy_max_bytes=536870912 snapshot_copy_max_count=10000 snapshot_copy_max_file_bytes=134217728
+2026-06-21T16:12:24Z iteration 12 disposable preplanner repo created path=/tmp/agent-loop-preplanner-repo-5psilumm/repo copied_entries=38
+2026-06-21T16:12:24Z iteration 12 ideator phase started count=3
+2026-06-21T16:12:24Z iteration 12 ideator phase concurrency workers=3
+2026-06-21T16:12:24Z iteration 12 ideator 1 role="the pragmatist" started
+2026-06-21T16:12:24Z iteration 12 ideator 2 role="the architect" started
+2026-06-21T16:12:24Z iteration 12 ideator 3 role="the contrarian" started
+2026-06-21T16:12:32Z iteration 12 ideator 3 role="the contrarian" completed status=0
+2026-06-21T16:12:33Z iteration 12 ideator 2 role="the architect" completed status=0
+2026-06-21T16:12:38Z iteration 12 ideator 1 role="the pragmatist" completed status=0
+2026-06-21T16:12:38Z iteration 12 ideator phase completed approaches=3
+2026-06-21T16:12:38Z iteration 12 selector started approaches=3
+2026-06-21T16:12:48Z iteration 12 selector completed status=0
+2026-06-21T16:12:48Z iteration 12 disposable preplanner repo cleanup path=/tmp/agent-loop-preplanner-repo-5psilumm/repo
+2026-06-21T16:12:48Z iteration 12 selector rejected alternative role="the contrarian" approach="Evidence-First Hardening: prioritize proving that the test harness and CI signals are trustworthy before adding new product behavior, even if that delays interval-refresh and re..." reason="Strong directionally, but too absolute in deferring all product behavior. The Planner should prioritize evidence hardening while still allowing small contract clarifications if they naturally fall out of making the evidence precise."
+2026-06-21T16:12:48Z iteration 12 selector rejected alternative role="the architect" approach="Trust-Boundary Hardening: treat the PTY test layer as infrastructure that must prove when it is absent, broken, or valid before expanding product behavior coverage." reason="Correctly identifies the PTY layer as a trust boundary, but it is narrower than needed. The next planning lens should include CI summary truthfulness and observable read failures, not only spawn-error taxonomy."
+2026-06-21T16:12:48Z iteration 12 selector rejected alternative role="the pragmatist" approach="Evidence-Gated Hardening: prioritize proving that existing TUI/PTTY guarantees are trustworthy before adding broader product surface, and treat each new change as an improvement..." reason="Best overall framing, but slightly broad by including ambiguous minimum-size behavior in the same immediate confidence bucket. The Planner should first fix the test-evidence substrate, then use that stronger substrate to address remainin..."
+2026-06-21T16:12:48Z iteration 12 selector alternatives persisted count=3
+2026-06-21T16:12:48Z iteration 12 selector structured alternatives persisted count=3
+2026-06-21T16:12:48Z iteration 12 planner started
+2026-06-21T16:13:08Z iteration 12 plan: 5 task(s) in 4 phase(s). This iteration focuses on evidence quality before expanding TUI behavior. The first three phases are ordered because the tests and read-error handling depend on the shared helper API. The final documentation/CI and helper self-check work can proceed in parallel once the helper semantics are stable enough to target.
+2026-06-21T16:13:08Z iteration 12 phase 1 started parallel=False tasks=1
+2026-06-21T16:14:55Z iteration 12 task t1 ('Introduce typed PTY spawn errors') status=0
+2026-06-21T16:14:55Z iteration 12 phase 2 started parallel=False tasks=1
+2026-06-21T16:16:36Z iteration 12 task t2 ('Fail tests on PTY infrastructure errors') status=0
+2026-06-21T16:16:36Z iteration 12 phase 3 started parallel=False tasks=1
+2026-06-21T16:19:34Z iteration 12 task t3 ('Surface unexpected PTY output read errors') status=0
+2026-06-21T16:19:34Z iteration 12 phase 4 started parallel=True tasks=2
+2026-06-21T16:20:21Z iteration 12 task t5 ('Make CI PTY summary truthful') status=0
+2026-06-21T16:20:38Z iteration 12 task t4 ('Add PTY helper self-check coverage') status=0
+2026-06-21T16:20:38Z iteration 12 reviewer started
+
+## Reviewer Summary: Iteration 12
+
+Date: 2026-06-21
+Reviewer stance: fresh senior review; implementation inspected through `git diff`, full changed-file context for PTY helpers and callers, CI workflow changes, current PLAN/MEMORY state, and targeted test listing.
+
+### What Was Done
+
+- Added `PtySpawnError::{Unavailable, Infrastructure}` and moved PTY spawn setup from broad string errors to typed failures.
+- Preserved platform PTY absence as skippable coverage while making missing/invalid `CARGO_BIN_EXE_airgradient-cli`, PTY reader/writer setup failures, and child-spawn failures panic as infrastructure errors in both PTY-backed integration test files.
+- Made the PTY reader report chunks or retained read errors, continue ignoring expected closed-PTY reads, and panic on unexpected read errors with child status and captured output context.
+- Added helper self-checks for closed-PTY error classification and typed spawn-error display/branching.
+- Updated the GitHub Actions PTY summary so infrastructure failures, PTY-unavailable skips, and successful real-PTY exercise are distinguishable.
+
+### Verification
+
+- `cargo test pty::tests -- --list` shows the new helper self-checks are compiled into both PTY-backed integration test crates.
+- `cargo fmt --check` passed.
+- `cargo test` passed: 91 library tests, 28 CLI integration tests, 12 sensor parsing tests, 9 TUI fetch contract tests, 7 PTY smoke/helper tests, and 17 TUI render tests.
+- `cargo clippy --all-targets --all-features -- -D warnings` passed.
+
+### Findings
+
+- Medium: `is_closed_pty_error` treats `raw_os_error() == Some(5)` as expected on every platform, while the test name documents the intended case as Linux EIO. On non-Linux platforms, raw OS error 5 can represent a real access/permission failure, so the helper may still suppress unexpected read errors outside the current Linux CI target.
+- Low: PTY helper self-check tests live in `tests/common/pty.rs`, so they run once per integration test crate that imports `mod common`. This is acceptable at the current size but will create duplicated test counts and runtime if the helper self-check suite grows.
+- Low: `PtyRunResult::Skipped` still accepts a full `PtySpawnError`; current call sites only pass `Unavailable`, but the type shape leaves room for future code to accidentally wrap an infrastructure error as a skip again.
+- Medium: binary-level interval refresh coverage, the 36x20 metric visibility decision, duplicated CI PTY reruns, unused `color-eyre`, packaging guidance, dependency audit policy, and real-device validation remain open from prior iterations.
+
+### Top Improvement Proposals
+
+1. Gate raw OS error 5 closed-PTY handling behind the platforms where it is known to mean PTY close/EIO, and add platform-specific tests.
+2. Narrow the skipped-run type or add a caller helper so only `PtySpawnError::Unavailable` can produce `PtyRunResult::Skipped`.
+3. Move growing PTY helper self-checks into a single test target if they expand beyond a few pure classification tests.
+4. Add deterministic binary interval-refresh coverage without repeated 5+ second sleeps.
+5. Decide and test the 36x20 metric visibility contract, then proceed to dependency/release hygiene.
+2026-06-21T16:23:22Z iteration 12 reviewer completed status=0
+2026-06-21T16:23:22Z iteration 12 memory updated
+2026-06-21T16:23:22Z iteration 12 completed validation_status=0
+2026-06-21T16:23:22Z iteration 12 checkpoint started
+2026-06-21T16:23:22Z iteration 12 checkpoint status before commit:
+M  .github/workflows/ci.yml
+M  AGENT_LOG.md
+M  ALTERNATIVES.jsonl
+M  MEMORY.md
+M  PLAN.md
+M  SCORES.jsonl
+M  tests/common/pty.rs
+M  tests/tui_fetch_contract.rs
+M  tests/tui_pty.rs

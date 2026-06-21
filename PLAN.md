@@ -99,14 +99,24 @@ Completed in iteration 11:
 - Documented the CI summary behavior in README.
 - Verified on 2026-06-21: `cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --all-features -- -D warnings` pass.
 
+Completed in iteration 12:
+
+- Introduced typed PTY spawn failures with `PtySpawnError::{Unavailable, Infrastructure}`.
+- Kept `openpty` failures as skippable platform-capability gaps while treating missing `CARGO_BIN_EXE_airgradient-cli`, invalid binary paths, PTY reader/writer setup failures, and child spawn failures as test infrastructure errors.
+- Updated both PTY-backed integration test files so infrastructure errors panic instead of being reported as skipped conditional coverage.
+- Changed the PTY output reader to send chunks or retained read errors, ignore expected closed-PTY conditions, and fail tests on unexpected read errors with captured output and child status context.
+- Added PTY helper self-checks for closed-PTY error classification and typed spawn-error formatting/branching.
+- Updated the GitHub Actions PTY summary wording so infrastructure failures, PTY-unavailable skips, and real PTY exercise are reported distinctly.
+- Verified on 2026-06-21: `cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --all-features -- -D warnings` pass.
+
 ## Known Gaps and Risks
 
-- High: the new shared PTY helper reports every spawn/setup error as a skippable condition at the call sites. Missing `CARGO_BIN_EXE_airgradient-cli`, a bad binary path, or child-spawn failures can be summarized as conditional PTY coverage instead of failing as test infrastructure errors.
 - Medium: pseudo-terminal integration tests are skippable when PTY support is unavailable, so some CI/platform combinations may still rely on the runtime harness instead of exercising crossterm through a real terminal.
 - Medium: binary-level TUI HTTP tests cover startup success/failure, manual refresh, and override precedence, but they do not yet cover interval-triggered refresh with a shortened deterministic clock because the binary enforces the production 5 second minimum.
 - Medium: the 36x20 TUI contract guarantees coherent regions and footer access, but it does not guarantee that every metric is visible at the minimum size; the product contract should explicitly decide whether clipped metrics are acceptable or whether scrolling/pagination is required.
 - Medium: the CI PTY summary reruns `tui_pty` and `tui_fetch_contract` after the full `cargo test`, increasing CI time and duplicating test execution. This is acceptable for visibility now, but should be revisited if the suite grows.
-- Medium: the PTY output reader still suppresses unexpected read errors. That was inherited from the duplicated helper code, but the shared helper is now the right place to make output-drain failures observable.
+- Medium: closed-PTY read-error classification treats raw OS error `5` as expected on every platform, while the intended case is Linux/Unix PTY `EIO`; on non-Linux platforms this could hide a real read failure such as access denied.
+- Low: PTY helper self-checks live inside `tests/common/pty.rs`, so they are compiled into each integration test crate that imports `mod common`; this is harmless at the current size but duplicates self-check execution and counts.
 - Medium: parser priority is correct for key-list precedence and top-level-over-nested precedence, but same-alias duplicate fields inside one JSON object still depend on `serde_json::Map` iteration order. This is acceptable for malformed duplicate-ish payloads, but real-device validation should confirm no important duplicate field variants conflict.
 - Medium: non-object top-level config JSON is a documented hard repair boundary because unknown-field preservation requires an object.
 - Medium: sensor upper bounds are practical guardrails, not hardware-validated limits; revisit them after real-device validation.
@@ -143,24 +153,22 @@ Must preserve:
 
 ## Prioritized Next Work
 
-### Phase 11A: Tighten PTY Evidence Quality
+### Phase 12A: Finish PTY Helper Portability and Evidence Hygiene
 
-1. Distinguish PTY absence from test infrastructure failure.
-   - Replace `PtyTui::spawn(args) -> Result<Self, String>` with a typed error such as `PtySpawnError::{Unavailable, Infrastructure}`.
-   - Treat `openpty` failures as skippable platform capability gaps.
-   - Treat missing `CARGO_BIN_EXE_airgradient-cli`, invalid binary path, and unexpected `spawn_command` failures as test failures unless there is a clearly documented platform-specific PTY reason.
-   - Update both PTY-backed test files and CI summary wording to avoid labeling infrastructure failures as skipped coverage.
+1. Scope closed-PTY raw OS error handling by platform.
+   - Treat Linux/Unix PTY `EIO` as an expected closed-terminal read only on platforms where that mapping is known.
+   - Avoid suppressing raw OS error `5` on Windows or other platforms where it may mean access denied or another real failure.
+   - Update the helper self-checks with platform-specific expectations so the test names and implementation match.
 
-2. Make shared PTY output-drain errors observable.
-   - Have the reader thread send `Result<Vec<u8>, io::Error>` or retain a terminal read-error field in `PtyTui`.
-   - Continue ignoring expected closed-PTY conditions, but fail tests on unexpected read errors with the captured output and child status.
-   - Keep timeout cleanup bounded and preserve the existing process-kill guard.
+2. Tighten skipped-coverage typing.
+   - Consider changing `PtyRunResult::Skipped(PtySpawnError)` to a narrower unavailable-only skip type so infrastructure failures cannot accidentally be reintroduced as skipped results by future call sites.
+   - Add a small caller-level assertion or helper wrapper that makes the intended unavailable-vs-infrastructure branch hard to misuse.
 
-3. Add focused helper tests or self-checks where practical.
-   - Unit-test closed-PTY error classification if it can be isolated without platform-specific PTY setup.
-   - Add integration assertions that the helper reports skipped coverage only for PTY availability failures.
+3. Reassess PTY self-check placement.
+   - Keep the current duplicated module tests if the cost remains negligible.
+   - If more helper tests are added, move pure helper self-checks into a single integration test target or a small test-support crate to avoid repeated execution.
 
-### Phase 11B: Fill Remaining TUI Contract Gaps
+### Phase 12B: Fill Remaining TUI Contract Gaps
 
 1. Add interval refresh contract coverage.
    - Consider a test-only runtime hook or lower-bound override for interval refresh coverage without adding 5+ second sleeps to more tests.
@@ -175,7 +183,7 @@ Must preserve:
    - Keep the current summary step if the duplicated PTY run remains cheap.
    - If the PTY-backed suite grows, split normal tests and PTY summary into clearer steps or use a reusable script so visibility does not require expensive duplicate work.
 
-### Phase 11C: Dependency, Release, and Validation Hygiene
+### Phase 12C: Dependency, Release, and Validation Hygiene
 
 1. Clean dependency surface.
    - Remove `color-eyre` if no code path uses it.
