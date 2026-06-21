@@ -1,10 +1,5 @@
-#![allow(dead_code, unused_imports)]
-
-#[path = "../src/sensors/mod.rs"]
-mod sensors;
-
-use sensors::parse_snapshot;
-use serde_json::Value;
+use airgradient_cli::sensors::parse_snapshot;
+use serde_json::{Value, json};
 
 fn fixture(name: &str) -> Value {
     let contents = match name {
@@ -88,4 +83,103 @@ fn invalid_compensated_temperature_and_humidity_fall_back_to_raw_values() {
 
     assert_eq!(snapshot.temperature_c, Some(19.8));
     assert_eq!(snapshot.humidity, Some(42.4));
+}
+
+#[test]
+fn invalid_top_level_pm25_uses_later_valid_alternate_candidate() {
+    let snapshot = parse_snapshot(&json!({
+        "pm02": 1_000.1,
+        "pm2_5": 12.3
+    }));
+
+    assert_eq!(snapshot.pm25, Some(12.3));
+    assert_eq!(snapshot.aqi, Some(57.0));
+}
+
+#[test]
+fn invalid_top_level_pm25_uses_later_valid_nested_candidate() {
+    let snapshot = parse_snapshot(&json!({
+        "pm02": 1_000.1,
+        "device": {
+            "measurements": {
+                "pm02": 8.2
+            }
+        }
+    }));
+
+    assert_eq!(snapshot.pm25, Some(8.2));
+    assert_eq!(snapshot.aqi, Some(46.0));
+}
+
+#[test]
+fn invalid_top_level_co2_uses_later_valid_nested_candidate() {
+    let snapshot = parse_snapshot(&json!({
+        "rco2": 40_000.1,
+        "device": {
+            "measurements": {
+                "co2": 805.0
+            }
+        }
+    }));
+
+    assert_eq!(snapshot.co2, Some(805.0));
+}
+
+#[test]
+fn invalid_top_level_aqi_uses_later_valid_alternate_candidate() {
+    let snapshot = parse_snapshot(&json!({
+        "aqi": 500.1,
+        "usAqi": 42.0,
+        "pm02": 35.4
+    }));
+
+    assert_eq!(snapshot.aqi, Some(42.0));
+}
+
+#[test]
+fn invalid_top_level_aqi_uses_later_valid_nested_candidate() {
+    let snapshot = parse_snapshot(&json!({
+        "aqi": 500.1,
+        "pm02": 35.4,
+        "device": {
+            "measurements": {
+                "aqi": 37.0
+            }
+        }
+    }));
+
+    assert_eq!(snapshot.aqi, Some(37.0));
+}
+
+#[test]
+fn valid_higher_priority_top_level_candidates_still_win() {
+    let snapshot = parse_snapshot(&json!({
+        "rco2": 610.0,
+        "co2": 805.0,
+        "pm02": 7.4,
+        "pm2_5": 12.3,
+        "device": {
+            "measurements": {
+                "co2": 1200.0,
+                "pm02": 44.0,
+                "aqi": 91.0
+            }
+        },
+        "aqi": 42.0
+    }));
+
+    assert_eq!(snapshot.co2, Some(610.0));
+    assert_eq!(snapshot.pm25, Some(7.4));
+    assert_eq!(snapshot.aqi, Some(42.0));
+}
+
+#[test]
+fn valid_explicit_aqi_still_wins_over_calculated_pm25_aqi() {
+    let snapshot = parse_snapshot(&json!({
+        "aqi": 42.0,
+        "pm02": 35.4
+    }));
+
+    assert_eq!(snapshot.pm25, Some(35.4));
+    assert_eq!(snapshot.aqi, Some(42.0));
 }

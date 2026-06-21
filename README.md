@@ -118,6 +118,11 @@ The known config fields are:
 and preserve unknown top-level sibling fields in the JSON file. This keeps the
 shared config compatible with future `airgradient-desktop` fields.
 
+The repair boundary is a top-level JSON object. If the config file contains a
+top-level array, string, number, boolean, or `null`, the CLI reports an error
+instead of trying to rewrite it. Preserving unknown sibling fields requires an
+object to merge into, so non-object config JSON is not automatically repairable.
+
 `config set-url` normalizes saved URLs:
 
 - Bare hosts are accepted and saved as HTTP URLs, for example
@@ -148,8 +153,10 @@ For example, `http://192.168.1.201/` is fetched as:
 http://192.168.1.201/measures/current
 ```
 
-Each one-shot fetch uses a 5 second HTTP timeout by default. The timeout can be
-overridden for tests and diagnostics with `AIRGRADIENT_CLI_FETCH_TIMEOUT_MS`.
+Each one-shot fetch uses a 5 second HTTP timeout by default.
+`AIRGRADIENT_CLI_FETCH_TIMEOUT_MS` can override that timeout in milliseconds,
+but it is a diagnostic and test hook rather than a supported user-facing
+configuration option. Normal users should rely on the default timeout.
 
 Normal command stdout is reserved for command output. Text fetch output is
 colored only when stdout is a terminal; captured or piped stdout has no ANSI
@@ -173,3 +180,15 @@ diagnostics:
 ```sh
 airgradient-cli -vv --url 192.168.1.201
 ```
+
+## Sensor Parsing
+
+The parser accepts current and alternate AirGradient field names, numeric JSON
+values, numeric strings, and nested sensor payloads. Missing or invalid sensor
+values stay missing, rendering as `--` in text output and `null` in JSON.
+
+Sensor values are domain-checked before they reach presentation. The current
+upper bounds are practical transport and firmware-glitch guardrails, not
+calibrated hardware maximums: AQI `500`, CO2 `40000 ppm`, TVOC and NOx indexes
+`500`, PM mass `1000 ug/m3`, PM0.3 count `1000000 / dL`, and temperature
+`-40` to `85 C`. Humidity is limited to `0` through `100%`.

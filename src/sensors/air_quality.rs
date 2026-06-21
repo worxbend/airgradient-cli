@@ -145,14 +145,15 @@ pub fn us_aqi_from_pm25(pm25: f64) -> f64 {
     500.0
 }
 
-fn find_number(value: &Value, keys: &[&str]) -> Option<f64> {
+fn find_bounded_number(value: &Value, keys: &[&str], min: f64, max: f64) -> Option<f64> {
     match value {
         Value::Object(map) => {
             for wanted in keys {
                 if let Some(found) = map
                     .iter()
-                    .find(|(key, _)| key_matches(key, wanted))
-                    .and_then(|(_, value)| value_as_number(value))
+                    .filter(|(key, _)| key_matches(key, wanted))
+                    .filter_map(|(_, value)| value_as_number(value))
+                    .find(|value| (min..=max).contains(value))
                 {
                     return Some(found);
                 }
@@ -160,17 +161,15 @@ fn find_number(value: &Value, keys: &[&str]) -> Option<f64> {
 
             map.values().find_map(|child| {
                 matches!(child, Value::Object(_) | Value::Array(_))
-                    .then(|| find_number(child, keys))
+                    .then(|| find_bounded_number(child, keys, min, max))
                     .flatten()
             })
         }
-        Value::Array(items) => items.iter().find_map(|child| find_number(child, keys)),
+        Value::Array(items) => items
+            .iter()
+            .find_map(|child| find_bounded_number(child, keys, min, max)),
         _ => None,
     }
-}
-
-fn find_bounded_number(value: &Value, keys: &[&str], min: f64, max: f64) -> Option<f64> {
-    find_number(value, keys).filter(|value| (min..=max).contains(value))
 }
 
 fn value_as_number(value: &Value) -> Option<f64> {

@@ -41,15 +41,24 @@ Completed in iteration 4:
 - Introduced a library crate surface and a pure `tui::app::TuiApp` state model covering current/previous successful snapshots, errors, fetch metadata, refresh interval clamping, and metric trends.
 - Verified on 2026-06-21: `cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --all-features -- -D warnings` pass.
 
+Completed in iteration 5:
+
+- Fixed bounded sensor candidate lookup so out-of-range matching fields are skipped and later valid alternate or nested candidates can still populate the metric.
+- Added regression coverage for invalid top-level PM2.5, CO2, and AQI fields falling back to valid alternate or nested candidates.
+- Preserved valid explicit AQI precedence over PM2.5-derived AQI and valid higher-priority top-level candidate precedence over lower-priority or nested fields.
+- Converted `tests/sensor_parsing.rs` to import `airgradient_cli::sensors::parse_snapshot` through the library crate, removing source-path imports and duplicate internal unit-test execution in that integration binary.
+- Documented the non-object config repair boundary, parser upper-bound policy, and `AIRGRADIENT_CLI_FETCH_TIMEOUT_MS` as a diagnostic/test hook rather than a supported user-facing setting.
+- Verified on 2026-06-21: `cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --all-features -- -D warnings` pass.
+
 ## Known Gaps and Risks
 
 - High: TUI is not implemented; `--tui` still exits with `TUI is not implemented yet.`
-- Medium: sensor candidate selection applies bounds after selecting the first syntactically numeric matching field. An invalid higher-priority field can block a later valid alternate or nested value for the same metric.
-- Medium: `tests/sensor_parsing.rs` imports `src/sensors/mod.rs` via `#[path]`, which duplicates module unit tests inside the integration test binary and bypasses the new library crate API.
-- Medium: non-object top-level config JSON is still a hard error for display and repair. That is defensible, but it should be documented as the repair boundary.
-- Medium: sensor upper bounds are practical guardrails, not hardware-validated limits. They should be documented in README or near parser policy and revisited after real-device validation.
+- Medium: parser priority is correct for key-list precedence and top-level-over-nested precedence, but same-alias duplicate fields inside one JSON object still depend on `serde_json::Map` iteration order. This is acceptable for malformed duplicate-ish payloads, but real-device validation should confirm no important duplicate field variants conflict.
+- Medium: non-object top-level config JSON is a documented hard repair boundary because unknown-field preservation requires an object.
+- Medium: sensor upper bounds are practical guardrails, not hardware-validated limits; revisit them after real-device validation.
 - Low: `FetchSettings` currently only contains timeout. It is sufficient for TUI client reuse, but future retry/backoff or user-facing timeout policy should extend this boundary instead of adding ad hoc fetch options.
 - Low: `TuiApp` stores `fetch_settings` and `fetch_client`, but no terminal event loop consumes them yet; the next iteration should either use them directly or trim public state.
+- Low: `color-eyre` remains in `Cargo.toml`/`Cargo.lock` even though runtime diagnostics are now local; remove unused dependency surface before release.
 - There is no packaging guidance, release workflow, dependency audit, or real-device validation record yet.
 
 ## Compatibility Targets
@@ -81,37 +90,21 @@ Must preserve:
 
 ## Prioritized Next Work
 
-### Phase 5A: Final Pre-TUI Cleanup
-
-1. Fix parser bounded-candidate fallback.
-   - Change bounded metric lookup so invalid matching values are skipped and later valid alternates or nested candidates can still be used.
-   - Add regression tests for invalid top-level PM/CO2/AQI fields with valid alternate or nested fields.
-   - Preserve explicit AQI precedence when valid, and preserve top-level-over-nested precedence when both candidates are valid.
-
-2. Clean integration test architecture.
-   - Update `tests/sensor_parsing.rs` to import `airgradient_cli::sensors::parse_snapshot` through the library crate instead of `#[path = "../src/sensors/mod.rs"]`.
-   - Remove the `dead_code`/`unused_imports` allowance if it is no longer needed.
-   - Confirm the integration test binary no longer reruns internal sensor module unit tests.
-
-3. Document the remaining config and sensor policy boundaries.
-   - State that top-level non-object JSON is not repairable because unknown-field preservation requires an object.
-   - Document the parser's practical upper bounds and that they are transport/glitch guardrails, not calibrated hardware maxima.
-   - Clarify whether `AIRGRADIENT_CLI_FETCH_TIMEOUT_MS` is diagnostic-only or supported user surface.
-
-### Phase 5B: TUI Dashboard
+### Phase 6A: First Functional TUI Dashboard
 
 1. Add TUI dependencies and module layout.
    - Add `ratatui` and `crossterm`.
    - Add `src/tui/ui.rs` and `src/tui/theme.rs`.
-   - Keep `src/tui/app.rs` as the pure state model and wire it into the runtime.
+   - Keep `src/tui/app.rs` as the pure state model and add a small runtime module for terminal setup, event handling, and fetch scheduling.
 
 2. Implement TUI startup and event loop.
    - Resolve config and URL using the existing CLI/config/device contracts.
    - Build one fetch client from `FetchSettings` and reuse it for refreshes.
    - Fetch immediately on startup when URL is available.
    - Refresh on interval; `r` refreshes immediately; `q` and `Esc` quit.
-   - Avoid overlapping fetches if a request is already in flight.
+   - Avoid overlapping fetches if a request is already in flight; a single-threaded tick loop is acceptable for the first slice if request timeout keeps stalls bounded.
    - Surface config/fetch errors without losing the last successful snapshot.
+   - Restore the terminal on normal exit and on error paths after raw mode/alternate screen setup.
 
 3. Implement Ratatui rendering.
    - Top bar: app name, URL, refresh interval, last update status.
@@ -120,14 +113,32 @@ Must preserve:
    - Footer with keyboard hints.
    - Error panel for config/fetch failures.
    - Keep layout readable at common terminal sizes.
+   - Render a useful empty/config-error state when no URL is configured instead of dropping into a blank dashboard.
 
 4. Test TUI behavior.
    - Keep state-transition unit tests.
    - Add render smoke tests with Ratatui's test backend.
    - Add CLI integration coverage that `--tui` no longer returns the pending-implementation error.
+   - Add a terminal-runtime test or small abstraction that verifies terminal cleanup is called on early errors where practical.
    - Manually verify common terminal sizes after the first functional dashboard lands.
 
-### Phase 5C: Release Hygiene
+### Phase 6B: TUI Polish and Contract Coverage
+
+1. Tighten live-dashboard ergonomics.
+   - Show last successful update time and fetch duration in stable, compact language.
+   - Make refresh interval display match config bounds and runtime adjustments.
+   - Ensure keyboard controls remain responsive during failed or slow fetches within the timeout boundary.
+
+2. Extend parser and config confidence only where real payloads demand it.
+   - Add fixture coverage for real-device payload variants discovered during manual validation.
+   - If duplicate same-metric aliases appear in real payloads, define deterministic same-object conflict policy and test it.
+   - Keep non-object config JSON as a documented hard error unless a concrete desktop compatibility need appears.
+
+3. Clean dependency surface.
+   - Remove `color-eyre` if no code path uses it.
+   - Re-run `cargo tree` or `cargo machete` after TUI dependencies are added to catch stale dependencies.
+
+### Phase 6C: Release Hygiene
 
 1. Add packaging and installation notes.
    - Document `cargo install --path .`.

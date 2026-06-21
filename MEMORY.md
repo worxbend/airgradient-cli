@@ -8,3 +8,4 @@
 [learning] Parser validation should be integrated into candidate search; validating only after selecting the first matching field can hide valid fallback fields.
 [pattern] TUI work is easier to verify when state transitions are pure and tested before terminal drawing or event-loop code exists.
 [anti-pattern] Integration tests should import the crate API, not source files by path, or they duplicate unit tests and miss public-surface regressions.
+[pattern] When compatibility repair has an intentional hard boundary, document the boundary and its reason so future work does not treat it as an accidental parser failure.

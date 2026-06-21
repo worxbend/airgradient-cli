@@ -367,3 +367,82 @@ A  tests/fixtures/current_airgradient_payload.json
 A  tests/fixtures/missing_values_payload.json
 A  tests/fixtures/nested_conflicting_payload.json
 A  tests/sensor_parsing.rs
+2026-06-21T14:45:09Z iteration 5 started remaining=15411s
+2026-06-21T14:45:09Z iteration 5 preplanner effective budgets untracked_scan_max_bytes=536870912 untracked_scan_max_count=10000 snapshot_copy_max_bytes=536870912 snapshot_copy_max_count=10000 snapshot_copy_max_file_bytes=134217728
+2026-06-21T14:45:09Z iteration 5 disposable preplanner repo created path=/tmp/agent-loop-preplanner-repo-l4clh2nh/repo copied_entries=30
+2026-06-21T14:45:09Z iteration 5 ideator phase started count=3
+2026-06-21T14:45:09Z iteration 5 ideator phase concurrency workers=3
+2026-06-21T14:45:09Z iteration 5 ideator 1 role="the pragmatist" started
+2026-06-21T14:45:09Z iteration 5 ideator 2 role="the architect" started
+2026-06-21T14:45:09Z iteration 5 ideator 3 role="the contrarian" started
+2026-06-21T14:45:18Z iteration 5 ideator 1 role="the pragmatist" completed status=0
+2026-06-21T14:45:18Z iteration 5 ideator 2 role="the architect" completed status=0
+2026-06-21T14:45:18Z iteration 5 ideator 3 role="the contrarian" completed status=0
+2026-06-21T14:45:18Z iteration 5 ideator phase completed approaches=3
+2026-06-21T14:45:18Z iteration 5 selector started approaches=3
+2026-06-21T14:45:29Z iteration 5 selector completed status=0
+2026-06-21T14:45:29Z iteration 5 disposable preplanner repo cleanup path=/tmp/agent-loop-preplanner-repo-l4clh2nh/repo
+2026-06-21T14:45:29Z iteration 5 selector rejected alternative role="the pragmatist" approach="Stabilize the shared data contract before opening the TUI surface: treat iteration 5 as a contract-hardening pass that makes parser fallback, public test boundaries, and documen..." reason="Selected in spirit, but too conservative if it treats iteration 5 as cleanup-only without creating a clear runway to make `--tui` real."
+2026-06-21T14:45:29Z iteration 5 selector rejected alternative role="the architect" approach="Stabilize the Data Contract Before Drawing the Dashboard: treat iteration 5 as a confidence pass over the parser/config/library boundary, then let TUI work consume only those ha..." reason="Selected in spirit, but should be constrained to the known seams rather than becoming a broad boundary-design exercise before TUI work."
+2026-06-21T14:45:29Z iteration 5 selector rejected alternative role="the contrarian" approach="Contract-First TUI Slice: Treat the TUI as a consumer of already-proven public contracts, and land the smallest end-to-end dashboard that exercises config resolution, fetch reus..." reason="Not selected as-is because starting the TUI before fixing parser fallback and public test boundaries risks composing the dashboard on top of known incorrect shared behavior."
+2026-06-21T14:45:29Z iteration 5 selector alternatives persisted count=3
+2026-06-21T14:45:29Z iteration 5 selector structured alternatives persisted count=3
+2026-06-21T14:45:29Z iteration 5 planner started
+2026-06-21T14:45:44Z iteration 5 plan: 4 task(s) in 3 phase(s). This iteration keeps Phase 5A narrow and contract-focused before starting Ratatui work. The parser fallback fix must land first because it can affect the sensor integration tests. After that, test architecture cleanup and README policy documentation are independent and can proceed concurrently. Final validation depends on all code and documentation changes being complete.
+2026-06-21T14:45:44Z iteration 5 phase 1 started parallel=False tasks=1
+2026-06-21T14:47:32Z iteration 5 task t1 ('Fix bounded sensor candidate fallback') status=0
+2026-06-21T14:47:32Z iteration 5 phase 2 started parallel=True tasks=2
+2026-06-21T14:48:02Z iteration 5 task t2 ('Use library API in sensor integration tests') status=0
+2026-06-21T14:48:13Z iteration 5 task t3 ('Document parser and config policy boundaries') status=0
+2026-06-21T14:48:13Z iteration 5 phase 3 started parallel=False tasks=1
+2026-06-21T14:48:36Z iteration 5 task t4 ('Verify pre-TUI hardening slice') status=0
+2026-06-21T14:48:36Z iteration 5 reviewer started
+
+## Reviewer Summary: Iteration 5
+
+Date: 2026-06-21
+Reviewer stance: fresh senior review; implementation inspected through `git diff`, full touched-file context, README/plan/log context, and validation commands.
+
+### What Was Done
+
+- Changed bounded sensor lookup so invalid matching values are skipped during candidate search, allowing later valid alternate or nested candidates to be used.
+- Added regression tests for invalid top-level PM2.5, CO2, and AQI values falling back to valid alternate or nested values.
+- Preserved important priority contracts in tests: valid explicit AQI beats PM2.5-derived AQI, and valid higher-priority top-level candidates beat lower-priority or nested candidates.
+- Converted `tests/sensor_parsing.rs` to use `airgradient_cli::sensors::parse_snapshot` through the library crate and removed the source-path import allowances.
+- Documented non-object config JSON as the repair boundary, parser upper bounds as practical glitch guardrails, and `AIRGRADIENT_CLI_FETCH_TIMEOUT_MS` as a diagnostic/test hook.
+- Updated `PLAN.md` to mark Phase 5A complete and reprioritize the next work around the first functional Ratatui dashboard.
+- Added a durable memory entry about documenting intentional hard boundaries.
+
+### Verification
+
+- `cargo test` passed: 57 library unit tests, 28 CLI integration tests, and 12 sensor parsing integration tests.
+- `cargo fmt --check` passed.
+- `cargo clippy --all-targets --all-features -- -D warnings` passed.
+
+### Findings
+
+- High: `--tui` is still accepted but returns the pending implementation error, so the main product acceptance criterion remains open.
+- Medium: bounded candidate fallback is fixed for key-list priority and nested fallback, but same-alias duplicate fields within one JSON object still depend on `serde_json::Map` iteration order. This is tolerable for malformed duplicate-ish payloads but should be revisited if real device payloads expose conflicting aliases.
+- Medium: the project has now completed the pre-TUI hardening tasks; continuing cleanup before replacing the TUI stub would defer the largest user-visible gap.
+- Low: `color-eyre` remains in `Cargo.toml` and `Cargo.lock` even though diagnostics are now rendered locally.
+
+### Top Improvement Proposals
+
+1. Land the smallest end-to-end Ratatui dashboard next: dependencies, terminal setup/cleanup, config resolution, immediate fetch, interval refresh, `r` refresh, and `q`/`Esc` quit.
+2. Render from the shared metric presentation spine and existing `TuiApp` state so TUI labels/statuses/trends cannot drift from text and JSON output.
+3. Add Ratatui test-backend render smoke tests and replace the CLI integration test that currently expects `TUI is not implemented yet.`
+4. Verify terminal cleanup paths after raw mode/alternate screen setup, especially early config/fetch errors.
+5. Remove unused `color-eyre` dependency and run dependency hygiene after adding TUI dependencies.
+2026-06-21T14:51:39Z iteration 5 reviewer completed status=0
+2026-06-21T14:51:39Z iteration 5 memory updated
+2026-06-21T14:51:39Z iteration 5 completed validation_status=0
+2026-06-21T14:51:39Z iteration 5 checkpoint started
+2026-06-21T14:51:39Z iteration 5 checkpoint status before commit:
+M  AGENT_LOG.md
+M  ALTERNATIVES.jsonl
+M  MEMORY.md
+M  PLAN.md
+M  README.md
+M  SCORES.jsonl
+M  src/sensors/air_quality.rs
+M  tests/sensor_parsing.rs
