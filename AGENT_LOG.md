@@ -185,3 +185,91 @@ M  src/config.rs
 M  src/device.rs
 M  src/sensors/air_quality.rs
 M  tests/cli.rs
+2026-06-21T14:21:43Z iteration 3 started remaining=16816s
+2026-06-21T14:21:43Z iteration 3 preplanner effective budgets untracked_scan_max_bytes=536870912 untracked_scan_max_count=10000 snapshot_copy_max_bytes=536870912 snapshot_copy_max_count=10000 snapshot_copy_max_file_bytes=134217728
+2026-06-21T14:21:43Z iteration 3 disposable preplanner repo created path=/tmp/agent-loop-preplanner-repo-vofqwvmm/repo copied_entries=19
+2026-06-21T14:21:43Z iteration 3 ideator phase started count=3
+2026-06-21T14:21:43Z iteration 3 ideator phase concurrency workers=3
+2026-06-21T14:21:43Z iteration 3 ideator 1 role="the pragmatist" started
+2026-06-21T14:21:43Z iteration 3 ideator 2 role="the architect" started
+2026-06-21T14:21:43Z iteration 3 ideator 3 role="the contrarian" started
+2026-06-21T14:21:52Z iteration 3 ideator 1 role="the pragmatist" completed status=0
+2026-06-21T14:21:52Z iteration 3 ideator 3 role="the contrarian" completed status=0
+2026-06-21T14:21:53Z iteration 3 ideator 2 role="the architect" completed status=0
+2026-06-21T14:21:53Z iteration 3 ideator phase completed approaches=3
+2026-06-21T14:21:53Z iteration 3 selector started approaches=3
+2026-06-21T14:22:02Z iteration 3 selector completed status=0
+2026-06-21T14:22:02Z iteration 3 disposable preplanner repo cleanup path=/tmp/agent-loop-preplanner-repo-vofqwvmm/repo
+2026-06-21T14:22:02Z iteration 3 selector rejected alternative role="the pragmatist" approach="Contract-First Stabilization: postpone the TUI one more iteration and harden the CLI/config/fetch contract that the TUI will inherit, especially diagnostics, config preservation..." reason="Not selected as-is because it frames the work partly as postponing the TUI, while the stronger planning frame is to establish a deliberate gate that directly reduces TUI rework and compatibility risk."
+2026-06-21T14:22:02Z iteration 3 selector rejected alternative role="the contrarian" approach="Contract-First Stabilization Gate: pause TUI momentum until the CLI\u2019s observable behavior is made boring, explicit, and hard to misinterpret, especially around errors, config mu..." reason="Not selected as-is because its useful caution against TUI momentum is slightly too absolute; the Planner should stabilize only the contracts that affect future consumers, not pause for open-ended CLI perfection."
+2026-06-21T14:22:02Z iteration 3 selector rejected alternative role="the architect" approach="Contract-First Stabilization Gate: pause TUI feature growth until the CLI/config/error contracts are made explicit, tested, and documented, then let the TUI consume those stabil..." reason="Not selected as-is because it leans toward seam definition and architecture language; the better hybrid keeps the scope strategic and externally observable, avoiding unnecessary crate reshaping."
+2026-06-21T14:22:02Z iteration 3 selector alternatives persisted count=3
+2026-06-21T14:22:02Z iteration 3 selector structured alternatives persisted count=3
+2026-06-21T14:22:02Z iteration 3 planner started
+2026-06-21T14:22:54Z iteration 3 plan: 5 task(s) in 3 phase(s). This iteration is a contract-first stabilization gate before TUI work. Phase 1 resolves command and diagnostic behavior that other tasks depend on. Phase 2 splits independent config compatibility and parser validation work where possible, though both must account for the finalized CLI behavior. Phase 3 documents and automates the stabilized contract after implementation decisions are made.
+2026-06-21T14:22:54Z iteration 3 phase 1 started parallel=False tasks=1
+2026-06-21T14:26:06Z iteration 3 task t1 ('Stabilize CLI diagnostics and flag scope') status=0
+2026-06-21T14:26:06Z iteration 3 phase 2 started parallel=True tasks=2
+2026-06-21T14:27:37Z iteration 3 task t3 ('Complete sensor domain validation') status=0
+2026-06-21T14:28:25Z iteration 3 task t2 ('Preserve unknown config fields and harden config show') status=0
+2026-06-21T14:28:25Z iteration 3 phase 3 started parallel=True tasks=2
+2026-06-21T14:28:57Z iteration 3 task t5 ('Add CI workflow') status=0
+2026-06-21T14:29:29Z iteration 3 task t4 ('Add README contract documentation') status=0
+2026-06-21T14:29:29Z iteration 3 reviewer started
+
+## Reviewer Summary: Iteration 3
+
+Date: 2026-06-21
+Reviewer stance: fresh senior review; implementation inspected through git diff, full touched-file context, docs, CI, and validation commands.
+
+### What Was Done
+
+- Replaced `color-eyre` runtime reporting with a local diagnostic renderer that keeps default errors concise and uncolored.
+- Added verbose error behavior: `-v` prints source chains, and `-vv` also prints debug details while enabling trace diagnostics.
+- Added integration coverage for invalid URL, unsupported scheme, non-success HTTP status, invalid JSON response, timeout response, top-level flag scope, malformed config URLs, and unknown-field preservation.
+- Tightened top-level flag semantics: `--refresh` is rejected outside `--tui`, and `--json` is rejected for config commands.
+- Preserved unknown top-level config fields during mutating config commands by overlaying typed known fields onto the existing JSON object.
+- Hardened `config show` for malformed, unsupported, empty, and missing stored `server_url` values without rewriting the file.
+- Added additional sensor-domain validation for explicit AQI, CO2, humidity, TVOC, and NOx.
+- Added README contract documentation and a GitHub Actions CI workflow.
+
+### Verification
+
+- `cargo test` passed: 48 unit tests and 23 integration tests.
+- `cargo fmt --check` passed.
+- `cargo clippy --all-targets --all-features -- -D warnings` passed.
+
+### Findings
+
+- High: `--tui` is still accepted but not implemented, so the largest product acceptance criterion remains open.
+- Medium: `config show` is tolerant for bad `server_url` values, but it still fails on other malformed known fields such as wrong JSON types or out-of-range `refresh_interval_secs` because it goes through strict typed deserialization before display.
+- Medium: config mutation now preserves unknown top-level fields, but repair commands still require the whole known config shape to deserialize and validate before writing; a partially broken shared config can block `set-url` or `set-refresh`.
+- Medium: sensor validation added lower bounds and AQI/humidity bounds, but there are no documented upper-bound policies for CO2, TVOC, NOx, PM mass/count, or temperature, so absurd high values can still produce misleading output.
+- Low: the timeout environment override is useful for tests and diagnostics, but it is now documented user surface without a broader fetch-settings abstraction.
+- Low: parser behavior for nested conflicting fields and real-device payload variants is still under-tested.
+
+### Top Improvement Proposals
+
+1. Extract fetch runtime settings before TUI work so CLI and TUI share timeout and client construction behavior.
+2. Split raw config preservation from strict typed validation so `config show` and repair commands can handle partially malformed shared configs more gracefully.
+3. Define and test realistic upper-bound policy for remaining sensor domains, including deliberate no-upper-bound choices where appropriate.
+4. Add real AirGradient-like fixture payloads and nested conflict tests to lock parser priority behavior before the TUI consumes it.
+5. Move from CLI contract stabilization into TUI implementation once these narrow pre-TUI cleanup tasks are done.
+2026-06-21T14:32:09Z iteration 3 reviewer completed status=0
+2026-06-21T14:32:09Z iteration 3 memory updated
+2026-06-21T14:32:09Z iteration 3 completed validation_status=0
+2026-06-21T14:32:09Z iteration 3 checkpoint started
+2026-06-21T14:32:09Z iteration 3 checkpoint status before commit:
+A  .github/workflows/ci.yml
+M  AGENT_LOG.md
+M  ALTERNATIVES.jsonl
+M  MEMORY.md
+M  PLAN.md
+A  README.md
+M  SCORES.jsonl
+M  src/cli.rs
+M  src/config.rs
+M  src/device.rs
+M  src/main.rs
+M  src/sensors/air_quality.rs
+M  tests/cli.rs

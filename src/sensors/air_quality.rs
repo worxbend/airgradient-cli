@@ -43,6 +43,7 @@ const HUMIDITY_COMPENSATED_KEYS: &[&str] = &[
 const HUMIDITY_KEYS: &[&str] = &["rhum", "humidity", "relativeHumidity", "relative_humidity"];
 const TVOC_KEYS: &[&str] = &["tvocIndex", "tvoc", "vocIndex", "voc_index", "tvoc_index"];
 const NOX_KEYS: &[&str] = &["noxIndex", "nox", "nox_index"];
+const MAX_AQI: f64 = 500.0;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct SensorSnapshot {
@@ -61,21 +62,21 @@ pub struct SensorSnapshot {
 impl SensorSnapshot {
     pub fn from_airgradient_payload(payload: &Value) -> Self {
         let pm25 = find_non_negative_number(payload, PM25_KEYS);
-        let explicit_aqi = find_number(payload, AQI_KEYS);
+        let explicit_aqi = find_bounded_number(payload, AQI_KEYS, 0.0, MAX_AQI);
 
         Self {
             aqi: explicit_aqi.or_else(|| pm25.map(us_aqi_from_pm25)),
-            co2: find_number(payload, CO2_KEYS),
+            co2: find_non_negative_number(payload, CO2_KEYS),
             pm25,
             pm1: find_non_negative_number(payload, PM1_KEYS),
             pm10: find_non_negative_number(payload, PM10_KEYS),
             pm03_count: find_non_negative_number(payload, PM03_COUNT_KEYS),
-            tvoc: find_number(payload, TVOC_KEYS),
-            nox: find_number(payload, NOX_KEYS),
+            tvoc: find_non_negative_number(payload, TVOC_KEYS),
+            nox: find_non_negative_number(payload, NOX_KEYS),
             temperature_c: find_number(payload, TEMPERATURE_COMPENSATED_KEYS)
                 .or_else(|| find_number(payload, TEMPERATURE_KEYS)),
-            humidity: find_number(payload, HUMIDITY_COMPENSATED_KEYS)
-                .or_else(|| find_number(payload, HUMIDITY_KEYS)),
+            humidity: find_bounded_number(payload, HUMIDITY_COMPENSATED_KEYS, 0.0, 100.0)
+                .or_else(|| find_bounded_number(payload, HUMIDITY_KEYS, 0.0, 100.0)),
         }
     }
 }
@@ -134,6 +135,10 @@ fn find_number(value: &Value, keys: &[&str]) -> Option<f64> {
 
 fn find_non_negative_number(value: &Value, keys: &[&str]) -> Option<f64> {
     find_number(value, keys).filter(|value| *value >= 0.0)
+}
+
+fn find_bounded_number(value: &Value, keys: &[&str], min: f64, max: f64) -> Option<f64> {
+    find_number(value, keys).filter(|value| (min..=max).contains(value))
 }
 
 fn value_as_number(value: &Value) -> Option<f64> {
@@ -304,6 +309,50 @@ mod tests {
         assert_eq!(snapshot.pm10, None);
         assert_eq!(snapshot.pm03_count, None);
         assert_eq!(snapshot.co2, None);
+    }
+
+    #[test]
+    fn treats_negative_explicit_aqi_as_missing_and_uses_pm25_fallback() {
+        let snapshot = parse_snapshot(&json!({ "aqi": -1.0, "pm02": 12.1 }));
+
+        assert_eq!(snapshot.aqi, Some(57.0));
+    }
+
+    #[test]
+    fn treats_out_of_range_explicit_aqi_as_missing_and_uses_pm25_fallback() {
+        let snapshot = parse_snapshot(&json!({ "aqi": 501.0, "pm02": 12.1 }));
+
+        assert_eq!(snapshot.aqi, Some(57.0));
+    }
+
+    #[test]
+    fn treats_negative_co2_as_missing() {
+        let snapshot = parse_snapshot(&json!({ "co2": -1.0 }));
+
+        assert_eq!(snapshot.co2, None);
+    }
+
+    #[test]
+    fn treats_out_of_range_humidity_as_missing() {
+        let low_snapshot = parse_snapshot(&json!({ "rhum": -0.1 }));
+        let high_snapshot = parse_snapshot(&json!({ "rhum": 100.1 }));
+
+        assert_eq!(low_snapshot.humidity, None);
+        assert_eq!(high_snapshot.humidity, None);
+    }
+
+    #[test]
+    fn treats_negative_tvoc_as_missing() {
+        let snapshot = parse_snapshot(&json!({ "tvocIndex": -1.0 }));
+
+        assert_eq!(snapshot.tvoc, None);
+    }
+
+    #[test]
+    fn treats_negative_nox_as_missing() {
+        let snapshot = parse_snapshot(&json!({ "noxIndex": -1.0 }));
+
+        assert_eq!(snapshot.nox, None);
     }
 
     #[test]

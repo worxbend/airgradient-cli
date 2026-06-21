@@ -4,6 +4,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use thiserror::Error;
 
 pub const DEFAULT_REFRESH_INTERVAL_SECS: u64 = 30;
@@ -23,6 +24,12 @@ pub struct Config {
     pub notifications_enabled: bool,
     #[serde(default)]
     pub start_minimized: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DisplayConfig {
+    pub config: Config,
+    pub warning: Option<String>,
 }
 
 impl Default for Config {
@@ -108,12 +115,26 @@ pub fn read_config(path: &Path) -> Result<Config, ConfigError> {
     Ok(config)
 }
 
-pub fn normalized_display_config(mut config: Config) -> Result<Config, ConfigError> {
-    if let Some(server_url) = config.server_url.as_deref() {
-        config.server_url = Some(crate::device::normalize_base_url(server_url)?.to_string());
-    }
+pub fn normalized_display_config(mut config: Config) -> DisplayConfig {
+    let warning = if let Some(server_url) = config.server_url.as_deref() {
+        if server_url.trim().is_empty() {
+            None
+        } else {
+            match crate::device::normalize_base_url(server_url) {
+                Ok(normalized) => {
+                    config.server_url = Some(normalized.to_string());
+                    None
+                }
+                Err(error) => Some(format!(
+                    "stored server_url `{server_url}` could not be normalized: {error}"
+                )),
+            }
+        }
+    } else {
+        None
+    };
 
-    Ok(config)
+    DisplayConfig { config, warning }
 }
 
 pub fn write_config(path: &Path, config: &Config) -> Result<(), ConfigError> {
@@ -126,14 +147,44 @@ pub fn write_config(path: &Path, config: &Config) -> Result<(), ConfigError> {
         })?;
     }
 
-    // Writes intentionally emit only the known desktop-compatible schema.
-    // Unknown sibling fields from future desktop versions are not preserved yet.
-    let mut contents = serde_json::to_string_pretty(config).map_err(ConfigError::Serialize)?;
+    let mut object = existing_config_object(path)?;
+    let known_values = serde_json::to_value(config).map_err(ConfigError::Serialize)?;
+    let known_object = known_values
+        .as_object()
+        .expect("Config serializes to a JSON object");
+
+    for (key, value) in known_object {
+        object.insert(key.clone(), value.clone());
+    }
+
+    let mut contents =
+        serde_json::to_string_pretty(&Value::Object(object)).map_err(ConfigError::Serialize)?;
     contents.push('\n');
 
     fs::write(path, contents).map_err(|source| ConfigError::Write {
         path: path.to_path_buf(),
         source,
+    })
+}
+
+fn existing_config_object(path: &Path) -> Result<Map<String, Value>, ConfigError> {
+    if !path.exists() {
+        return Ok(Map::new());
+    }
+
+    let contents = fs::read_to_string(path).map_err(|source| ConfigError::Read {
+        path: path.to_path_buf(),
+        source,
+    })?;
+
+    let value = serde_json::from_str::<Value>(&contents).map_err(|source| ConfigError::Parse {
+        path: path.to_path_buf(),
+        source,
+    })?;
+
+    Ok(match value {
+        Value::Object(object) => object,
+        _ => Map::new(),
     })
 }
 

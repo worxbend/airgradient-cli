@@ -1,4 +1,4 @@
-use std::{fs, path::Path};
+use std::{fs, path::Path, time::Duration};
 
 use assert_cmd::Command;
 use predicates::prelude::*;
@@ -110,6 +110,176 @@ fn missing_configured_url_exits_non_zero_with_setup_guidance() {
 }
 
 #[test]
+fn invalid_url_error_is_concise_by_default_and_verbose_shows_source_chain() {
+    cli()
+        .args(["--url", "http://[::1", "fetch"])
+        .assert()
+        .failure()
+        .stdout("")
+        .stderr(
+            predicate::str::contains("error: invalid device URL")
+                .and(predicate::str::contains("\u{1b}[").not())
+                .and(predicate::str::contains("caused by:").not()),
+        );
+
+    cli()
+        .args(["-v", "--url", "http://[::1", "fetch"])
+        .assert()
+        .failure()
+        .stdout("")
+        .stderr(
+            predicate::str::contains("error: invalid device URL")
+                .and(predicate::str::contains("caused by:"))
+                .and(predicate::str::contains("\u{1b}[").not()),
+        );
+}
+
+#[test]
+fn unsupported_scheme_error_is_concise() {
+    cli()
+        .args(["--url", "ftp://192.168.1.201", "fetch"])
+        .assert()
+        .failure()
+        .stdout("")
+        .stderr(
+            predicate::str::contains("unsupported device URL scheme `ftp`")
+                .and(predicate::str::contains("\u{1b}[").not()),
+        );
+}
+
+#[test]
+fn non_success_http_status_exits_non_zero() {
+    let runtime = tokio::runtime::Runtime::new().expect("runtime should start");
+    let server = runtime.block_on(async {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/measures/current"))
+            .respond_with(ResponseTemplate::new(503))
+            .mount(&server)
+            .await;
+        server
+    });
+
+    cli()
+        .args(["--url", &server.uri(), "fetch"])
+        .assert()
+        .failure()
+        .stdout("")
+        .stderr(
+            predicate::str::contains("non-success status 503")
+                .and(predicate::str::contains("\u{1b}[").not()),
+        );
+}
+
+#[test]
+fn invalid_json_response_exits_non_zero() {
+    let runtime = tokio::runtime::Runtime::new().expect("runtime should start");
+    let server = runtime.block_on(async {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/measures/current"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("not json"))
+            .mount(&server)
+            .await;
+        server
+    });
+
+    cli()
+        .args(["--url", &server.uri(), "fetch"])
+        .assert()
+        .failure()
+        .stdout("")
+        .stderr(
+            predicate::str::contains("failed to parse AirGradient measurements JSON")
+                .and(predicate::str::contains("\u{1b}[").not()),
+        );
+}
+
+#[test]
+fn timeout_error_exits_non_zero_without_slowing_suite() {
+    let runtime = tokio::runtime::Runtime::new().expect("runtime should start");
+    let server = runtime.block_on(async {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/measures/current"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_delay(Duration::from_millis(100))
+                    .set_body_json(serde_json::json!({ "pm02": 7.4 })),
+            )
+            .mount(&server)
+            .await;
+        server
+    });
+
+    cli()
+        .env("AIRGRADIENT_CLI_FETCH_TIMEOUT_MS", "10")
+        .args(["--url", &server.uri(), "fetch"])
+        .assert()
+        .failure()
+        .stdout("")
+        .stderr(
+            predicate::str::contains("failed to request AirGradient measurements")
+                .and(predicate::str::contains("\u{1b}[").not()),
+        );
+}
+
+#[test]
+fn refresh_without_tui_is_rejected_for_one_shot_fetch() {
+    cli()
+        .args(["--url", "192.168.1.201", "--refresh", "30", "fetch"])
+        .assert()
+        .failure()
+        .stdout("")
+        .stderr(predicate::str::contains(
+            "`--refresh` is only supported with `--tui`",
+        ));
+}
+
+#[test]
+fn refresh_without_tui_is_rejected_for_config_commands() {
+    cli()
+        .args(["--refresh", "30", "config", "path"])
+        .assert()
+        .failure()
+        .stdout("")
+        .stderr(predicate::str::contains(
+            "`--refresh` is only supported with `--tui`",
+        ));
+}
+
+#[test]
+fn top_level_json_is_rejected_for_config_commands() {
+    let dir = tempdir().expect("tempdir should be created");
+    let config_path = dir.path().join("config.json");
+
+    cli()
+        .args([
+            "--config",
+            path_str(&config_path),
+            "--json",
+            "config",
+            "show",
+        ])
+        .assert()
+        .failure()
+        .stdout("")
+        .stderr(predicate::str::contains(
+            "`--json` only applies to one-shot fetch output",
+        ));
+}
+
+#[test]
+fn tui_is_accepted_but_reports_pending_implementation() {
+    cli()
+        .args(["--tui", "--refresh", "30"])
+        .assert()
+        .failure()
+        .stdout("")
+        .stderr(predicate::str::contains("TUI is not implemented yet."));
+}
+
+#[test]
 fn config_path_respects_explicit_alternate_path() {
     let dir = tempdir().expect("tempdir should be created");
     let config_path = dir.path().join("custom.json");
@@ -161,7 +331,7 @@ fn config_set_url_writes_desktop_compatible_json() {
 }
 
 #[test]
-fn mutating_config_command_rewrites_known_desktop_shape_only() {
+fn config_set_refresh_preserves_unknown_top_level_fields() {
     let dir = tempdir().expect("tempdir should be created");
     let config_path = dir.path().join("config.json");
     let original = serde_json::json!({
@@ -186,14 +356,48 @@ fn mutating_config_command_rewrites_known_desktop_shape_only() {
 
     let contents = fs::read_to_string(config_path).expect("config should be rewritten");
     let json: Value = serde_json::from_str(&contents).expect("config should be JSON");
-    let object = json.as_object().expect("config should be a JSON object");
 
-    assert_eq!(object.len(), 4);
     assert_eq!(json["server_url"], "http://192.168.1.201/");
     assert_eq!(json["refresh_interval_secs"], 45);
     assert_eq!(json["notifications_enabled"], false);
     assert_eq!(json["start_minimized"], true);
-    assert!(!object.contains_key("future_desktop_field"));
+    assert_eq!(json["future_desktop_field"], "preserve someday");
+}
+
+#[test]
+fn config_set_url_preserves_unknown_top_level_fields() {
+    let dir = tempdir().expect("tempdir should be created");
+    let config_path = dir.path().join("config.json");
+    let original = serde_json::json!({
+        "server_url": "http://192.168.1.201/",
+        "refresh_interval_secs": 30,
+        "notifications_enabled": false,
+        "start_minimized": true,
+        "future_desktop_field": {
+            "nested": true
+        }
+    });
+    fs::write(&config_path, original.to_string()).expect("config should be written");
+
+    cli()
+        .args([
+            "--config",
+            path_str(&config_path),
+            "config",
+            "set-url",
+            "https://airgradient.local/sensors?debug=true#now",
+        ])
+        .assert()
+        .success();
+
+    let contents = fs::read_to_string(config_path).expect("config should be rewritten");
+    let json: Value = serde_json::from_str(&contents).expect("config should be JSON");
+
+    assert_eq!(json["server_url"], "https://airgradient.local/");
+    assert_eq!(json["refresh_interval_secs"], 30);
+    assert_eq!(json["notifications_enabled"], false);
+    assert_eq!(json["start_minimized"], true);
+    assert_eq!(json["future_desktop_field"]["nested"], true);
 }
 
 #[test]
@@ -217,6 +421,125 @@ fn config_show_prints_normalized_server_url_without_rewriting_file() {
 
     let contents = fs::read_to_string(config_path).expect("config should remain readable");
     assert_eq!(contents, original);
+}
+
+#[test]
+fn config_show_prints_unsupported_scheme_with_warning() {
+    let dir = tempdir().expect("tempdir should be created");
+    let config_path = dir.path().join("config.json");
+    let original = serde_json::json!({
+        "server_url": "ftp://192.168.1.201",
+        "refresh_interval_secs": 30,
+        "notifications_enabled": true,
+        "start_minimized": false
+    })
+    .to_string();
+    fs::write(&config_path, &original).expect("config should be written");
+
+    let assert = cli()
+        .args(["--config", path_str(&config_path), "config", "show"])
+        .assert()
+        .success()
+        .stderr(
+            predicate::str::contains("warning:").and(predicate::str::contains(
+                "unsupported device URL scheme `ftp`",
+            )),
+        );
+
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("stdout is utf8");
+    let json: Value = serde_json::from_str(&stdout).expect("stdout should be JSON");
+    assert_eq!(json["server_url"], "ftp://192.168.1.201");
+
+    let contents = fs::read_to_string(config_path).expect("config should remain readable");
+    assert_eq!(contents, original);
+}
+
+#[test]
+fn config_show_prints_malformed_url_with_warning() {
+    let dir = tempdir().expect("tempdir should be created");
+    let config_path = dir.path().join("config.json");
+    let original = serde_json::json!({
+        "server_url": "http://[::1",
+        "refresh_interval_secs": 30,
+        "notifications_enabled": true,
+        "start_minimized": false
+    })
+    .to_string();
+    fs::write(&config_path, &original).expect("config should be written");
+
+    let assert = cli()
+        .args(["--config", path_str(&config_path), "config", "show"])
+        .assert()
+        .success()
+        .stderr(
+            predicate::str::contains("warning:")
+                .and(predicate::str::contains("invalid device URL `http://[::1`")),
+        );
+
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("stdout is utf8");
+    let json: Value = serde_json::from_str(&stdout).expect("stdout should be JSON");
+    assert_eq!(json["server_url"], "http://[::1");
+
+    let contents = fs::read_to_string(config_path).expect("config should remain readable");
+    assert_eq!(contents, original);
+}
+
+#[test]
+fn config_show_prints_empty_server_url_without_warning() {
+    let dir = tempdir().expect("tempdir should be created");
+    let config_path = dir.path().join("config.json");
+    fs::write(
+        &config_path,
+        serde_json::json!({
+            "server_url": "",
+            "refresh_interval_secs": 30,
+            "notifications_enabled": false,
+            "start_minimized": true
+        })
+        .to_string(),
+    )
+    .expect("config should be written");
+
+    let assert = cli()
+        .args(["--config", path_str(&config_path), "config", "show"])
+        .assert()
+        .success()
+        .stderr("");
+
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("stdout is utf8");
+    let json: Value = serde_json::from_str(&stdout).expect("stdout should be JSON");
+    assert_eq!(json["server_url"], "");
+    assert_eq!(json["notifications_enabled"], false);
+    assert_eq!(json["start_minimized"], true);
+}
+
+#[test]
+fn config_show_prints_missing_server_url_without_warning() {
+    let dir = tempdir().expect("tempdir should be created");
+    let config_path = dir.path().join("config.json");
+    fs::write(
+        &config_path,
+        serde_json::json!({
+            "refresh_interval_secs": 45,
+            "notifications_enabled": false,
+            "start_minimized": true
+        })
+        .to_string(),
+    )
+    .expect("config should be written");
+
+    let assert = cli()
+        .args(["--config", path_str(&config_path), "config", "show"])
+        .assert()
+        .success()
+        .stderr("");
+
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("stdout is utf8");
+    let json: Value = serde_json::from_str(&stdout).expect("stdout should be JSON");
+    assert_eq!(json["server_url"], Value::Null);
+    assert_eq!(json["refresh_interval_secs"], 45);
+    assert_eq!(json["notifications_enabled"], false);
+    assert_eq!(json["start_minimized"], true);
 }
 
 fn path_str(path: &Path) -> &str {

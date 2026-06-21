@@ -36,27 +36,39 @@ Completed in iteration 1:
 
 Completed in iteration 2:
 
-- One-shot HTTP fetches now use a 5 second default `reqwest` timeout.
+- One-shot HTTP fetches use a 5 second default `reqwest` timeout.
 - Fetching through an injected `reqwest::Client` is covered so the future TUI can reuse a long-lived client with its own timeout policy.
 - Captured non-TTY stdout disables ANSI color by default while preserving explicit `--no-color`.
 - `config show` displays a normalized effective `server_url` without rewriting the config file.
-- Config write semantics are explicitly documented in code and tested: mutating config commands currently emit only the known desktop-compatible fields and drop unknown sibling fields.
 - Negative PM2.5, PM1.0, PM10, and PM0.3 count values are treated as missing, including negative numeric strings.
 - Invalid PM2.5 no longer feeds the fallback AQI calculation.
 - Non-finite numeric strings are ignored.
 - The unused `directories` dependency was removed while manual XDG/HOME path resolution remains the chosen implementation.
+
+Completed in iteration 3:
+
+- Default diagnostics are concise, uncolored, and printed by a small local error renderer instead of `color-eyre`.
+- `-v` shows source chains; `-vv` also prints debug details and enables trace-level diagnostics.
+- Integration tests cover invalid URL, unsupported scheme, non-success HTTP status, invalid JSON, and timeout failures.
+- Top-level `--refresh` is rejected unless `--tui` is used; top-level `--json` is rejected for config commands.
+- `--tui` remains accepted but explicitly reports that the dashboard is not implemented yet.
+- Mutating config commands preserve unknown top-level sibling fields while updating known desktop-compatible fields.
+- `config show` now prints malformed or unsupported stored `server_url` values with a warning instead of failing the whole command.
+- Explicit AQI is limited to `0..=500`; CO2, TVOC, NOx, and particulate values reject negatives; humidity is limited to `0..=100`.
+- README usage and contract documentation was added.
+- GitHub Actions CI was added for `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test`.
 - Verified on 2026-06-21: `cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --all-features -- -D warnings` pass.
 
 Known gaps and risks:
 
 - TUI is not implemented; `--tui` currently exits with `TUI is not implemented yet.`
 - `Cargo.toml` does not yet include `ratatui`, `crossterm`, or `indicatif`; add TUI dependencies only when TUI work begins.
-- Timeout duration is a private constant. That is acceptable for one-shot fetches, but TUI work should expose a small client/fetch configuration boundary instead of duplicating timeout setup.
-- Color suppression currently covers rendered stdout text only. Diagnostics from `color-eyre` and tracing may still be styled on stderr unless explicitly configured.
-- `config show` now normalizes via the strict device URL parser. A stored invalid or legacy URL makes `config show` fail instead of showing the rest of the config with a warning.
-- Config writes still drop unknown future desktop fields by design. This is documented and tested, but preserving unknown fields would be safer for sibling-app compatibility.
-- Sensor domain validation remains incomplete outside particulate values. Explicit AQI, CO2, humidity, TVOC, NOx, and temperature still accept any finite number, including physically impossible values.
-- There is no README, packaging guidance, CI workflow, or real-device validation record yet.
+- Timeout duration is still a private one-shot default plus a test/diagnostic environment override. TUI work should expose a small runtime settings boundary and reuse one HTTP client.
+- `config show` is tolerant for malformed `server_url`, empty URL, and missing URL, but it still fails if known non-URL fields are malformed, for example an out-of-range `refresh_interval_secs` or wrong JSON type.
+- Config mutation preserves unknown top-level fields, but it still requires the known config fields to deserialize and validate before writing; a partially broken shared config may block repair commands.
+- Sensor validation still has no defensible upper bounds for CO2, TVOC, NOx, particulate mass/count, or temperature. Lower-bound validation prevents false-good negatives, but absurd high values can still dominate output.
+- Parser field-priority behavior is only lightly tested. Nested conflicting fields and real-device payload variants need regression fixtures.
+- There is no packaging guidance, release workflow, dependency audit, or real-device validation record yet.
 
 ## Compatibility Targets
 
@@ -77,59 +89,41 @@ Must preserve:
 }
 ```
 
+- Preserve unknown top-level sibling fields when mutating known config values.
 - Use refresh interval limits: minimum `5s`, maximum `3600s`, default `30s`.
 - Display AQI, CO2, PM2.5, PM1.0, PM10, PM0.3 count, TVOC, NOx, temperature, and humidity.
 - Preserve missing sensor values as missing, rendered as `--` in text and `null` in JSON.
 - Show trends when a previous successful reading exists in memory.
 - Keep default one-shot output free of ANSI escapes when stdout is captured or piped.
+- Keep default diagnostics concise and uncolored; use verbosity for source chains and debug details.
 
 ## Prioritized Next Work
 
-### Phase 3A: CLI Contract Completion
+### Phase 4A: Pre-TUI Contract Cleanup
 
-1. Improve user-facing error behavior.
-   - Keep default errors concise and non-colorized when stderr is not a terminal.
-   - Ensure `-v` / `-vv` exposes source chains usefully without overwhelming normal command output.
-   - Add integration tests for invalid URL, unsupported scheme, non-success HTTP status, invalid JSON response, and timeout errors.
+1. Extract fetch runtime settings.
+   - Introduce a small `FetchSettings` or equivalent boundary for timeout configuration.
+   - Provide one client-construction path for CLI and TUI instead of duplicating timeout behavior.
+   - Keep `fetch_current_measures_with_client` as the reusable low-level operation.
+   - Decide whether `AIRGRADIENT_CLI_FETCH_TIMEOUT_MS` remains documented as diagnostic-only, becomes a supported option, or is moved behind test-only plumbing.
 
-2. Decide and implement config unknown-field policy.
-   - Prefer preserving unknown sibling fields during mutating config commands by reading/writing through a raw JSON object plus typed known fields.
-   - If preservation is deferred, document known-field-only writes in README and command help, not only in a code comment.
-   - Add tests that mutation preserves unknown fields or intentionally drops them with user-visible documentation.
+2. Harden config repair and display for partially invalid files.
+   - Add tests for `config show` with out-of-range refresh intervals, wrong JSON types for known fields, and non-object top-level JSON.
+   - Decide whether `config show` should display a raw/partial view with warnings when known fields fail typed deserialization.
+   - Decide whether `config set-url` should be able to repair a bad `server_url` or bad `refresh_interval_secs` while preserving unknown fields.
+   - If repair is supported, split raw JSON preservation from typed validation so mutation can update one field without requiring every known field to be valid.
 
-3. Make `config show` robust for imperfect existing files.
-   - Decide whether a malformed stored `server_url` should fail the entire command or print the raw value plus a warning.
-   - Add tests for unsupported scheme, malformed URL, empty string, and missing URL.
+3. Finish sensor-domain policy with realistic upper bounds.
+   - Define documented upper bounds or deliberate no-upper-bound decisions for CO2, TVOC, NOx, PM mass, PM0.3 count, and temperature.
+   - Add tests for absurdly high values and numeric strings.
+   - Ensure invalid explicit AQI, invalid PM2.5, and valid PM2.5 fallback precedence remains correct.
 
-4. Tighten command semantics and help text.
-   - Decide whether top-level `--refresh` should be rejected, ignored, or documented as TUI-only until TUI exists.
-   - Decide whether top-level `--json` should apply only to fetch/default output and make config commands reject or ignore it consistently.
-   - Consider hiding or documenting `--tui` as pending until the dashboard exists.
+4. Expand parser fixtures and priority tests.
+   - Add representative local mock payloads resembling real AirGradient responses.
+   - Add regression tests for nested conflicting fields where top-level and nested values disagree.
+   - Add tests that compensated temperature/humidity priority still works when the compensated field is invalid but raw field is valid.
 
-5. Complete sensor domain validation.
-   - Validate explicit AQI as non-negative and within a defensible upper bound or clamp/report as missing.
-   - Treat negative CO2, humidity outside `0..=100`, negative TVOC/NOx indexes, and impossible particulate counts as missing.
-   - Add tests showing invalid explicit AQI cannot override a valid PM2.5 fallback with a misleading negative status.
-
-### Phase 3B: Documentation and Release Hygiene
-
-1. Add README usage examples.
-   - Include default fetch, `fetch --json`, `config path`, `config show`, `config set-url`, `config set-refresh`, `--config`, `--no-color`, and planned `--tui`.
-   - Explicitly describe config file compatibility and current unknown-field write behavior.
-   - Document the default fetch timeout and how failures are reported.
-
-2. Add CI commands.
-   - `cargo fmt --check`
-   - `cargo clippy --all-targets --all-features -- -D warnings`
-   - `cargo test`
-   - Optionally add a dependency audit such as `cargo machete` once the project has a stable CI setup.
-
-3. Expand fetch and parser validation.
-   - Add local mock payloads that resemble real AirGradient responses.
-   - Add regression tests for nested conflicting fields and field-priority behavior.
-   - Record a real-device validation run when hardware is available.
-
-### Phase 4: TUI Dashboard
+### Phase 4B: TUI Dashboard
 
 1. Add TUI dependencies and module layout.
    - `ratatui`
@@ -139,42 +133,45 @@ Must preserve:
    - `src/tui/ui.rs`
    - `src/tui/theme.rs`
 
-2. Extract reusable fetch runtime settings before the event loop.
-   - Provide a single place to build the HTTP client and configure timeout behavior.
-   - Reuse `fetch_current_measures_with_client` from the TUI.
-   - Avoid creating a new HTTP client on every TUI refresh.
-
-3. Implement TUI state machine before terminal drawing.
+2. Implement TUI state machine before terminal drawing.
    - Store current snapshot, previous successful snapshot, last fetch duration, last success timestamp, and current error.
    - Preserve previous successful snapshot on failed fetch.
    - Enforce refresh interval bounds for runtime `+` / `-` changes.
+   - Reuse the CLI fetch runtime settings and injected client.
 
-4. Implement Ratatui UI.
+3. Implement Ratatui UI.
    - Top bar: app name, URL, refresh interval, last update status.
    - Main AQI block with status language.
    - Metric grid using the shared presentation spine.
    - Footer with keyboard hints.
    - Error panel for config/fetch failures.
 
-5. Implement event loop.
+4. Implement event loop.
    - Fetch immediately on startup when URL is available.
    - Refresh on interval.
    - `r` refreshes immediately.
    - `q` and `Esc` quit.
    - Avoid overlapping fetches if a request is in flight.
 
-6. Test TUI logic.
+5. Test TUI logic.
    - Unit-test state transitions without a real terminal.
    - Render smoke-test with Ratatui test backend.
    - Manually verify layout at common terminal sizes.
 
-### Phase 5: Release Readiness
+### Phase 5: Release Hygiene
 
-1. Add packaging notes for release binaries.
+1. Add packaging and installation notes.
+   - Document `cargo install --path .`.
+   - Add release binary naming guidance for Linux targets.
+   - Decide whether shell completions are in scope.
 
-2. Validate against a real AirGradient device or a local mock that mirrors real payloads.
+2. Add dependency and supply-chain checks.
+   - Consider `cargo machete` after dependencies stabilize.
+   - Consider `cargo audit` or `cargo deny` with an explicit policy file.
 
-3. Revisit compatibility with `airgradient-desktop` and the GNOME extension after TUI lands.
+3. Validate against hardware.
+   - Record a real-device validation run when hardware is available.
+   - Revisit compatibility with `airgradient-desktop` and the GNOME extension after TUI lands.
 
 ## Acceptance Criteria
 
@@ -185,8 +182,7 @@ Must preserve:
 - Captured non-TTY output does not include ANSI escapes by default.
 - Running `airgradient-cli -t` opens a live Ratatui dashboard.
 - The CLI reads the same config file as `airgradient-desktop`.
-- `config show` displays a normalized effective config.
-- `config set-url` updates the desktop-compatible config file.
-- Mutating config commands have an explicit, user-visible unknown-field policy.
+- `config show` displays a normalized effective config and does not fail solely because a stored URL is malformed.
+- `config set-url` updates the desktop-compatible config file while preserving unknown top-level sibling fields.
 - Fetching always targets `/measures/current`.
 - Missing, partial, or invalid sensor payload values render gracefully without false good statuses.

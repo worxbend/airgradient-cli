@@ -1,7 +1,8 @@
 use std::{
+    env,
     io::{self, IsTerminal},
     path::{Path, PathBuf},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use clap::{Args, Parser, Subcommand};
@@ -83,11 +84,28 @@ pub enum CliError {
 
     #[error("TUI is not implemented yet.")]
     TuiNotImplemented,
+
+    #[error("`--refresh` is only supported with `--tui`.")]
+    RefreshRequiresTui,
+
+    #[error("`--json` only applies to one-shot fetch output; config commands do not support it.")]
+    JsonUnsupportedForConfig,
+
+    #[error("invalid fetch timeout override `{value}`")]
+    InvalidFetchTimeoutOverride {
+        value: String,
+        #[source]
+        source: std::num::ParseIntError,
+    },
 }
 
 pub async fn run(cli: Cli) -> Result<(), CliError> {
     if cli.tui {
         return Err(CliError::TuiNotImplemented);
+    }
+
+    if cli.refresh.is_some() {
+        return Err(CliError::RefreshRequiresTui);
     }
 
     match &cli.command {
@@ -98,6 +116,10 @@ pub async fn run(cli: Cli) -> Result<(), CliError> {
 }
 
 async fn run_config_command(command: &ConfigCommand, cli: &Cli) -> Result<(), CliError> {
+    if cli.json {
+        return Err(CliError::JsonUnsupportedForConfig);
+    }
+
     let path = config_path(cli)?;
 
     match command {
@@ -106,8 +128,11 @@ async fn run_config_command(command: &ConfigCommand, cli: &Cli) -> Result<(), Cl
         }
         ConfigCommand::Show => {
             let config = config::read_config(&path)?;
-            let config = config::normalized_display_config(config)?;
-            println!("{}", serde_json::to_string_pretty(&config)?);
+            let display = config::normalized_display_config(config);
+            if let Some(warning) = display.warning {
+                eprintln!("warning: {warning}");
+            }
+            println!("{}", serde_json::to_string_pretty(&display.config)?);
         }
         ConfigCommand::SetUrl { url } => {
             let config = config::set_url(&path, url)?;
@@ -129,7 +154,11 @@ async fn run_fetch(cli: &Cli, json: bool) -> Result<(), CliError> {
     let base_url = device::normalize_base_url(&server_url)?;
 
     let started = Instant::now();
-    let payload = device::fetch_current_measures(&base_url).await?;
+    let payload = if let Some(timeout) = fetch_timeout_override()? {
+        device::fetch_current_measures_with_timeout(&base_url, timeout).await?
+    } else {
+        device::fetch_current_measures(&base_url).await?
+    };
     let fetch_duration = started.elapsed();
     let snapshot = sensors::parse_snapshot(&payload);
     let metadata = OutputMetadata {
@@ -166,12 +195,19 @@ fn effective_config(path: &Path, cli: &Cli) -> Result<Config, CliError> {
         config.server_url = Some(normalized.to_string());
     }
 
-    if let Some(refresh) = cli.refresh {
-        config::validate_refresh_interval(refresh)?;
-        config.refresh_interval_secs = refresh;
-    }
-
     Ok(config)
+}
+
+fn fetch_timeout_override() -> Result<Option<Duration>, CliError> {
+    let Ok(value) = env::var("AIRGRADIENT_CLI_FETCH_TIMEOUT_MS") else {
+        return Ok(None);
+    };
+
+    let millis = value
+        .parse::<u64>()
+        .map_err(|source| CliError::InvalidFetchTimeoutOverride { value, source })?;
+
+    Ok(Some(Duration::from_millis(millis)))
 }
 
 fn required_server_url(config: &Config) -> Result<String, CliError> {

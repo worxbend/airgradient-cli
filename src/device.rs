@@ -71,8 +71,15 @@ pub fn normalize_base_url(input: &str) -> Result<Url, DeviceError> {
 }
 
 pub async fn fetch_current_measures(base_url: &Url) -> Result<Value, DeviceError> {
+    fetch_current_measures_with_timeout(base_url, DEFAULT_FETCH_TIMEOUT).await
+}
+
+pub async fn fetch_current_measures_with_timeout(
+    base_url: &Url,
+    timeout: Duration,
+) -> Result<Value, DeviceError> {
     let client = Client::builder()
-        .timeout(DEFAULT_FETCH_TIMEOUT)
+        .timeout(timeout)
         .build()
         .map_err(DeviceError::ClientBuild)?;
 
