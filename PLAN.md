@@ -81,12 +81,23 @@ Completed in iteration 9:
 - Documented the TUI contract for the interactive-terminal requirement, `q`/`Esc` exit behavior, fetch endpoint, override precedence, terminal cleanup, last-success retention after later failures, and awaited cancellation guarantee.
 - Verified on 2026-06-21: `cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --all-features -- -D warnings` pass.
 
+Completed in iteration 10:
+
+- Defined a documented compact TUI layout contract: dashboard panels render at 36x20 and larger, while smaller terminals show a resize/fallback message instead of overlapping dashboard panels.
+- Added coordinate-level render assertions for the top bar, AQI panel, metric grid, footer controls, error panel, compact supported sizes, and below-minimum fallback rendering.
+- Clarified retry-after-error visible state: stale errors remain visible during retry, but the top status says `retrying`, the error title changes to `Retrying After Error`, and copy explains that the previous error is being retried.
+- Preserved secondary TUI shutdown failure context when a primary draw/poll/read error races with fetch cancellation or a fetch-task panic, using a new `RuntimeError::Secondary` wrapper and harness tests.
+- Made conditional PTY coverage more explicit in README and test skip messages.
+- Validation on 2026-06-21: `cargo test` and `cargo clippy --all-targets --all-features -- -D warnings` pass, but `cargo fmt --check` fails due import ordering in `tests/tui_fetch_contract.rs` and `tests/tui_pty.rs`.
+
 ## Known Gaps and Risks
 
-- Medium: cancellation is now awaited on normal TUI shutdown, but if a primary runtime error occurs and cancellation also fails or observes a panicked fetch task, the primary error wins and the cancellation failure is dropped.
+- High: the current tree fails `cargo fmt --check` because the PTY integration test imports are not rustfmt-normalized. This blocks the acceptance gate even though tests and clippy pass.
 - Medium: pseudo-terminal integration tests are skippable when PTY support is unavailable, so some CI/platform combinations may still rely on the runtime harness instead of exercising crossterm through a real terminal.
 - Medium: binary-level TUI HTTP tests cover startup success/failure, manual refresh, and override precedence, but they do not yet cover interval-triggered refresh with a shortened deterministic clock because the binary enforces the production 5 second minimum.
-- Medium: render tests are broader but still mostly assert string presence or deliberate clipping. They do not detect all layout overlap, inaccessible controls, or content loss at very small terminal sizes.
+- Medium: PTY process management, output draining, closed-PTY handling, and skip-reporting logic remain duplicated across `tests/tui_pty.rs` and `tests/tui_fetch_contract.rs`.
+- Medium: the 36x20 TUI contract guarantees coherent regions and footer access, but it does not guarantee that every metric is visible at the minimum size; the product contract should explicitly decide whether clipped metrics are acceptable or whether scrolling/pagination is required.
+- Medium: conditional PTY skip messages are printed with `eprintln!`, which is hidden in normal `cargo test` output unless tests are run with `-- --nocapture` or fail. CI notes mention conditional coverage, but green default output can still hide that the real PTY path was skipped.
 - Medium: parser priority is correct for key-list precedence and top-level-over-nested precedence, but same-alias duplicate fields inside one JSON object still depend on `serde_json::Map` iteration order. This is acceptable for malformed duplicate-ish payloads, but real-device validation should confirm no important duplicate field variants conflict.
 - Medium: non-object top-level config JSON is a documented hard repair boundary because unknown-field preservation requires an object.
 - Medium: sensor upper bounds are practical guardrails, not hardware-validated limits; revisit them after real-device validation.
@@ -123,33 +134,35 @@ Must preserve:
 
 ## Prioritized Next Work
 
-### Phase 9A: End-to-End TUI Contract Coverage
+### Phase 10A: Restore Validation Gate
 
-Completed in iteration 9.
+1. Fix formatting regression.
+   - Run `cargo fmt` or apply the equivalent rustfmt import ordering in `tests/tui_fetch_contract.rs` and `tests/tui_pty.rs`.
+   - Re-run `cargo fmt --check` before any broader changes.
 
-### Phase 9B: Layout and Usability Coverage
+2. Re-run full validation.
+   - Verify `cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --all-features -- -D warnings` all pass in the same tree.
+   - Keep PTY tests bounded and confirm they either pass under a usable PTY or report a clear conditional skip reason.
 
-1. Strengthen layout assertions.
-   - Add coordinate-level or snapshot-style checks for footer controls, top bar status, AQI panel, metric cells, and error panel at compact sizes.
-   - Decide and document the minimum supported terminal size.
-   - Render a deliberately tiny terminal and verify the app degrades predictably instead of producing incoherent overlap.
+### Phase 10B: TUI Test Maintainability and Coverage
 
-2. Review TUI state transitions for stale visible errors.
-   - Decide whether old error panels should remain visible during a new in-flight refresh.
-   - If old errors remain, make the copy clearly indicate that the app is retrying.
-   - Add render tests for refresh-after-failure and failure-after-refresh states.
-
-3. Tighten cancellation error reporting.
-   - Preserve cancellation or fetch-task panic context when a primary runtime error also occurs, similar to existing cleanup failure context.
-   - Add harness tests for draw/poll/read failure racing with a panicked or cancellation-failing fetch task.
-   - Keep normal `q`/`Esc` shutdown clean when an aborted task reports Tokio cancellation.
-
-4. Improve PTY and HTTP test maintainability.
+1. Improve PTY and HTTP test maintainability.
    - Extract shared PTY process helpers used by `tests/tui_pty.rs` and `tests/tui_fetch_contract.rs` to reduce duplicated timeout, drain, and closed-PTY handling.
-   - Make skipped PTY coverage explicit in test output and CI notes so a platform without PTY support is visible rather than mistaken for full end-to-end coverage.
-   - Consider a test-only runtime hook or lower-bound override for interval refresh coverage without adding 5+ second sleeps to more tests.
+   - Centralize skip messages so conditional coverage wording stays consistent.
 
-### Phase 9C: Dependency, Release, and Validation Hygiene
+2. Make skipped PTY coverage visible in normal CI.
+   - Add an explicit CI note or dedicated test/step that reports whether PTY tests actually exercised a PTY, not only `eprintln!` output hidden by default.
+   - Consider failing only a non-required informational step or emitting a GitHub Actions job summary so unsupported PTY platforms are visible without making the suite flaky.
+
+3. Add interval refresh contract coverage.
+   - Consider a test-only runtime hook or lower-bound override for interval refresh coverage without adding 5+ second sleeps to more tests.
+   - Keep the production `5s` lower bound intact for normal CLI behavior.
+
+4. Decide the minimum-size metric visibility contract.
+   - Either document that 36x20 may clip lower metric rows while preserving coherent layout and controls, or add scrolling/pagination/alternate compact metric rendering.
+   - Add tests for whichever behavior is chosen so the minimum terminal contract is not ambiguous.
+
+### Phase 10C: Dependency, Release, and Validation Hygiene
 
 1. Clean dependency surface.
    - Remove `color-eyre` if no code path uses it.

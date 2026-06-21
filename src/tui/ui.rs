@@ -15,6 +15,11 @@ use crate::{
 
 pub fn draw(frame: &mut Frame<'_>, app: &TuiApp) {
     let area = frame.area();
+    if area.width < theme::MIN_TERMINAL_WIDTH || area.height < theme::MIN_TERMINAL_HEIGHT {
+        render_terminal_too_small(frame, area);
+        return;
+    }
+
     let has_error = app.current_error.is_some();
     let error_height = if has_error { 5 } else { 0 };
     let chunks = Layout::default()
@@ -35,6 +40,22 @@ pub fn draw(frame: &mut Frame<'_>, app: &TuiApp) {
     }
 
     render_footer(frame, chunks[3]);
+}
+
+fn render_terminal_too_small(frame: &mut Frame<'_>, area: Rect) {
+    let lines = vec![
+        Line::from(Span::styled("Terminal too small", theme::error_style())),
+        Line::from(Span::styled(
+            format!(
+                "Minimum {}x{}",
+                theme::MIN_TERMINAL_WIDTH,
+                theme::MIN_TERMINAL_HEIGHT
+            ),
+            theme::muted_style(),
+        )),
+    ];
+
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
 }
 
 fn render_top_bar(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
@@ -82,6 +103,10 @@ fn render_aqi(frame: &mut Frame<'_>, area: Rect, metric: &Metric, app: &TuiApp) 
     let status = metric.status.label();
     let message = if app.configured_url.is_none() {
         "Set a device URL with config set-url or pass a URL override."
+    } else if app.is_fetching && app.current_error.is_some() && app.current_snapshot.is_none() {
+        "Retrying after a fetch failure; waiting for first successful reading."
+    } else if app.is_fetching && app.current_error.is_some() {
+        "Retrying after a fetch failure; showing the latest successful reading."
     } else if app.is_fetching && app.current_snapshot.is_none() {
         "Fetching the first air quality reading."
     } else if app.is_fetching {
@@ -182,13 +207,29 @@ fn render_metric_cell(frame: &mut Frame<'_>, area: Rect, metric: &Metric) {
 
 fn render_error(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
     let message = app.current_error.as_deref().unwrap_or("unknown error");
+    let title = if app.is_fetching {
+        "Retrying After Error"
+    } else {
+        "Current Error"
+    };
+    let paragraph = if app.is_fetching {
+        Paragraph::new(vec![
+            Line::from(Span::styled(
+                "Retrying now; previous error:",
+                theme::error_style(),
+            )),
+            Line::from(Span::styled(message, theme::error_style())),
+        ])
+    } else {
+        Paragraph::new(message).style(theme::error_style())
+    };
+
     frame.render_widget(
-        Paragraph::new(message)
-            .style(theme::error_style())
+        paragraph
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .title(Span::styled("Current Error", theme::error_style())),
+                    .title(Span::styled(title, theme::error_style())),
             )
             .wrap(Wrap { trim: true }),
         area,
@@ -235,6 +276,10 @@ fn fetch_status(app: &TuiApp) -> Span<'static> {
     }
 
     if app.is_fetching {
+        if app.current_error.is_some() {
+            return Span::styled("retrying", theme::error_style());
+        }
+
         if app.current_snapshot.is_some() {
             return Span::styled("refreshing", theme::muted_style());
         }

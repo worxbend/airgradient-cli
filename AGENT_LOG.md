@@ -794,3 +794,89 @@ M  SCORES.jsonl
 M  src/tui/runtime.rs
 A  tests/tui_fetch_contract.rs
 A  tests/tui_pty.rs
+2026-06-21T15:52:10Z iteration 10 started remaining=11390s
+2026-06-21T15:52:10Z iteration 10 preplanner effective budgets untracked_scan_max_bytes=536870912 untracked_scan_max_count=10000 snapshot_copy_max_bytes=536870912 snapshot_copy_max_count=10000 snapshot_copy_max_file_bytes=134217728
+2026-06-21T15:52:10Z iteration 10 disposable preplanner repo created path=/tmp/agent-loop-preplanner-repo-oam95br4/repo copied_entries=36
+2026-06-21T15:52:10Z iteration 10 ideator phase started count=3
+2026-06-21T15:52:10Z iteration 10 ideator phase concurrency workers=3
+2026-06-21T15:52:10Z iteration 10 ideator 1 role="the pragmatist" started
+2026-06-21T15:52:10Z iteration 10 ideator 2 role="the architect" started
+2026-06-21T15:52:10Z iteration 10 ideator 3 role="the contrarian" started
+2026-06-21T15:52:18Z iteration 10 ideator 1 role="the pragmatist" completed status=0
+2026-06-21T15:52:20Z iteration 10 ideator 2 role="the architect" completed status=0
+2026-06-21T15:52:20Z iteration 10 ideator 3 role="the contrarian" completed status=0
+2026-06-21T15:52:20Z iteration 10 ideator phase completed approaches=3
+2026-06-21T15:52:20Z iteration 10 selector started approaches=3
+2026-06-21T15:52:35Z iteration 10 selector completed status=0
+2026-06-21T15:52:35Z iteration 10 disposable preplanner repo cleanup path=/tmp/agent-loop-preplanner-repo-oam95br4/repo
+2026-06-21T15:52:35Z iteration 10 selector rejected alternative role="the pragmatist" approach="Stabilize the TUI contract before widening release scope: treat iteration 10 as a hardening pass that makes the interactive dashboard's visible states, failure semantics, and co..." reason="Strong direction, but selected as-is it underemphasizes explicit release-support boundaries such as minimum terminal size and conditional PTY visibility, which should shape how much TUI hardening is enough."
+2026-06-21T15:52:35Z iteration 10 selector rejected alternative role="the architect" approach="Stabilize the TUI as a Contract Surface: treat the next iteration as a hardening pass around observable TUI behavior before release hygiene, prioritizing user-visible state clar..." reason="Strongest pure technical framing, but selected as-is it risks over-engineering the TUI as a formal contract surface unless constrained by pragmatic release credibility and maintenance cost."
+2026-06-21T15:52:35Z iteration 10 selector rejected alternative role="the contrarian" approach="Release-Readiness Inversion: stop expanding TUI internals first and instead define the smallest credible release contract, then use that contract to decide which remaining harde..." reason="Useful corrective against endless harness work, but too much release-readiness inversion now would leave medium TUI risks unresolved even though those risks are directly user-visible and already have good test seams available."
+2026-06-21T15:52:35Z iteration 10 selector alternatives persisted count=3
+2026-06-21T15:52:35Z iteration 10 selector structured alternatives persisted count=3
+2026-06-21T15:52:35Z iteration 10 planner started
+2026-06-21T15:52:56Z iteration 10 plan: 5 task(s) in 3 phase(s). This iteration is scoped to TUI contract hardening: first establish the compact-size contract, then independently improve render/state coverage and retry semantics, and finally harden shutdown diagnostics plus conditional PTY visibility. Dependency cleanup, packaging, and release hygiene are intentionally deferred to avoid diluting the user-visible TUI behavior work.
+2026-06-21T15:52:56Z iteration 10 phase 1 started parallel=False tasks=1
+2026-06-21T15:54:17Z iteration 10 task t1 ('Define compact TUI layout contract') status=0
+2026-06-21T15:54:17Z iteration 10 phase 2 started parallel=True tasks=2
+2026-06-21T15:56:33Z iteration 10 task t3 ('Clarify retry and stale-error visible states') status=0
+2026-06-21T15:56:47Z iteration 10 task t2 ('Strengthen TUI render assertions') status=0
+2026-06-21T15:56:47Z iteration 10 phase 3 started parallel=True tasks=2
+2026-06-21T15:58:52Z iteration 10 task t5 ('Document conditional PTY coverage') status=0
+2026-06-21T15:59:31Z iteration 10 task t4 ('Preserve secondary shutdown failure context') status=0
+2026-06-21T15:59:31Z iteration 10 reviewer started
+
+## Reviewer Summary: Iteration 10
+
+Date: 2026-06-21
+Reviewer stance: fresh senior review; implementation inspected through `git diff`, full TUI runtime/UI context, PTY and render integration tests, README updates, and validation commands.
+
+### What Was Done
+
+- Added a documented minimum TUI layout contract: terminals at least 36x20 render the dashboard, while smaller terminals render a compact resize message.
+- Strengthened render tests with region/coordinate assertions for the top bar, AQI panel, metric grid, error panel, footer controls, compact supported sizes, and below-minimum fallback.
+- Clarified retry-after-error rendering so an in-flight retry shows `retrying`, uses a `Retrying After Error` panel title, and labels the stale error as the previous error being retried.
+- Added `RuntimeError::Secondary` so draw/poll/read failures can preserve cancellation or fetch-task failure context when both happen during shutdown.
+- Added runtime harness tests for primary runtime errors plus secondary fetch cancellation failures.
+- Documented conditional PTY coverage in README and made PTY skip messages more explicit in the two PTY-backed integration test files.
+
+### Verification
+
+- `cargo test` passed: 91 library unit tests, 28 CLI integration tests, 12 sensor parsing tests, 4 TUI fetch contract tests, 2 PTY smoke tests, and 17 TUI render tests.
+- `cargo clippy --all-targets --all-features -- -D warnings` passed.
+- `cargo fmt --check` failed due rustfmt import ordering in `tests/tui_fetch_contract.rs` and `tests/tui_pty.rs`.
+
+### Findings
+
+- High: the acceptance gate is currently broken because `cargo fmt --check` fails. This should be fixed before any broader work.
+- Medium: the 36x20 minimum size contract prevents incoherent panel overlap, but it does not guarantee all metrics are visible at the minimum size; the product contract should decide whether clipping is acceptable or scrolling/pagination is needed.
+- Medium: PTY helper logic remains duplicated between `tests/tui_pty.rs` and `tests/tui_fetch_contract.rs`, including spawn, drain, timeout, closed-PTY handling, and skip reporting.
+- Medium: conditional PTY skip messages use `eprintln!`, which normal `cargo test` output captures on success; a green CI run can still hide that PTY coverage was skipped unless CI surfaces it separately.
+- Medium: binary-level interval refresh coverage is still missing because the production refresh lower bound forces a 5+ second wait.
+- Low: `color-eyre` remains in the dependency graph despite local diagnostic rendering.
+
+### Top Improvement Proposals
+
+1. Restore the validation gate immediately by running rustfmt or applying the rustfmt import ordering in the PTY integration tests, then rerun all three acceptance commands.
+2. Extract shared PTY test helpers and centralize conditional-skip reporting before adding more end-to-end TUI tests.
+3. Make conditional PTY coverage visible in normal CI output or job summaries, not only in captured passing-test stderr.
+4. Decide whether the 36x20 dashboard may clip lower metrics; if not, add scrolling, pagination, or a denser compact metric layout with tests.
+5. Add deterministic interval-refresh coverage without adding more long sleeps, then move to dependency cleanup, packaging notes, supply-chain checks, and real-device validation.
+2026-06-21T16:01:49Z iteration 10 reviewer completed status=0
+2026-06-21T16:01:49Z iteration 10 memory updated
+2026-06-21T16:01:49Z iteration 10 completed validation_status=0
+2026-06-21T16:01:49Z iteration 10 checkpoint started
+2026-06-21T16:01:50Z iteration 10 checkpoint status before commit:
+M  AGENT_LOG.md
+M  ALTERNATIVES.jsonl
+M  MEMORY.md
+M  PLAN.md
+M  README.md
+M  SCORES.jsonl
+M  src/tui/app.rs
+M  src/tui/runtime.rs
+M  src/tui/theme.rs
+M  src/tui/ui.rs
+M  tests/tui_fetch_contract.rs
+M  tests/tui_pty.rs
+M  tests/tui_render.rs

@@ -48,6 +48,12 @@ pub enum RuntimeError {
     #[error("background fetch task failed: {0}")]
     FetchTask(String),
 
+    #[error("{primary} (secondary runtime error: {secondary})")]
+    Secondary {
+        primary: Box<RuntimeError>,
+        secondary: Box<RuntimeError>,
+    },
+
     #[error("{primary} (terminal cleanup also failed: {cleanup})")]
     Cleanup {
         primary: Box<RuntimeError>,
@@ -107,6 +113,13 @@ where
 }
 
 impl RuntimeError {
+    fn with_secondary_failure(primary: RuntimeError, secondary: RuntimeError) -> Self {
+        RuntimeError::Secondary {
+            primary: Box::new(primary),
+            secondary: Box::new(secondary),
+        }
+    }
+
     fn with_cleanup_failure(primary: RuntimeError, cleanup: RuntimeError) -> Self {
         let cleanup = match cleanup {
             RuntimeError::Terminal(error) => error,
@@ -201,7 +214,10 @@ where
 
     match (result, cancel_result) {
         (Ok(()), Ok(())) => Ok(()),
-        (Err(error), _) => Err(error),
+        (Err(primary), Ok(())) => Err(primary),
+        (Err(primary), Err(secondary)) => {
+            Err(RuntimeError::with_secondary_failure(primary, secondary))
+        }
         (Ok(()), Err(error)) => Err(error),
     }
 }
@@ -293,14 +309,16 @@ impl FetchScheduler {
     where
         F: MeasureFetchWorker,
     {
-        if self.in_flight {
-            fetcher.cancel_fetch().await?;
-        }
+        let cancel_result = if self.in_flight {
+            fetcher.cancel_fetch().await
+        } else {
+            Ok(())
+        };
 
         self.in_flight = false;
         self.follow_up_requested = false;
         app.is_fetching = false;
-        Ok(())
+        cancel_result
     }
 }
 
@@ -857,6 +875,7 @@ mod tests {
         calls: Vec<Url>,
         active_fetch: bool,
         canceled_fetches: usize,
+        cancel_error: Option<&'static str>,
     }
 
     impl HarnessFetcher {
@@ -867,6 +886,7 @@ mod tests {
                 calls: Vec::new(),
                 active_fetch: false,
                 canceled_fetches: 0,
+                cancel_error: None,
             }
         }
 
@@ -877,6 +897,7 @@ mod tests {
                 calls: Vec::new(),
                 active_fetch: false,
                 canceled_fetches: 0,
+                cancel_error: None,
             }
         }
 
@@ -885,6 +906,11 @@ mod tests {
             results: impl IntoIterator<Item = Result<Value, String>>,
         ) -> Self {
             self.stale_completions_after_cancel = results.into_iter().collect();
+            self
+        }
+
+        fn fail_cancel(mut self, message: &'static str) -> Self {
+            self.cancel_error = Some(message);
             self
         }
     }
@@ -926,6 +952,9 @@ mod tests {
             if self.active_fetch {
                 self.canceled_fetches += 1;
                 self.active_fetch = false;
+            }
+            if let Some(message) = self.cancel_error.take() {
+                return Err(RuntimeError::FetchTask(message.to_owned()));
             }
             Ok(())
         }
@@ -1103,7 +1132,16 @@ mod tests {
             RuntimeError::Device(error) => error.to_string(),
             RuntimeError::NonInteractiveTerminal => error.to_string(),
             RuntimeError::FetchTask(message) => message.clone(),
+            RuntimeError::Secondary { primary, .. } => terminal_error_message(primary),
             RuntimeError::Cleanup { primary, .. } => terminal_error_message(primary),
+        }
+    }
+
+    fn secondary_error_message(error: &RuntimeError) -> Option<String> {
+        match error {
+            RuntimeError::Secondary { secondary, .. } => Some(secondary.to_string()),
+            RuntimeError::Cleanup { primary, .. } => secondary_error_message(primary),
+            _ => None,
         }
     }
 
@@ -1450,6 +1488,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn draw_failure_retains_panicked_fetch_context_from_cancellation() {
+        let mut terminal = HarnessTerminal::with_quit().fail_draw("draw failed");
+        let mut fetcher = HarnessFetcher::pending_then([None]).fail_cancel("fetch task exploded");
+        let mut app = app(Some(configured_url()));
+
+        let error = run_with_adapters(&mut terminal, &mut app, &mut fetcher)
+            .await
+            .expect_err("draw failure should retain fetch cancellation context");
+
+        assert_eq!(terminal_error_message(&error), "draw failed");
+        assert_eq!(
+            secondary_error_message(&error).as_deref(),
+            Some("background fetch task failed: fetch task exploded")
+        );
+        assert_eq!(fetcher.canceled_fetches, 1);
+        assert!(!app.is_fetching);
+        assert!(terminal.cleanup_called);
+    }
+
+    #[tokio::test]
     async fn poll_failure_cancels_pending_fetch() {
         let mut terminal = HarnessTerminal::with_events([]).fail_poll("poll failed");
         let mut fetcher = HarnessFetcher::pending_then([None]);
@@ -1463,6 +1521,27 @@ mod tests {
         assert_eq!(fetcher.calls.len(), 1);
         assert_eq!(fetcher.canceled_fetches, 1);
         assert_eq!(app.current_snapshot, None);
+        assert!(!app.is_fetching);
+        assert!(terminal.cleanup_called);
+    }
+
+    #[tokio::test]
+    async fn poll_failure_retains_fetch_cancellation_failure_context() {
+        let mut terminal = HarnessTerminal::with_events([]).fail_poll("poll failed");
+        let mut fetcher =
+            HarnessFetcher::pending_then([None]).fail_cancel("fetch cancellation failed");
+        let mut app = app(Some(configured_url()));
+
+        let error = run_with_adapters(&mut terminal, &mut app, &mut fetcher)
+            .await
+            .expect_err("poll failure should retain fetch cancellation context");
+
+        assert_eq!(terminal_error_message(&error), "poll failed");
+        assert_eq!(
+            secondary_error_message(&error).as_deref(),
+            Some("background fetch task failed: fetch cancellation failed")
+        );
+        assert_eq!(fetcher.canceled_fetches, 1);
         assert!(!app.is_fetching);
         assert!(terminal.cleanup_called);
     }
@@ -1482,6 +1561,28 @@ mod tests {
         assert_eq!(fetcher.calls.len(), 1);
         assert_eq!(fetcher.canceled_fetches, 1);
         assert_eq!(app.current_snapshot, None);
+        assert!(!app.is_fetching);
+        assert!(terminal.cleanup_called);
+    }
+
+    #[tokio::test]
+    async fn read_failure_retains_fetch_cancellation_failure_context() {
+        let mut terminal =
+            HarnessTerminal::with_events([RuntimeEvent::Quit]).fail_read("read failed");
+        let mut fetcher =
+            HarnessFetcher::pending_then([None]).fail_cancel("fetch cancellation failed");
+        let mut app = app(Some(configured_url()));
+
+        let error = run_with_adapters(&mut terminal, &mut app, &mut fetcher)
+            .await
+            .expect_err("read failure should retain fetch cancellation context");
+
+        assert_eq!(terminal_error_message(&error), "read failed");
+        assert_eq!(
+            secondary_error_message(&error).as_deref(),
+            Some("background fetch task failed: fetch cancellation failed")
+        );
+        assert_eq!(fetcher.canceled_fetches, 1);
         assert!(!app.is_fetching);
         assert!(terminal.cleanup_called);
     }

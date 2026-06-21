@@ -19,3 +19,5 @@
 [learning] Aborting a Tokio `JoinHandle` requests cancellation; without awaiting or observing the handle, cleanup owns cancellation intent rather than proof of task termination.
 [pattern] PTY integration tests are the right proof for real TUI startup and keyboard exit, but they should be reported as conditional coverage when platform support is skippable.
 [learning] Awaited cancellation can still lose diagnostic value if cancellation or task-panic errors are dropped behind a primary runtime error; preserve secondary failure context deliberately.
+[pattern] Compact TUI support is clearer when a minimum terminal size and below-minimum fallback are explicit contracts rather than incidental layout behavior.
+[learning] Conditional test coverage reported only through passing-test stderr can be invisible in normal CI output; surface skip state through summaries or explicit reporting.

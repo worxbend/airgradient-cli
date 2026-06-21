@@ -4,6 +4,11 @@ use crate::sensors::{Status, Trend};
 
 pub const MISSING_VALUE: &str = "--";
 
+/// Minimum dashboard contract shared by runtime rendering and render tests.
+/// Smaller terminals show a compact fallback instead of overlapping panels.
+pub const MIN_TERMINAL_WIDTH: u16 = 36;
+pub const MIN_TERMINAL_HEIGHT: u16 = 20;
+
 pub fn title_style() -> Style {
     Style::default()
         .fg(Color::Cyan)

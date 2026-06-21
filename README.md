@@ -94,6 +94,8 @@ alongside the error.
 
 The TUI requires an interactive terminal. Running `--tui` with captured or
 piped terminal streams exits with `TUI requires an interactive terminal`.
+The dashboard supports terminals at least 36 columns by 20 rows. Smaller
+terminal windows show a compact resize message instead of the dashboard panels.
 On exit and runtime error paths after terminal setup starts, the TUI restores
 terminal state by leaving the alternate screen, showing the cursor, and
 disabling raw mode.
@@ -126,6 +128,13 @@ When the TUI exits while a background fetch is pending, the runtime aborts the
 fetch task and awaits the task handle before returning. Stale completions after
 cancellation are ignored, and a fetch task panic is surfaced as a runtime error
 when the task completion is observed.
+
+PTY integration tests exercise the real `--tui` binary inside a pseudo-terminal
+when the host platform can create one. On platforms or CI workers without usable
+PTY support, those tests print a conditional-coverage skip reason and pass
+without claiming full end-to-end terminal coverage. The runtime harness tests in
+`tests/tui_runtime.rs` still cover TUI event-loop, fetch, shutdown, and cleanup
+behavior in non-PTY environments.
 
 ## Config
 

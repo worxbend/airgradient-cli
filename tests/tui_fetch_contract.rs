@@ -5,18 +5,18 @@ use std::{
     net::{SocketAddr, TcpListener, TcpStream},
     path::{Path, PathBuf},
     sync::{
-        Arc, Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
-        mpsc,
+        mpsc, Arc, Mutex,
     },
     thread,
     time::{Duration, Instant},
 };
 
-use portable_pty::{CommandBuilder, ExitStatus, PtySize, native_pty_system};
+use portable_pty::{native_pty_system, CommandBuilder, ExitStatus, PtySize};
 use tempfile::TempDir;
 
 const NON_TTY_ERROR: &str = "TUI requires an interactive terminal";
+const PTY_SKIP_PREFIX: &str = "conditional PTY fetch contract coverage skipped";
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(4);
 const EXIT_TIMEOUT: Duration = Duration::from_secs(3);
 const REFRESH_OVERRIDE_OBSERVATION: Duration = Duration::from_millis(5500);
@@ -179,7 +179,9 @@ fn tui_cli_url_and_refresh_overrides_take_precedence_over_config() -> Result<(),
 fn assert_completed_cleanly(result: PtyRunResult) -> Vec<u8> {
     match result {
         PtyRunResult::Skipped(reason) => {
-            eprintln!("skipping TUI fetch contract test: {reason}");
+            eprintln!(
+                "{PTY_SKIP_PREFIX}: {reason}. Runtime harness tests cover TUI fetch lifecycle behavior without a platform PTY."
+            );
             Vec::new()
         }
         PtyRunResult::Completed { status, output } => {

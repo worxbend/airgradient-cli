@@ -5,10 +5,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-use portable_pty::{CommandBuilder, ExitStatus, PtySize, native_pty_system};
+use portable_pty::{native_pty_system, CommandBuilder, ExitStatus, PtySize};
 use tempfile::tempdir;
 
 const NON_TTY_ERROR: &str = "TUI requires an interactive terminal";
+const PTY_SKIP_PREFIX: &str = "conditional PTY smoke coverage skipped";
 const EXIT_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[test]
@@ -26,7 +27,9 @@ fn tui_exits_when_escape_is_pressed_in_pty() {
 fn assert_pty_run_exited_cleanly(result: PtyRunResult) {
     match result {
         PtyRunResult::Skipped(reason) => {
-            eprintln!("skipping PTY smoke test: {reason}");
+            eprintln!(
+                "{PTY_SKIP_PREFIX}: {reason}. Runtime harness tests cover TUI shutdown behavior without a platform PTY."
+            );
         }
         PtyRunResult::Completed { status, output } => {
             assert!(

@@ -232,4 +232,44 @@ mod tests {
         failure.finish_fetch_failure("request timed out", Duration::from_millis(250));
         assert!(!failure.is_fetching);
     }
+
+    #[test]
+    fn retry_preserves_previous_error_until_a_new_result_arrives() {
+        let mut app = app_with_url();
+        app.finish_fetch_failure("request timed out", Duration::from_millis(250));
+
+        app.begin_fetch();
+
+        assert!(app.is_fetching);
+        assert_eq!(app.current_error.as_deref(), Some("request timed out"));
+
+        app.finish_fetch_success(
+            snapshot(42.0, 612.0),
+            Duration::from_millis(128),
+            SystemTime::UNIX_EPOCH,
+        );
+
+        assert!(!app.is_fetching);
+        assert_eq!(app.current_error, None);
+    }
+
+    #[test]
+    fn failure_after_retry_replaces_previous_error_and_retains_last_success() {
+        let mut app = app_with_url();
+        let successful = snapshot(42.0, 612.0);
+        app.finish_fetch_success(
+            successful.clone(),
+            Duration::from_millis(128),
+            SystemTime::UNIX_EPOCH,
+        );
+        app.finish_fetch_failure("request timed out", Duration::from_millis(250));
+
+        app.begin_fetch();
+        app.finish_fetch_failure("connection refused", Duration::from_millis(75));
+
+        assert_eq!(app.current_snapshot, Some(successful));
+        assert_eq!(app.current_error.as_deref(), Some("connection refused"));
+        assert_eq!(app.last_fetch_duration, Some(Duration::from_millis(75)));
+        assert!(!app.is_fetching);
+    }
 }
