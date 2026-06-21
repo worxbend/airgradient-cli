@@ -1129,3 +1129,86 @@ M  SCORES.jsonl
 M  tests/common/pty.rs
 M  tests/tui_fetch_contract.rs
 M  tests/tui_pty.rs
+2026-06-21T16:31:38Z iteration 14 started remaining=9022s
+2026-06-21T16:31:38Z iteration 14 preplanner effective budgets untracked_scan_max_bytes=536870912 untracked_scan_max_count=10000 snapshot_copy_max_bytes=536870912 snapshot_copy_max_count=10000 snapshot_copy_max_file_bytes=134217728
+2026-06-21T16:31:38Z iteration 14 disposable preplanner repo created path=/tmp/agent-loop-preplanner-repo-jdsu6v7c/repo copied_entries=38
+2026-06-21T16:31:38Z iteration 14 ideator phase started count=3
+2026-06-21T16:31:38Z iteration 14 ideator phase concurrency workers=3
+2026-06-21T16:31:38Z iteration 14 ideator 1 role="the pragmatist" started
+2026-06-21T16:31:38Z iteration 14 ideator 2 role="the architect" started
+2026-06-21T16:31:38Z iteration 14 ideator 3 role="the contrarian" started
+2026-06-21T16:31:47Z iteration 14 ideator 2 role="the architect" completed status=0
+2026-06-21T16:31:47Z iteration 14 ideator 1 role="the pragmatist" completed status=0
+2026-06-21T16:31:49Z iteration 14 ideator 3 role="the contrarian" completed status=0
+2026-06-21T16:31:49Z iteration 14 ideator phase completed approaches=3
+2026-06-21T16:31:49Z iteration 14 selector started approaches=3
+2026-06-21T16:32:07Z iteration 14 selector completed status=0
+2026-06-21T16:32:07Z iteration 14 disposable preplanner repo cleanup path=/tmp/agent-loop-preplanner-repo-jdsu6v7c/repo
+2026-06-21T16:32:07Z iteration 14 selector rejected alternative role="the architect" approach="Contract-First TUI Closure: treat iteration 14 as a product-contract tightening pass rather than a feature expansion, resolving the ambiguous TUI guarantees before moving into r..." reason="Strong overall, but too absolute in gating all release and CI work behind TUI closure. The Planner should prioritize TUI contract closure now, while still allowing small hygiene work only if it directly supports those contracts."
+2026-06-21T16:32:07Z iteration 14 selector rejected alternative role="the pragmatist" approach="Contract Closure Before Release Expansion: finish the remaining TUI behavioral ambiguities first, treating interval refresh, minimum-size metric visibility, and PTY portability..." reason="Also strong, but selected as part of the synthesis rather than as-is because it gives less explicit guidance on pruning scope. The contrarian's emphasis on minimal enforceable decisions is useful for avoiding an oversized compact-layout..."
+2026-06-21T16:32:07Z iteration 14 selector rejected alternative role="the contrarian" approach="Contract Triage Before Feature Accretion: freeze iteration 14 around deciding which ambiguous TUI promises are truly product contracts, then make only the smallest code changes..." reason="Useful for scope control, but too skeptical as the sole guide. Some gaps, especially binary-level interval refresh coverage and PTY errno portability, are already identified confidence boundaries and should be hardened rather than repeat..."
+2026-06-21T16:32:07Z iteration 14 selector alternatives persisted count=3
+2026-06-21T16:32:07Z iteration 14 selector structured alternatives persisted count=3
+2026-06-21T16:32:07Z iteration 14 planner started
+2026-06-21T16:32:29Z iteration 14 plan: 5 task(s) in 3 phase(s). This slice follows the contract-first TUI closure strategy: first create the minimal interval-refresh test seam, then independently lock down the three remaining TUI-facing ambiguities, and finally synchronize docs plus validation. Release automation, dependency policy, and hardware validation are intentionally deferred.
+2026-06-21T16:32:29Z iteration 14 phase 1 started parallel=False tasks=1
+2026-06-21T16:34:19Z iteration 14 task t1 ('Add test-only TUI interval override') status=0
+2026-06-21T16:34:19Z iteration 14 phase 2 started parallel=True tasks=3
+2026-06-21T16:36:14Z iteration 14 task t3 ('Document and test compact metric visibility') status=0
+2026-06-21T16:36:19Z iteration 14 task t4 ('Replace raw PTY EIO literal') status=0
+2026-06-21T16:37:04Z iteration 14 task t2 ('Cover binary-level interval refresh') status=0
+2026-06-21T16:37:04Z iteration 14 phase 3 started parallel=False tasks=1
+2026-06-21T16:38:56Z iteration 14 task t5 ('Refresh docs and validation') status=0
+2026-06-21T16:38:56Z iteration 14 reviewer started
+
+## Reviewer Summary: Iteration 14
+
+Date: 2026-06-21
+Reviewer stance: fresh senior review; implementation inspected through `git diff`, full changed-file context for runtime, UI, PTY helpers, TUI fetch/render tests, README/PLAN/log changes, and validation commands.
+
+### What Was Done
+
+- Added `AIRGRADIENT_CLI_TUI_TEST_REFRESH_INTERVAL_MS` and wired it through TUI effective-config resolution so binary-level PTY tests can shorten interval refresh timing after normal refresh values are clamped.
+- Added focused runtime tests proving production refresh clamping still enforces the documented `5s` to `3600s` bounds and that invalid, zero, or lengthening hook values are ignored.
+- Added a real binary-level PTY HTTP contract test proving interval-triggered TUI refresh sends a second `/measures/current` request without manual `r` input.
+- Documented and tested the explicit 36x20 compact layout contract: coherent panels, AQI/status, and footer controls remain visible, while lower metric rows may be clipped by design.
+- Replaced the inline PTY raw OS error literal with a named Unix EIO mapping and retained tests rejecting non-Unix raw error `5` semantics.
+- Updated README and PLAN documentation for the diagnostic interval hook, compact metric clipping, and PTY closed-read classification.
+
+### Verification
+
+- `cargo fmt --check` passed.
+- `cargo test` passed: 94 library tests, 28 CLI integration tests, 12 sensor parsing tests, 11 TUI fetch contract tests, 8 PTY smoke/helper tests, and 18 TUI render tests.
+- `cargo clippy --all-targets --all-features -- -D warnings` passed.
+
+### Findings
+
+- Medium: the interval hook is documented as diagnostic-only but is active for any binary process with `AIRGRADIENT_CLI_TUI_TEST_REFRESH_INTERVAL_MS` set. It is also exported from the public runtime module and currently bypasses `TuiApp::new` clamping with a direct post-construction `app.refresh_interval` assignment.
+- Medium: the PTY closed-read mapping is clearer, but `UNIX_EIO_RAW_OS_ERROR` is still a local `5` constant rather than a platform-provided `EIO` value or explicit target-specific mapping. The code is better named, but the portability concern is not fully closed.
+- Medium: the new interval refresh test provides the missing binary-level proof, but it remains wall-clock based through a shortened environment hook rather than a deterministic binary test clock. The bounded wait is acceptable now but should be watched if PTY tests get slower.
+- Low: the 36x20 clipping contract is now explicit and tested; this is a product choice, not a rendering bug, but it means the smallest supported dashboard intentionally does not show every metric.
+- Low: PTY helper self-checks still run once per integration crate importing `mod common`, and the CI PTY summary still duplicates PTY-backed test execution.
+
+### Top Improvement Proposals
+
+1. Narrow the interval test hook boundary: consider debug/test-only activation, a runtime-only scheduling override, or stronger documentation if the env var remains honored in normal binaries.
+2. Replace the local Unix EIO numeric constant with `libc::EIO`, a `nix`-backed value, or explicit target-specific constants so the PTY portability claim is technically grounded.
+3. Reassess the CI PTY summary structure before adding more PTY tests; keep visibility but avoid repeated expensive binary runs as the suite grows.
+4. Add dependency/supply-chain checks such as `cargo audit` or `cargo deny` with documented triage policy.
+5. Define release automation scope and record real-device validation, especially parser field names, bounds, and desktop/GNOME compatibility.
+2026-06-21T16:41:26Z iteration 14 reviewer completed status=0
+2026-06-21T16:41:26Z iteration 14 memory updated
+2026-06-21T16:41:26Z iteration 14 completed validation_status=0
+2026-06-21T16:41:26Z iteration 14 checkpoint started
+2026-06-21T16:41:26Z iteration 14 checkpoint status before commit:
+M  AGENT_LOG.md
+M  ALTERNATIVES.jsonl
+M  MEMORY.md
+M  PLAN.md
+M  README.md
+M  SCORES.jsonl
+M  src/tui/runtime.rs
+M  src/tui/ui.rs
+M  tests/common/pty.rs
+M  tests/tui_fetch_contract.rs
+M  tests/tui_render.rs

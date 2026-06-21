@@ -117,13 +117,21 @@ Completed in iteration 13:
 - Documented local installation with `cargo install --path .`, Linux release artifact naming expectations, and the current absence of shell completion artifacts.
 - Verified on 2026-06-21: `cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --all-features -- -D warnings` pass.
 
+Completed in iteration 14:
+
+- Added `AIRGRADIENT_CLI_TUI_TEST_REFRESH_INTERVAL_MS` as a diagnostic-only hook for binary-level TUI tests to shorten interval refresh timing without changing the production refresh bounds.
+- Preserved normal config and CLI refresh validation at the documented `5s` minimum and `3600s` maximum, with focused coverage proving the test hook is applied only after the production interval is clamped.
+- Added binary-level PTY coverage proving interval-triggered TUI refresh requests `<server_url>/measures/current` again without manual `r` input, separate from startup and manual-refresh coverage.
+- Made the 36x20 compact TUI metric visibility contract explicit: coherent panels, status, footer controls, and priority metrics are preserved, while lower metric rows may be clipped by design without scrolling or pagination.
+- Replaced the raw PTY closed-read OS error literal at the comparison site with a named Unix EIO mapping and retained coverage that Windows-like raw error semantics are rejected as expected PTY closure.
+- Verified on 2026-06-21: `cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --all-features -- -D warnings` pass.
+
 ## Known Gaps and Risks
 
 - Medium: pseudo-terminal integration tests are skippable when PTY support is unavailable, so some CI/platform combinations may still rely on the runtime harness instead of exercising crossterm through a real terminal.
-- Medium: binary-level TUI HTTP tests cover startup success/failure, manual refresh, and override precedence, but they do not yet cover interval-triggered refresh with a shortened deterministic clock because the binary enforces the production 5 second minimum.
-- Medium: the 36x20 TUI contract guarantees coherent regions and footer access, but it does not guarantee that every metric is visible at the minimum size; the product contract should explicitly decide whether clipped metrics are acceptable or whether scrolling/pagination is required.
+- Medium: `AIRGRADIENT_CLI_TUI_TEST_REFRESH_INTERVAL_MS` is documented as diagnostic-only, but it is still an exported runtime constant and is honored by any binary process whose environment contains it. It currently bypasses `TuiApp::new` clamping with a direct post-construction field assignment so tests can exercise sub-5-second intervals.
+- Medium: closed-PTY read-error classification now uses a named Unix EIO constant, but the constant is still locally defined as raw OS error `5` instead of coming from `libc::EIO`, `nix`, or explicit target-specific platform mappings.
 - Medium: the CI PTY summary reruns `tui_pty` and `tui_fetch_contract` after the full `cargo test`, increasing CI time and duplicating test execution. This is acceptable for visibility now, but should be revisited if the suite grows.
-- Medium: closed-PTY read-error classification is now Unix-only for raw OS error `5`, but it still hard-codes the numeric errno instead of comparing against a platform `EIO` constant or target-specific mapping.
 - Low: PTY helper self-checks live inside `tests/common/pty.rs`, so they are compiled into each integration test crate that imports `mod common`; this is harmless at the current size but duplicates self-check execution and counts.
 - Medium: parser priority is correct for key-list precedence and top-level-over-nested precedence, but same-alias duplicate fields inside one JSON object still depend on `serde_json::Map` iteration order. This is acceptable for malformed duplicate-ish payloads, but real-device validation should confirm no important duplicate field variants conflict.
 - Medium: non-object top-level config JSON is a documented hard repair boundary because unknown-field preservation requires an object.
@@ -160,22 +168,19 @@ Must preserve:
 
 ## Prioritized Next Work
 
-### Phase 14A: Finish TUI Contract Gaps
+### Runtime and Test Hook Hygiene
 
-1. Add interval refresh contract coverage.
-   - Add a test-only lower-bound override or runtime hook that proves the binary-level TUI path performs an interval-triggered `/measures/current` request.
-   - Keep the production `5s` lower bound intact for normal CLI behavior.
-   - Cover interval refresh separately from startup and manual `r` refresh so the scheduler contract is not only harness-level.
+1. Narrow the TUI interval test hook boundary.
+   - Decide whether `AIRGRADIENT_CLI_TUI_TEST_REFRESH_INTERVAL_MS` should be active only in debug/test builds, hidden behind a less public test-support API, or retained as a diagnostic hook with stronger documentation.
+   - Avoid bypassing `TuiApp::new` with a direct post-construction assignment if a cleaner runtime-only scheduling override can preserve the pure app refresh contract.
+   - Add focused coverage that unsupported, zero, and lengthening hook values cannot alter production refresh behavior, including the binary path if the hook remains externally settable.
 
-2. Decide the minimum-size metric visibility contract.
-   - Either document that 36x20 may clip lower metric rows while preserving coherent layout and controls, or add scrolling/pagination/alternate compact metric rendering.
-   - Add tests for whichever behavior is chosen so the minimum terminal contract is not ambiguous.
-
-3. Tighten PTY errno portability one more step.
-   - Replace the raw literal `5` with a platform `EIO` constant or a target-specific mapping whose supported targets are explicit.
+2. Tighten PTY EIO portability.
+   - Replace the local raw `5` constant with a platform-provided `EIO` constant or explicit `target_os` mapping whose supported targets are visible in code.
    - Keep the non-Unix rejection test so Windows-like raw error semantics cannot regress.
+   - Consider whether the helper should treat unsupported Unix targets conservatively instead of assuming raw error `5` universally means PTY close.
 
-### Phase 14B: Release and CI Hygiene
+### Release and CI Hygiene
 
 1. Reassess CI PTY summary cost and structure.
    - Keep the current summary step if the duplicated PTY run remains cheap.
@@ -190,7 +195,7 @@ Must preserve:
    - If automated, add a release workflow that names Linux artifacts according to the documented target triples.
    - Decide whether shell completion generation is in scope before documenting completion artifacts.
 
-### Phase 14C: Validation Hygiene
+### Validation Hygiene
 
 1. Reassess PTY self-check placement.
    - Keep the current duplicated module tests if the cost remains negligible.

@@ -24,3 +24,5 @@
 [anti-pattern] Conditional integration-test helpers must distinguish missing platform capability from test infrastructure failure; broad skip results can hide broken CI or missing binaries.
 [learning] PTY closed-read error codes are platform semantics, not universal constants; scope raw OS error handling to the OS where the code meaning is known.
 [pattern] Conditional integration-test result types should carry only the skippable capability gap, while infrastructure failures stay outside the skip variant and fail loudly.
+[learning] Binary-level timing hooks are useful for end-to-end coverage, but if they are environment-driven they need a clear build/visibility boundary so test controls do not become accidental runtime controls.
+[anti-pattern] Test hooks that mutate public state after construction can bypass constructor invariants; prefer a narrower runtime scheduling seam when the app model owns validation.

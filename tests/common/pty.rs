@@ -65,7 +65,12 @@ pub struct PtyTui {
 }
 
 impl PtyTui {
+    #[allow(dead_code)]
     pub fn spawn(args: &[&str]) -> Result<Self, PtySpawnError> {
+        Self::spawn_with_env(args, &[])
+    }
+
+    pub fn spawn_with_env(args: &[&str], env_vars: &[(&str, &str)]) -> Result<Self, PtySpawnError> {
         let binary = compiled_binary_path()?;
 
         let pty_system = native_pty_system();
@@ -100,6 +105,9 @@ impl PtyTui {
         command.args(args);
         command.env("TERM", "xterm-256color");
         command.env("AIRGRADIENT_CLI_FETCH_TIMEOUT_MS", "1000");
+        for (name, value) in env_vars {
+            command.env(name, value);
+        }
 
         let child = pair.slave.spawn_command(command).map_err(|error| {
             PtySpawnError::Infrastructure(format!(
@@ -119,8 +127,17 @@ impl PtyTui {
         })
     }
 
+    #[allow(dead_code)]
     pub fn spawn_or_skip(args: &[&str], context: &str) -> Result<Self, PtyUnavailable> {
-        match Self::spawn(args) {
+        Self::spawn_or_skip_with_env(args, &[], context)
+    }
+
+    pub fn spawn_or_skip_with_env(
+        args: &[&str],
+        env_vars: &[(&str, &str)],
+        context: &str,
+    ) -> Result<Self, PtyUnavailable> {
+        match Self::spawn_with_env(args, env_vars) {
             Ok(tui) => Ok(tui),
             Err(PtySpawnError::Unavailable(reason)) => Err(reason),
             Err(PtySpawnError::Infrastructure(reason)) => {
@@ -375,8 +392,14 @@ fn is_closed_pty_error(error: &io::Error) -> bool {
 }
 
 #[cfg(unix)]
+const UNIX_EIO_RAW_OS_ERROR: i32 = 5;
+
+#[cfg(unix)]
 fn is_closed_pty_raw_os_error(raw_os_error: Option<i32>) -> bool {
-    raw_os_error == Some(5)
+    // Reading from a Unix PTY master after the slave closes can report EIO.
+    // Keep this errno mapping Unix-only: on Windows, raw OS error 5 means
+    // ERROR_ACCESS_DENIED and must not be classified as an expected PTY close.
+    raw_os_error == Some(UNIX_EIO_RAW_OS_ERROR)
 }
 
 #[cfg(not(unix))]
@@ -387,6 +410,9 @@ fn is_closed_pty_raw_os_error(_raw_os_error: Option<i32>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(not(unix))]
+    const WINDOWS_ERROR_ACCESS_DENIED_RAW_OS_ERROR: i32 = 5;
 
     #[test]
     fn closed_pty_error_classification_accepts_expected_terminal_close_errors() {
@@ -407,22 +433,22 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn closed_pty_error_classification_accepts_unix_eio() {
-        let error = io::Error::from_raw_os_error(5);
+        let error = io::Error::from_raw_os_error(UNIX_EIO_RAW_OS_ERROR);
 
         assert!(
             is_closed_pty_error(&error),
-            "Unix EIO raw OS error 5 should be treated as an expected closed-PTY read"
+            "Unix EIO should be treated as an expected closed-PTY read"
         );
     }
 
     #[test]
     #[cfg(not(unix))]
     fn closed_pty_error_classification_rejects_non_unix_raw_error_5() {
-        let error = io::Error::from_raw_os_error(5);
+        let error = io::Error::from_raw_os_error(WINDOWS_ERROR_ACCESS_DENIED_RAW_OS_ERROR);
 
         assert!(
             !is_closed_pty_error(&error),
-            "raw OS error 5 should not be suppressed on platforms without known PTY EIO semantics"
+            "Windows ERROR_ACCESS_DENIED raw OS error should not be suppressed as a PTY close"
         );
     }
 

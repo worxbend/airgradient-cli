@@ -147,6 +147,8 @@ fn render_aqi(frame: &mut Frame<'_>, area: Rect, metric: &Metric, app: &TuiApp) 
 }
 
 fn render_metric_grid(frame: &mut Frame<'_>, area: Rect, metrics: &[Metric]) {
+    // The minimum 36x20 dashboard keeps the surrounding panels and controls
+    // coherent; lower-priority metric rows may be clipped by this area.
     let column_count = if area.width >= 72 { 2 } else { 1 };
     let row_count = metrics.len().div_ceil(column_count);
     let row_constraints = vec![Constraint::Length(4); row_count];

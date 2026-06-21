@@ -113,6 +113,10 @@ The TUI requires an interactive terminal. Running `--tui` with captured or
 piped terminal streams exits with `TUI requires an interactive terminal`.
 The dashboard supports terminals at least 36 columns by 20 rows. Smaller
 terminal windows show a compact resize message instead of the dashboard panels.
+At the minimum supported 36x20 size, the layout preserves coherent panels,
+status text, keyboard controls, and the priority AQI reading, but lower metric
+rows may be clipped by design; the TUI does not add scrolling or pagination for
+that compact layout.
 On exit and runtime error paths after terminal setup starts, the TUI restores
 terminal state by leaving the alternate screen, showing the cursor, and
 disabling raw mode.
@@ -128,6 +132,11 @@ fetches and config commands. Like `config set-refresh`, it accepts values from
 `5` to `3600` seconds. It changes only the current dashboard run and does not
 write the config file. In TUI mode, this CLI override takes precedence over the
 refresh interval stored in the config file.
+
+The production refresh lower bound remains 5 seconds for config values and CLI
+overrides. Binary-level TUI interval-refresh tests use the diagnostic-only
+`AIRGRADIENT_CLI_TUI_TEST_REFRESH_INTERVAL_MS` hook to shorten the interval
+inside the test process; it is not a supported user-facing configuration option.
 
 If no device URL is configured, `--tui` still opens the dashboard and shows the
 missing-URL state instead of fetching. Set a URL with `config set-url`, or pass a
@@ -153,7 +162,9 @@ without claiming full end-to-end terminal coverage. The runtime harness tests in
 `tests/tui_runtime.rs` still cover TUI event-loop, fetch, shutdown, and cleanup
 behavior in non-PTY environments. GitHub Actions also writes a test summary that
 reports whether the PTY-backed coverage actually ran or was conditionally
-skipped, so a green CI run does not hide the terminal coverage state.
+skipped, so a green CI run does not hide the terminal coverage state. Expected
+closed-PTY read errors are classified with an explicit Unix EIO mapping; raw OS
+error values from non-Unix platforms are not treated as normal PTY closure.
 
 ## Config
 

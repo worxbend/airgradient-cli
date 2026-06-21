@@ -1,4 +1,5 @@
 use std::{
+    env,
     io::{self, IsTerminal, Stdout},
     path::PathBuf,
     time::{Duration, Instant, SystemTime},
@@ -25,6 +26,8 @@ use crate::{
 };
 
 const FETCH_RESULT_POLL_INTERVAL: Duration = Duration::from_millis(100);
+#[doc(hidden)]
+pub const TUI_TEST_REFRESH_INTERVAL_MS_ENV: &str = "AIRGRADIENT_CLI_TUI_TEST_REFRESH_INTERVAL_MS";
 
 #[derive(Debug, Clone)]
 pub struct RuntimeOptions {
@@ -70,6 +73,7 @@ pub async fn run(options: RuntimeOptions) -> Result<(), RuntimeError> {
         effective_config.configured_url,
         effective_config.refresh_interval,
     );
+    app.refresh_interval = effective_config.refresh_interval;
 
     if let Some(error) = effective_config.current_error {
         app.current_error = Some(error);
@@ -530,14 +534,36 @@ impl EffectiveConfig {
 
         Self {
             configured_url,
-            refresh_interval: Duration::from_secs(clamp_refresh_secs(refresh_secs)),
+            refresh_interval: effective_refresh_interval(refresh_secs),
             current_error,
         }
     }
 }
 
+fn effective_refresh_interval(seconds: u64) -> Duration {
+    let production_interval = Duration::from_secs(clamp_refresh_secs(seconds));
+    let override_value = env::var(TUI_TEST_REFRESH_INTERVAL_MS_ENV).ok();
+    apply_test_refresh_interval_override(production_interval, override_value.as_deref())
+}
+
 fn clamp_refresh_secs(seconds: u64) -> u64 {
     seconds.clamp(MIN_REFRESH_INTERVAL_SECS, MAX_REFRESH_INTERVAL_SECS)
+}
+
+fn apply_test_refresh_interval_override(
+    production_interval: Duration,
+    override_value: Option<&str>,
+) -> Duration {
+    let Some(millis) = override_value.and_then(|value| value.parse::<u64>().ok()) else {
+        return production_interval;
+    };
+
+    let override_interval = Duration::from_millis(millis);
+    if !override_interval.is_zero() && override_interval < production_interval {
+        override_interval
+    } else {
+        production_interval
+    }
 }
 
 struct TerminalSession {
@@ -1108,6 +1134,51 @@ mod tests {
 
     fn configured_url() -> Url {
         Url::parse("http://192.168.1.201/").expect("test URL should parse")
+    }
+
+    #[test]
+    fn production_refresh_clamp_keeps_documented_bounds() {
+        assert_eq!(clamp_refresh_secs(0), MIN_REFRESH_INTERVAL_SECS);
+        assert_eq!(clamp_refresh_secs(1), MIN_REFRESH_INTERVAL_SECS);
+        assert_eq!(clamp_refresh_secs(4), MIN_REFRESH_INTERVAL_SECS);
+        assert_eq!(clamp_refresh_secs(5), MIN_REFRESH_INTERVAL_SECS);
+        assert_eq!(clamp_refresh_secs(3601), MAX_REFRESH_INTERVAL_SECS);
+    }
+
+    #[test]
+    fn tui_test_refresh_interval_override_can_shorten_clamped_interval() {
+        let production_interval = Duration::from_secs(MIN_REFRESH_INTERVAL_SECS);
+
+        assert_eq!(
+            apply_test_refresh_interval_override(production_interval, Some("250")),
+            Duration::from_millis(250)
+        );
+    }
+
+    #[test]
+    fn tui_test_refresh_interval_override_cannot_lengthen_or_disable_interval() {
+        let production_interval = Duration::from_secs(MIN_REFRESH_INTERVAL_SECS);
+
+        assert_eq!(
+            apply_test_refresh_interval_override(production_interval, None),
+            production_interval
+        );
+        assert_eq!(
+            apply_test_refresh_interval_override(production_interval, Some("invalid")),
+            production_interval
+        );
+        assert_eq!(
+            apply_test_refresh_interval_override(production_interval, Some("0")),
+            production_interval
+        );
+        assert_eq!(
+            apply_test_refresh_interval_override(production_interval, Some("5000")),
+            production_interval
+        );
+        assert_eq!(
+            apply_test_refresh_interval_override(production_interval, Some("6000")),
+            production_interval
+        );
     }
 
     fn successful_payload() -> Value {

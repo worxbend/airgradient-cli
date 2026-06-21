@@ -410,6 +410,54 @@ fn renders_dashboard_regions_at_compact_supported_size() {
 }
 
 #[test]
+fn renders_minimum_size_with_clipped_lower_metrics_and_intact_controls() {
+    let mut app = app(Some(device_url()));
+    app.finish_fetch_success(
+        populated_snapshot(),
+        Duration::from_millis(125),
+        SystemTime::now(),
+    );
+
+    let output = render_at(&app, 36, 20);
+
+    assert_nonblank(&output);
+    assert_region_contains(&output, "top bar", 0, 0, 36, 3, "AirGradient");
+    assert_region_excludes(&output, "top bar", 0, 0, 36, 3, "Air Quality");
+
+    assert_region_contains(&output, "AQI panel", 0, 3, 36, 7, "Air Quality");
+    assert_region_contains(&output, "AQI panel", 0, 3, 36, 7, "AQI 42");
+    assert_region_contains(&output, "AQI panel", 0, 3, 36, 7, "Good");
+    assert_region_excludes(&output, "AQI panel", 0, 3, 36, 7, "r refresh");
+
+    assert_region_excludes(&output, "metric grid", 0, 10, 36, 7, "r refresh");
+    assert_region_excludes(&output, "metric grid", 0, 10, 36, 7, "q quit");
+
+    assert_region_contains(&output, "footer", 0, 17, 36, 3, "r refresh");
+    assert_region_contains(&output, "footer", 0, 17, 36, 3, "q quit");
+    assert_region_contains(&output, "footer", 0, 17, 36, 3, "Esc quit");
+    assert_region_excludes(&output, "footer", 0, 17, 36, 3, "AQI");
+    assert_region_excludes(&output, "footer", 0, 17, 36, 3, "CO2");
+
+    for clipped_metric in [
+        "CO2",
+        "PM2.5",
+        "PM1.0",
+        "PM10",
+        "PM0.3 count",
+        "TVOC",
+        "NOx",
+        "Temperature",
+        "Humidity",
+    ] {
+        assert!(
+            !output.output.contains(clipped_metric),
+            "{clipped_metric} should remain clipped at 36x20; full render:\n{}",
+            output.output
+        );
+    }
+}
+
+#[test]
 fn renders_below_minimum_terminal_fallback_without_dashboard_overlap() {
     let mut app = app(Some(device_url()));
     app.finish_fetch_success(

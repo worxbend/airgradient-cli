@@ -14,6 +14,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use airgradient_cli::tui::runtime::TUI_TEST_REFRESH_INTERVAL_MS_ENV;
 use common::pty::{PtyRunResult, PtyTui, report_conditional_skip};
 use tempfile::TempDir;
 
@@ -22,6 +23,8 @@ const PTY_SKIP_PREFIX: &str = "conditional PTY fetch contract coverage skipped";
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(4);
 const EXIT_TIMEOUT: Duration = Duration::from_secs(3);
 const REFRESH_OVERRIDE_OBSERVATION: Duration = Duration::from_millis(5500);
+const INTERVAL_REFRESH_TIMEOUT: Duration = Duration::from_secs(4);
+const TEST_REFRESH_INTERVAL_MS: &str = "250";
 
 #[test]
 fn tui_startup_success_requests_current_measures_endpoint() -> Result<(), Box<dyn Error>> {
@@ -122,6 +125,43 @@ fn tui_manual_refresh_requests_current_measures_endpoint_again() -> Result<(), B
 }
 
 #[test]
+fn tui_interval_refresh_requests_current_measures_endpoint_again() -> Result<(), Box<dyn Error>> {
+    let server = TestServer::start(ServerResponse::Success)?;
+    let server_uri = server.uri();
+    let config = TestConfig::missing();
+
+    let result = run_tui_until_with_env(
+        &[
+            "--config",
+            config.path_str(),
+            "--tui",
+            "--url",
+            &server_uri,
+            "--refresh",
+            "3600",
+        ],
+        &[(TUI_TEST_REFRESH_INTERVAL_MS_ENV, TEST_REFRESH_INTERVAL_MS)],
+        |tui| {
+            assert!(
+                server.wait_for_current_count(1, STARTUP_TIMEOUT),
+                "TUI did not perform the initial fetch; observed paths: {:?}",
+                server.paths()
+            );
+
+            assert!(
+                server.wait_for_current_count(2, INTERVAL_REFRESH_TIMEOUT),
+                "interval refresh did not request /measures/current again without manual input; observed paths: {:?}",
+                server.paths()
+            );
+            tui.press_q();
+        },
+    );
+
+    let _ = assert_completed_cleanly(result);
+    Ok(())
+}
+
+#[test]
 fn tui_cli_url_and_refresh_overrides_take_precedence_over_config() -> Result<(), Box<dyn Error>> {
     let configured_server = TestServer::start(ServerResponse::Success)?;
     let override_server = TestServer::start(ServerResponse::Success)?;
@@ -205,10 +245,19 @@ fn assert_completed_cleanly(result: PtyRunResult) -> Vec<u8> {
 }
 
 fn run_tui_until(args: &[&str], exercise: impl FnOnce(&mut PtyTui)) -> PtyRunResult {
-    let mut tui = match PtyTui::spawn_or_skip(args, "starting TUI fetch contract test") {
-        Ok(tui) => tui,
-        Err(reason) => return PtyRunResult::Skipped(reason),
-    };
+    run_tui_until_with_env(args, &[], exercise)
+}
+
+fn run_tui_until_with_env(
+    args: &[&str],
+    env_vars: &[(&str, &str)],
+    exercise: impl FnOnce(&mut PtyTui),
+) -> PtyRunResult {
+    let mut tui =
+        match PtyTui::spawn_or_skip_with_env(args, env_vars, "starting TUI fetch contract test") {
+            Ok(tui) => tui,
+            Err(reason) => return PtyRunResult::Skipped(reason),
+        };
 
     exercise(&mut tui);
     tui.wait_for_exit(EXIT_TIMEOUT)
