@@ -17,3 +17,5 @@
 [pattern] TUI render state should expose fetch lifecycle explicitly so the UI can distinguish first fetch, refresh with stale data, success, failure, and missing config.
 [pattern] Blocking terminal APIs can coexist with async fetch work when poll/read are isolated behind `spawn_blocking` and covered by current-thread runtime tests.
 [learning] Aborting a Tokio `JoinHandle` requests cancellation; without awaiting or observing the handle, cleanup owns cancellation intent rather than proof of task termination.
+[pattern] PTY integration tests are the right proof for real TUI startup and keyboard exit, but they should be reported as conditional coverage when platform support is skippable.
+[learning] Awaited cancellation can still lose diagnostic value if cancellation or task-panic errors are dropped behind a primary runtime error; preserve secondary failure context deliberately.

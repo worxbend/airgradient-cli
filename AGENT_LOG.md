@@ -712,3 +712,85 @@ M  src/tui/app.rs
 M  src/tui/runtime.rs
 M  src/tui/ui.rs
 M  tests/tui_render.rs
+2026-06-21T15:37:33Z iteration 9 started remaining=12267s
+2026-06-21T15:37:33Z iteration 9 preplanner effective budgets untracked_scan_max_bytes=536870912 untracked_scan_max_count=10000 snapshot_copy_max_bytes=536870912 snapshot_copy_max_count=10000 snapshot_copy_max_file_bytes=134217728
+2026-06-21T15:37:33Z iteration 9 disposable preplanner repo created path=/tmp/agent-loop-preplanner-repo-8sx2w8b4/repo copied_entries=34
+2026-06-21T15:37:33Z iteration 9 ideator phase started count=3
+2026-06-21T15:37:33Z iteration 9 ideator phase concurrency workers=3
+2026-06-21T15:37:33Z iteration 9 ideator 1 role="the pragmatist" started
+2026-06-21T15:37:33Z iteration 9 ideator 2 role="the architect" started
+2026-06-21T15:37:33Z iteration 9 ideator 3 role="the contrarian" started
+2026-06-21T15:37:41Z iteration 9 ideator 1 role="the pragmatist" completed status=0
+2026-06-21T15:37:42Z iteration 9 ideator 2 role="the architect" completed status=0
+2026-06-21T15:37:43Z iteration 9 ideator 3 role="the contrarian" completed status=0
+2026-06-21T15:37:43Z iteration 9 ideator phase completed approaches=3
+2026-06-21T15:37:43Z iteration 9 selector started approaches=3
+2026-06-21T15:37:56Z iteration 9 selector completed status=0
+2026-06-21T15:37:56Z iteration 9 disposable preplanner repo cleanup path=/tmp/agent-loop-preplanner-repo-8sx2w8b4/repo
+2026-06-21T15:37:56Z iteration 9 selector rejected alternative role="the pragmatist" approach="Contract-First TUI Hardening: treat iteration 9 as a proof pass for the live TUI boundary before adding release polish, using externally observable behavior as the organizing pr..." reason="Strongly aligned, but slightly too broad in treating rendering, terminal, HTTP, and cancellation as equal proof areas. The selected strategy sharpens the guidance around the smallest durable external contract and explicitly separates obs..."
+2026-06-21T15:37:56Z iteration 9 selector rejected alternative role="the architect" approach="Contract-First TUI Hardening: treat iteration 9 as a behavioral-contract pass, prioritizing externally observable TUI guarantees before internal cleanup or release polish." reason="Also strongly aligned, but it frames cancellation ambiguity mostly as a caveat. The selected strategy elevates shutdown semantics into the contract itself because the memory and known gaps show aborted-but-unobserved tasks are now one of..."
+2026-06-21T15:37:56Z iteration 9 selector rejected alternative role="the contrarian" approach="Stabilize the TUI contract from the outside in: treat iteration 9 as a release-confidence pass centered on externally observable behavior, not internal polish. Start by defining..." reason="The outside-in emphasis is right, but the suggestion to let runtime changes happen only when tests expose failures is a little too reactive. The selected strategy allows proactive clarification of the cancellation contract because the cu..."
+2026-06-21T15:37:56Z iteration 9 selector alternatives persisted count=3
+2026-06-21T15:37:56Z iteration 9 selector structured alternatives persisted count=3
+2026-06-21T15:37:56Z iteration 9 planner started
+2026-06-21T15:38:15Z iteration 9 plan: 4 task(s) in 3 phase(s). This iteration focuses on the highest-risk user-visible boundary left after the harness work: proving the shipped TUI binary starts in a real interactive terminal, exits cleanly, fetches the correct endpoint, honors overrides, and has an explicit shutdown/cancellation contract. Phase 2 is parallel because PTY smoke coverage and HTTP contract coverage can be developed independently in separate integration test files after the runtime cancellation contract is clarified.
+2026-06-21T15:38:15Z iteration 9 phase 1 started parallel=False tasks=1
+2026-06-21T15:42:28Z iteration 9 task t1 ('Clarify TUI shutdown cancellation contract') status=0
+2026-06-21T15:42:28Z iteration 9 phase 2 started parallel=True tasks=2
+2026-06-21T15:46:04Z iteration 9 task t2 ('Add skippable PTY smoke tests for real TUI startup and exit') status=0
+2026-06-21T15:48:33Z iteration 9 task t3 ('Add binary-level TUI HTTP contract tests') status=0
+2026-06-21T15:48:33Z iteration 9 phase 3 started parallel=False tasks=1
+2026-06-21T15:50:05Z iteration 9 task t4 ('Document and validate the hardened TUI contract') status=0
+2026-06-21T15:50:05Z iteration 9 reviewer started
+
+## Reviewer Summary: Iteration 9
+
+Date: 2026-06-21
+Reviewer stance: fresh senior review; implementation inspected through `git diff`, full runtime context, new PTY/HTTP integration tests, README/plan changes, and validation commands.
+
+### What Was Done
+
+- Changed the TUI background fetch worker from channel-delivered completions to an owned `JoinHandle<FetchCompletion>`, so ready results are awaited and panicked fetch tasks can surface as `RuntimeError::FetchTask`.
+- Made pending TUI fetch cancellation await the aborted task handle before `run_loop` returns on clean shutdown, and added harness coverage for quitting while a spawned fetch task is pending.
+- Added skippable PTY smoke tests that start the real binary, send `q` and `Esc`, assert successful exit, and verify the non-TTY diagnostic is not emitted inside a PTY.
+- Added binary-level TUI HTTP contract tests with a local TCP HTTP server covering startup success, startup failure, manual refresh, `/measures/current`, URL override precedence, and refresh override precedence over config.
+- Updated README and PLAN documentation for terminal cleanup, override precedence, fetch endpoint behavior, and the awaited cancellation guarantee.
+
+### Verification
+
+- `cargo test` passed: 86 library unit tests, 28 CLI integration tests, 12 sensor parsing tests, 4 TUI fetch contract tests, 2 PTY smoke tests, and 11 TUI render tests.
+- `cargo fmt --check` passed.
+- `cargo clippy --all-targets --all-features -- -D warnings` passed.
+
+### Findings
+
+- Medium: cancellation is awaited on clean TUI shutdown, but if a primary runtime error happens and cancellation also fails or observes a panicked fetch task, the cancellation error is dropped because `run_loop` returns the primary error.
+- Medium: PTY tests are correctly bounded and skippable, but a platform without PTY support can still report a green suite while missing real crossterm path coverage.
+- Medium: binary HTTP tests cover startup, manual refresh, and override precedence, but not an interval-triggered refresh with deterministic time; the current production 5 second minimum makes that coverage comparatively slow.
+- Medium: `tests/tui_pty.rs` and `tests/tui_fetch_contract.rs` duplicate PTY process management, output draining, and closed-PTY error handling, which raises maintenance risk as more end-to-end TUI tests are added.
+- Medium: layout/usability coverage remains string-presence based and no minimum supported terminal size is documented.
+- Low: `color-eyre` remains in the dependency graph despite local diagnostic rendering.
+
+### Top Improvement Proposals
+
+1. Preserve cancellation/fetch-task failure context when it occurs alongside a primary runtime error, with harness tests for draw/poll/read failure plus panicked or cancellation-failing fetch tasks.
+2. Strengthen TUI layout tests with coordinate or snapshot assertions, document minimum supported terminal size, and decide retry-after-error copy behavior.
+3. Extract shared PTY integration-test helpers and make skipped PTY coverage explicit in CI notes.
+4. Add interval refresh contract coverage without adding more long sleeps, either through a test-only lower-bound hook or a deterministic runtime-level assertion tied to binary override parsing.
+5. Remove unused `color-eyre`, add packaging/install guidance, and start dependency audit or deny policy work before release.
+2026-06-21T15:52:10Z iteration 9 reviewer completed status=0
+2026-06-21T15:52:10Z iteration 9 memory updated
+2026-06-21T15:52:10Z iteration 9 completed validation_status=0
+2026-06-21T15:52:10Z iteration 9 checkpoint started
+2026-06-21T15:52:10Z iteration 9 checkpoint status before commit:
+M  AGENT_LOG.md
+M  ALTERNATIVES.jsonl
+M  Cargo.lock
+M  Cargo.toml
+M  MEMORY.md
+M  PLAN.md
+M  README.md
+M  SCORES.jsonl
+M  src/tui/runtime.rs
+A  tests/tui_fetch_contract.rs
+A  tests/tui_pty.rs

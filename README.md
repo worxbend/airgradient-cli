@@ -94,6 +94,9 @@ alongside the error.
 
 The TUI requires an interactive terminal. Running `--tui` with captured or
 piped terminal streams exits with `TUI requires an interactive terminal`.
+On exit and runtime error paths after terminal setup starts, the TUI restores
+terminal state by leaving the alternate screen, showing the cursor, and
+disabling raw mode.
 
 Override the TUI refresh interval for one run:
 
@@ -104,7 +107,8 @@ airgradient-cli --tui --refresh 10
 `--refresh <SECONDS>` applies only to `--tui` and is rejected for one-shot
 fetches and config commands. Like `config set-refresh`, it accepts values from
 `5` to `3600` seconds. It changes only the current dashboard run and does not
-write the config file.
+write the config file. In TUI mode, this CLI override takes precedence over the
+refresh interval stored in the config file.
 
 If no device URL is configured, `--tui` still opens the dashboard and shows the
 missing-URL state instead of fetching. Set a URL with `config set-url`, or pass a
@@ -113,6 +117,15 @@ one-run URL override with `--url`:
 ```sh
 airgradient-cli --tui --url 192.168.1.201
 ```
+
+In TUI mode, `--url` takes precedence over the config-file `server_url` for that
+run and the dashboard fetches only the override URL's `/measures/current`
+endpoint. The override is not written to the config file.
+
+When the TUI exits while a background fetch is pending, the runtime aborts the
+fetch task and awaits the task handle before returning. Stale completions after
+cancellation are ignored, and a fetch task panic is surfaced as a runtime error
+when the task completion is observed.
 
 ## Config
 

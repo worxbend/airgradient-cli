@@ -72,17 +72,26 @@ Completed in iteration 8:
 - Added render coverage for initial `fetching`, active `refreshing`, and missing-config states.
 - Verified on 2026-06-21: `cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --all-features -- -D warnings` pass.
 
+Completed in iteration 9:
+
+- Tightened TUI shutdown cancellation semantics so pending background fetches are aborted and their task handles are awaited before the runtime returns.
+- Added runtime harness coverage for quitting while a spawned fetch task is pending, stale completion discard after cancellation, and panicked fetch task surfacing when completion is observed.
+- Added skippable pseudo-terminal integration tests that start the real `--tui` binary path and verify both `q` and `Esc` exit without the non-TTY error.
+- Added binary-level TUI HTTP contract tests proving startup success and startup failure request `<server_url>/measures/current`, manual `r` refresh requests it again, and CLI `--url`/`--refresh` overrides take precedence over config-file values.
+- Documented the TUI contract for the interactive-terminal requirement, `q`/`Esc` exit behavior, fetch endpoint, override precedence, terminal cleanup, last-success retention after later failures, and awaited cancellation guarantee.
+- Verified on 2026-06-21: `cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --all-features -- -D warnings` pass.
+
 ## Known Gaps and Risks
 
-- Medium: pending TUI fetches are now aborted and stale results are ignored, but cancellation is not awaited or observed. Cleanup owns cancellation intent, not proof that the spawned task has fully stopped before `run` returns.
-- Medium: runtime tests prove behavior through the harness, but there is still no pseudo-terminal integration test that starts the real TUI, sends `q`, and verifies terminal setup/cleanup against crossterm.
-- Medium: TUI fetch behavior is mostly harness-tested. There is no end-to-end `--tui --url <server>` test with a real HTTP server proving the runtime path requests `/measures/current`, honors overrides, and handles startup success/failure through the binary.
+- Medium: cancellation is now awaited on normal TUI shutdown, but if a primary runtime error occurs and cancellation also fails or observes a panicked fetch task, the primary error wins and the cancellation failure is dropped.
+- Medium: pseudo-terminal integration tests are skippable when PTY support is unavailable, so some CI/platform combinations may still rely on the runtime harness instead of exercising crossterm through a real terminal.
+- Medium: binary-level TUI HTTP tests cover startup success/failure, manual refresh, and override precedence, but they do not yet cover interval-triggered refresh with a shortened deterministic clock because the binary enforces the production 5 second minimum.
 - Medium: render tests are broader but still mostly assert string presence or deliberate clipping. They do not detect all layout overlap, inaccessible controls, or content loss at very small terminal sizes.
 - Medium: parser priority is correct for key-list precedence and top-level-over-nested precedence, but same-alias duplicate fields inside one JSON object still depend on `serde_json::Map` iteration order. This is acceptable for malformed duplicate-ish payloads, but real-device validation should confirm no important duplicate field variants conflict.
 - Medium: non-object top-level config JSON is a documented hard repair boundary because unknown-field preservation requires an object.
 - Medium: sensor upper bounds are practical guardrails, not hardware-validated limits; revisit them after real-device validation.
 - Low: `color-eyre` remains in `Cargo.toml`/`Cargo.lock` even though runtime diagnostics are local; remove unused dependency surface before release.
-- There is no packaging guidance, release workflow, dependency audit, pseudo-terminal test coverage, or real-device validation record yet.
+- There is no packaging guidance, release workflow, dependency audit, or real-device validation record yet.
 
 ## Compatibility Targets
 
@@ -116,21 +125,7 @@ Must preserve:
 
 ### Phase 9A: End-to-End TUI Contract Coverage
 
-1. Add pseudo-terminal integration tests.
-   - Start the real binary/TUI in a PTY when available.
-   - Send `q` and `Esc`, verify process exit, and check that output does not contain the non-TTY error.
-   - Include a short timeout and skip gracefully when the platform lacks PTY support.
-
-2. Validate the TUI fetch contract with a real HTTP test server.
-   - Exercise `--tui --url <server>` against a local server and assert `/measures/current` is requested.
-   - Cover startup success, startup failure, manual refresh, interval refresh, and failure after success where practical.
-   - Verify URL overrides and refresh overrides take precedence over config values in the runtime path.
-   - Keep the test bounded so a failed TUI cannot hang CI.
-
-3. Tighten background task cancellation semantics.
-   - Decide whether `BackgroundMeasureFetcher::cancel_fetch` should await aborted handles, expose an async shutdown method, or document request-only cancellation.
-   - Add a runtime test with a pending spawned task that proves the chosen shutdown contract.
-   - Surface panicked fetch tasks if they can otherwise be silently detached.
+Completed in iteration 9.
 
 ### Phase 9B: Layout and Usability Coverage
 
@@ -143,6 +138,16 @@ Must preserve:
    - Decide whether old error panels should remain visible during a new in-flight refresh.
    - If old errors remain, make the copy clearly indicate that the app is retrying.
    - Add render tests for refresh-after-failure and failure-after-refresh states.
+
+3. Tighten cancellation error reporting.
+   - Preserve cancellation or fetch-task panic context when a primary runtime error also occurs, similar to existing cleanup failure context.
+   - Add harness tests for draw/poll/read failure racing with a panicked or cancellation-failing fetch task.
+   - Keep normal `q`/`Esc` shutdown clean when an aborted task reports Tokio cancellation.
+
+4. Improve PTY and HTTP test maintainability.
+   - Extract shared PTY process helpers used by `tests/tui_pty.rs` and `tests/tui_fetch_contract.rs` to reduce duplicated timeout, drain, and closed-PTY handling.
+   - Make skipped PTY coverage explicit in test output and CI notes so a platform without PTY support is visible rather than mistaken for full end-to-end coverage.
+   - Consider a test-only runtime hook or lower-bound override for interval refresh coverage without adding 5+ second sleeps to more tests.
 
 ### Phase 9C: Dependency, Release, and Validation Hygiene
 

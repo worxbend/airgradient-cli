@@ -1,7 +1,6 @@
 use std::{
     io::{self, IsTerminal, Stdout},
     path::PathBuf,
-    sync::mpsc::{self, Receiver, Sender},
     time::{Duration, Instant, SystemTime},
 };
 
@@ -45,6 +44,9 @@ pub enum RuntimeError {
 
     #[error("TUI requires an interactive terminal")]
     NonInteractiveTerminal,
+
+    #[error("background fetch task failed: {0}")]
+    FetchTask(String),
 
     #[error("{primary} (terminal cleanup also failed: {cleanup})")]
     Cleanup {
@@ -108,6 +110,7 @@ impl RuntimeError {
     fn with_cleanup_failure(primary: RuntimeError, cleanup: RuntimeError) -> Self {
         let cleanup = match cleanup {
             RuntimeError::Terminal(error) => error,
+            RuntimeError::FetchTask(message) => io::Error::other(message),
             other => io::Error::other(other.to_string()),
         };
 
@@ -134,7 +137,7 @@ where
     let result = async {
         if app.configured_url.is_some() {
             fetch_scheduler.request_refresh(app, fetcher);
-            fetch_scheduler.apply_ready_results(app, fetcher);
+            fetch_scheduler.apply_ready_results(app, fetcher).await?;
         }
 
         terminal.draw(app)?;
@@ -142,7 +145,7 @@ where
         let mut next_refresh = now + app.refresh_interval;
 
         loop {
-            if fetch_scheduler.apply_ready_results(app, fetcher) {
+            if fetch_scheduler.apply_ready_results(app, fetcher).await? {
                 terminal.draw(app)?;
             }
 
@@ -158,7 +161,7 @@ where
                         now = clock.now();
                         if app.configured_url.is_some() {
                             fetch_scheduler.request_refresh(app, fetcher);
-                            fetch_scheduler.apply_ready_results(app, fetcher);
+                            fetch_scheduler.apply_ready_results(app, fetcher).await?;
                         }
                         next_refresh = now + app.refresh_interval;
                         terminal.draw(app)?;
@@ -170,7 +173,7 @@ where
                 if now >= next_refresh {
                     if app.configured_url.is_some() {
                         fetch_scheduler.request_refresh(app, fetcher);
-                        fetch_scheduler.apply_ready_results(app, fetcher);
+                        fetch_scheduler.apply_ready_results(app, fetcher).await?;
                     }
                     next_refresh = now + app.refresh_interval;
                     terminal.draw(app)?;
@@ -183,7 +186,7 @@ where
             if now >= next_refresh {
                 if app.configured_url.is_some() {
                     fetch_scheduler.request_refresh(app, fetcher);
-                    fetch_scheduler.apply_ready_results(app, fetcher);
+                    fetch_scheduler.apply_ready_results(app, fetcher).await?;
                 }
                 next_refresh = now + app.refresh_interval;
                 terminal.draw(app)?;
@@ -194,9 +197,13 @@ where
     }
     .await;
 
-    fetch_scheduler.cancel_pending_fetch(app, fetcher);
+    let cancel_result = fetch_scheduler.cancel_pending_fetch(app, fetcher).await;
 
-    result
+    match (result, cancel_result) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(error), _) => Err(error),
+        (Ok(()), Err(error)) => Err(error),
+    }
 }
 
 trait RuntimeClock {
@@ -236,18 +243,22 @@ impl FetchScheduler {
         app.begin_fetch();
     }
 
-    fn apply_ready_results<F>(&mut self, app: &mut TuiApp, fetcher: &mut F) -> bool
+    async fn apply_ready_results<F>(
+        &mut self,
+        app: &mut TuiApp,
+        fetcher: &mut F,
+    ) -> Result<bool, RuntimeError>
     where
         F: MeasureFetchWorker,
     {
         if !self.in_flight {
-            while fetcher.try_recv_fetch().is_some() {}
-            return false;
+            while fetcher.recv_ready_fetch().await?.is_some() {}
+            return Ok(false);
         }
 
         let mut applied_result = false;
 
-        while let Some(completion) = fetcher.try_recv_fetch() {
+        while let Some(completion) = fetcher.recv_ready_fetch().await? {
             self.in_flight = false;
             applied_result = true;
 
@@ -271,20 +282,25 @@ impl FetchScheduler {
             }
         }
 
-        applied_result
+        Ok(applied_result)
     }
 
-    fn cancel_pending_fetch<F>(&mut self, app: &mut TuiApp, fetcher: &mut F)
+    async fn cancel_pending_fetch<F>(
+        &mut self,
+        app: &mut TuiApp,
+        fetcher: &mut F,
+    ) -> Result<(), RuntimeError>
     where
         F: MeasureFetchWorker,
     {
         if self.in_flight {
-            fetcher.cancel_fetch();
+            fetcher.cancel_fetch().await?;
         }
 
         self.in_flight = false;
         self.follow_up_requested = false;
         app.is_fetching = false;
+        Ok(())
     }
 }
 
@@ -297,87 +313,85 @@ struct FetchCompletion {
 
 trait MeasureFetchWorker {
     fn start_fetch(&mut self, base_url: Url);
-    fn try_recv_fetch(&mut self) -> Option<FetchCompletion>;
-    fn cancel_fetch(&mut self);
+    async fn recv_ready_fetch(&mut self) -> Result<Option<FetchCompletion>, RuntimeError>;
+    async fn cancel_fetch(&mut self) -> Result<(), RuntimeError>;
 }
 
 struct BackgroundMeasureFetcher {
     client: Client,
-    sender: Sender<BackgroundFetchMessage>,
-    receiver: Receiver<BackgroundFetchMessage>,
-    active_request_id: Option<u64>,
-    next_request_id: u64,
-    active_handle: Option<JoinHandle<()>>,
+    active_handle: Option<JoinHandle<FetchCompletion>>,
 }
 
 impl BackgroundMeasureFetcher {
     fn new(client: Client) -> Self {
-        let (sender, receiver) = mpsc::channel();
         Self {
             client,
-            sender,
-            receiver,
-            active_request_id: None,
-            next_request_id: 0,
             active_handle: None,
         }
     }
 }
 
-#[derive(Debug)]
-struct BackgroundFetchMessage {
-    request_id: u64,
-    completion: FetchCompletion,
-}
-
 impl MeasureFetchWorker for BackgroundMeasureFetcher {
     fn start_fetch(&mut self, base_url: Url) {
-        self.cancel_fetch();
-
-        let request_id = self.next_request_id;
-        self.next_request_id = self.next_request_id.wrapping_add(1);
-        self.active_request_id = Some(request_id);
+        if let Some(handle) = self.active_handle.take() {
+            handle.abort();
+        }
 
         let client = self.client.clone();
-        let sender = self.sender.clone();
 
         self.active_handle = Some(tokio::spawn(async move {
             let started = Instant::now();
             let result = device::fetch_current_measures_with_client(&client, &base_url)
                 .await
                 .map_err(|error| error.to_string());
-            let _ = sender.send(BackgroundFetchMessage {
-                request_id,
-                completion: FetchCompletion {
-                    result,
-                    duration: started.elapsed(),
-                    completed_at: SystemTime::now(),
-                },
-            });
+            FetchCompletion {
+                result,
+                duration: started.elapsed(),
+                completed_at: SystemTime::now(),
+            }
         }));
     }
 
-    fn try_recv_fetch(&mut self) -> Option<FetchCompletion> {
-        while let Ok(message) = self.receiver.try_recv() {
-            if Some(message.request_id) == self.active_request_id {
-                self.active_request_id = None;
-                self.active_handle = None;
-                return Some(message.completion);
+    async fn recv_ready_fetch(&mut self) -> Result<Option<FetchCompletion>, RuntimeError> {
+        let Some(handle) = self.active_handle.as_ref() else {
+            return Ok(None);
+        };
+
+        if !handle.is_finished() {
+            return Ok(None);
+        }
+
+        let handle = self
+            .active_handle
+            .take()
+            .expect("active handle should exist after readiness check");
+        observe_fetch_handle(handle).await.map(Some)
+    }
+
+    async fn cancel_fetch(&mut self) -> Result<(), RuntimeError> {
+        if let Some(handle) = self.active_handle.take() {
+            handle.abort();
+            match handle.await {
+                Ok(_) => {}
+                Err(error) if error.is_cancelled() => {}
+                Err(error) => return Err(RuntimeError::FetchTask(error.to_string())),
             }
         }
 
-        None
+        Ok(())
     }
+}
 
-    fn cancel_fetch(&mut self) {
-        self.active_request_id = None;
-
-        if let Some(handle) = self.active_handle.take() {
-            handle.abort();
-        }
-
-        while self.receiver.try_recv().is_ok() {}
-    }
+async fn observe_fetch_handle(
+    handle: JoinHandle<FetchCompletion>,
+) -> Result<FetchCompletion, RuntimeError> {
+    handle.await.map_err(|error| {
+        RuntimeError::FetchTask(if error.is_cancelled() {
+            "fetch task was cancelled".to_owned()
+        } else {
+            error.to_string()
+        })
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -650,6 +664,7 @@ mod tests {
         sync::{
             Arc,
             atomic::{AtomicBool, Ordering},
+            mpsc::{self, Receiver, Sender},
         },
     };
 
@@ -884,32 +899,35 @@ mod tests {
             self.calls.push(base_url);
         }
 
-        fn try_recv_fetch(&mut self) -> Option<FetchCompletion> {
+        async fn recv_ready_fetch(&mut self) -> Result<Option<FetchCompletion>, RuntimeError> {
             if !self.active_fetch {
-                return self
+                return Ok(self
                     .stale_completions_after_cancel
                     .pop_front()
                     .map(|result| FetchCompletion {
                         result,
                         duration: Duration::from_millis(25),
                         completed_at: SystemTime::UNIX_EPOCH + Duration::from_secs(60),
-                    });
+                    }));
             }
 
-            let result = self.completions.pop_front()??;
+            let Some(result) = self.completions.pop_front().flatten() else {
+                return Ok(None);
+            };
             self.active_fetch = false;
-            Some(FetchCompletion {
+            Ok(Some(FetchCompletion {
                 result,
                 duration: Duration::from_millis(25),
                 completed_at: SystemTime::UNIX_EPOCH + Duration::from_secs(60),
-            })
+            }))
         }
 
-        fn cancel_fetch(&mut self) {
+        async fn cancel_fetch(&mut self) -> Result<(), RuntimeError> {
             if self.active_fetch {
                 self.canceled_fetches += 1;
                 self.active_fetch = false;
             }
+            Ok(())
         }
     }
 
@@ -999,15 +1017,59 @@ mod tests {
             }));
         }
 
-        fn try_recv_fetch(&mut self) -> Option<FetchCompletion> {
-            self.receiver.try_recv().ok()
+        async fn recv_ready_fetch(&mut self) -> Result<Option<FetchCompletion>, RuntimeError> {
+            Ok(self.receiver.try_recv().ok())
         }
 
-        fn cancel_fetch(&mut self) {
+        async fn cancel_fetch(&mut self) -> Result<(), RuntimeError> {
             if let Some(handle) = self.active_handle.take() {
                 handle.abort();
+                match handle.await {
+                    Ok(()) => {}
+                    Err(error) if error.is_cancelled() => {}
+                    Err(error) => return Err(RuntimeError::FetchTask(error.to_string())),
+                }
             }
             while self.receiver.try_recv().is_ok() {}
+            Ok(())
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct SpawnedPendingFetcher {
+        active_handle: Option<JoinHandle<()>>,
+        calls: Vec<Url>,
+        cancellation_observed: bool,
+    }
+
+    impl MeasureFetchWorker for SpawnedPendingFetcher {
+        fn start_fetch(&mut self, base_url: Url) {
+            assert!(
+                self.active_handle.is_none(),
+                "scheduler started overlapping pending fetches"
+            );
+            self.calls.push(base_url);
+            self.active_handle = Some(tokio::spawn(async {
+                std::future::pending::<()>().await;
+            }));
+        }
+
+        async fn recv_ready_fetch(&mut self) -> Result<Option<FetchCompletion>, RuntimeError> {
+            Ok(None)
+        }
+
+        async fn cancel_fetch(&mut self) -> Result<(), RuntimeError> {
+            if let Some(handle) = self.active_handle.take() {
+                handle.abort();
+                match handle.await {
+                    Ok(()) => {}
+                    Err(error) if error.is_cancelled() => {
+                        self.cancellation_observed = true;
+                    }
+                    Err(error) => return Err(RuntimeError::FetchTask(error.to_string())),
+                }
+            }
+            Ok(())
         }
     }
 
@@ -1040,6 +1102,7 @@ mod tests {
             RuntimeError::Terminal(error) => error.to_string(),
             RuntimeError::Device(error) => error.to_string(),
             RuntimeError::NonInteractiveTerminal => error.to_string(),
+            RuntimeError::FetchTask(message) => message.clone(),
             RuntimeError::Cleanup { primary, .. } => terminal_error_message(primary),
         }
     }
@@ -1316,7 +1379,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn quit_while_fetch_is_pending_does_not_wait_for_completion() {
+    async fn quit_while_fetch_is_pending_requests_cancellation() {
         let mut terminal = HarnessTerminal::with_quit();
         let mut fetcher = HarnessFetcher::pending_then([None]);
         let mut app = app(Some(configured_url()));
@@ -1330,6 +1393,23 @@ mod tests {
         assert_eq!(terminal.calls.last(), Some(&RuntimeCall::Cleanup));
         assert_eq!(app.current_snapshot, None);
         assert!(!app.is_fetching);
+    }
+
+    #[tokio::test]
+    async fn quit_while_spawned_fetch_is_pending_observes_cancellation() {
+        let mut terminal = HarnessTerminal::with_quit();
+        let mut fetcher = SpawnedPendingFetcher::default();
+        let mut app = app(Some(configured_url()));
+
+        run_with_adapters(&mut terminal, &mut app, &mut fetcher)
+            .await
+            .expect("runtime should quit cleanly");
+
+        assert_eq!(fetcher.calls.len(), 1);
+        assert!(fetcher.active_handle.is_none());
+        assert!(fetcher.cancellation_observed);
+        assert!(!app.is_fetching);
+        assert!(terminal.cleanup_called);
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -1406,8 +1486,8 @@ mod tests {
         assert!(terminal.cleanup_called);
     }
 
-    #[test]
-    fn stale_completion_after_cancellation_does_not_mutate_app() {
+    #[tokio::test]
+    async fn stale_completion_after_cancellation_does_not_mutate_app() {
         let url = configured_url();
         let mut app = app(Some(url.clone()));
         let mut fetcher = HarnessFetcher::pending_then([None])
@@ -1415,14 +1495,35 @@ mod tests {
         let mut scheduler = FetchScheduler::default();
 
         scheduler.request_refresh(&mut app, &mut fetcher);
-        scheduler.cancel_pending_fetch(&mut app, &mut fetcher);
+        scheduler
+            .cancel_pending_fetch(&mut app, &mut fetcher)
+            .await
+            .expect("cancellation should be observed");
 
-        assert!(!scheduler.apply_ready_results(&mut app, &mut fetcher));
+        assert!(
+            !scheduler
+                .apply_ready_results(&mut app, &mut fetcher)
+                .await
+                .expect("stale completion drain should not fail")
+        );
         assert_eq!(fetcher.calls, [url]);
         assert_eq!(fetcher.canceled_fetches, 1);
         assert_eq!(app.current_snapshot, None);
         assert_eq!(app.current_error, None);
         assert!(!app.is_fetching);
+    }
+
+    #[tokio::test]
+    async fn panicked_fetch_task_is_returned_as_runtime_error_when_observed() {
+        let handle = tokio::spawn(async {
+            panic!("fetch task exploded");
+        });
+
+        let error = observe_fetch_handle(handle)
+            .await
+            .expect_err("panicked fetch task should be surfaced");
+
+        assert!(terminal_error_message(&error).contains("fetch task exploded"));
     }
 
     #[tokio::test]
