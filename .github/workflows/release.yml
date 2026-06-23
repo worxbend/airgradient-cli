@@ -28,7 +28,7 @@ jobs:
           - target: aarch64-unknown-linux-gnu
             asset_suffix: linux-arm64
             linker: aarch64-linux-gnu-gcc
-            apt_packages: gcc-aarch64-linux-gnu
+            apt_packages: gcc-aarch64-linux-gnu libc6-dev-arm64-cross
 
     steps:
       - name: Checkout
