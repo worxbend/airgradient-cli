@@ -64,6 +64,13 @@ fn populated_snapshot() -> SensorSnapshot {
     }
 }
 
+fn snapshot_with_aqi(aqi: f64) -> SensorSnapshot {
+    SensorSnapshot {
+        aqi: Some(aqi),
+        ..populated_snapshot()
+    }
+}
+
 fn assert_nonblank(rendered: &Rendered) {
     assert!(
         rendered
@@ -216,6 +223,36 @@ fn renders_populated_snapshot() {
     assert!(output.output.contains("612"));
     assert!(output.output.contains("PM2.5"));
     assert!(output.output.contains("7.4"));
+}
+
+#[test]
+fn renders_wide_dashboard_with_summary_groups_and_interval_controls() {
+    let mut app = app(Some(device_url()));
+    for aqi in [32.0, 38.0, 45.0, 42.0] {
+        app.finish_fetch_success(
+            snapshot_with_aqi(aqi),
+            Duration::from_millis(125),
+            SystemTime::now(),
+        );
+    }
+
+    let output = render_at(&app, 120, 40);
+
+    assert_nonblank(&output);
+    assert!(output.output.contains("Air Monitor"));
+    assert!(output.output.contains("Last updated:"));
+    assert!(output.output.contains("Server URL:"));
+    assert!(output.output.contains("Air Quality Index"));
+    assert!(output.output.contains("Temperature"));
+    assert!(output.output.contains("Humidity"));
+    assert!(output.output.contains("CO₂"));
+    assert!(output.output.contains("TVOC"));
+    assert!(output.output.contains("NOx"));
+    assert!(output.output.contains("PM₀"));
+    assert!(output.output.contains("PM₁"));
+    assert!(output.output.contains("PM₂"));
+    assert!(output.output.contains("Latest measurements loaded."));
+    assert!(output.output.contains("+/- interval"));
 }
 
 #[test]

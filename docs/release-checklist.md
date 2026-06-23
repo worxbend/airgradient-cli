@@ -1,16 +1,15 @@
 # Release Checklist
 
-This checklist is for maintainers cutting the first public `airgradient-cli`
-release. It is documentation only; release publication remains a manual
-maintainer action.
+This checklist is for maintainers cutting a public `airgradient-cli` release
+through the tag-driven GitHub Actions release workflow.
 
 ## Release Scope
 
 - [ ] Confirm the release is a binary-only Linux release.
-- [ ] Confirm GitHub Actions is being used only as a validation gate, not as the
-  release publisher.
-- [ ] Confirm the only supported first-release dry-run target is
-  `x86_64-unknown-linux-gnu`.
+- [ ] Confirm GitHub Actions is the release publisher for tag-driven GitHub
+  releases.
+- [ ] Confirm the supported Linux release targets are
+  `x86_64-unknown-linux-gnu` (amd64) and `aarch64-unknown-linux-gnu` (arm64).
 - [ ] Confirm no crates.io package, macOS binary, Windows binary, installer,
   package-manager recipe, or shell completion artifact is being promised.
 
@@ -28,6 +27,7 @@ Run the release validation commands in this order:
 ```sh
 cargo deny check
 scripts/release-dry-run.sh --target x86_64-unknown-linux-gnu --output-dir dist
+scripts/release-dry-run.sh --target aarch64-unknown-linux-gnu --output-dir dist-arm64
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test
@@ -36,8 +36,9 @@ cargo test
 
 - [ ] Confirm all validation commands pass with Rust 1.96.0 and cargo-deny
   0.19.9.
-- [ ] Confirm the dry run refuses unsupported targets before any build,
-  staging, or artifact write, including the `--skip-build` path.
+- [ ] Confirm the dry run accepts both supported Linux targets and refuses
+  unsupported targets before any build, staging, or artifact write, including
+  the `--skip-build` path.
 - [ ] Record the PTY summary status: real pseudo-terminal coverage exercised,
   PTY unavailable and conditionally skipped, or infrastructure failure.
 - [ ] Record real-device validation status. If no real AirGradient hardware run
@@ -49,25 +50,31 @@ Run the release artifact dry run before any manual GitHub release upload:
 
 ```sh
 scripts/release-dry-run.sh --target x86_64-unknown-linux-gnu --output-dir dist
+scripts/release-dry-run.sh --target aarch64-unknown-linux-gnu --output-dir dist-arm64
 ```
 
 - [ ] Use a new or empty staging directory for local rehearsal. CI may use a
   temporary output directory for the same validation-only dry run.
 - [ ] Confirm the dry run creates
   `dist/airgradient-cli-v<version>-x86_64-unknown-linux-gnu.tar.gz`.
+- [ ] Confirm the arm64 dry run creates
+  `dist-arm64/airgradient-cli-v<version>-aarch64-unknown-linux-gnu.tar.gz`.
 - [ ] Confirm the archive contains the built `airgradient-cli` executable and
   the checked-in `LICENSE` file.
 - [ ] Confirm `dist/SHA256SUMS` exists and every checksum entry names a real
   staged release artifact file.
 - [ ] Confirm the dry run remains validation-only: no git tag, GitHub release,
-  upload, signing, publishing, package-manager recipe, shell completion
-  artifact, macOS binary, or Windows binary is produced.
+  upload, signing, package-manager recipe, shell completion artifact, macOS
+  binary, or Windows binary is produced.
+- [ ] Confirm the GitHub Actions release workflow is triggered by a `vX.Y.Z`
+  tag matching `Cargo.toml` version, or by `workflow_dispatch` with the same tag.
 
 ## Artifacts
 
-- [ ] Publish Linux binary artifacts only.
-- [ ] Name artifacts with versioned, target-explicit Linux filenames, such as
-  `airgradient-cli-v<version>-x86_64-unknown-linux-gnu.tar.gz`.
+- [ ] Publish Linux binary artifacts only for amd64 and arm64.
+- [ ] Name artifacts with versioned Linux architecture filenames:
+  `airgradient-cli-v<version>-linux-amd64.tar.gz` and
+  `airgradient-cli-v<version>-linux-arm64.tar.gz`.
 - [ ] Include the checked-in `LICENSE` file inside every release artifact
   bundle.
 - [ ] Generate and publish `SHA256SUMS` covering the shipped `.tar.gz` release
@@ -94,6 +101,7 @@ scripts/release-dry-run.sh --target x86_64-unknown-linux-gnu --output-dir dist
 
 - [ ] Confirm any remaining unresolved item in `docs/release-boundary.md` is
   either fixed, listed as a release blocker, or explicitly accepted in release
-  notes as a first-release risk.
-- [ ] Confirm the release notes state that the release is manual, Linux-only,
-  binary-only, MIT-licensed, checksum-covered with SHA-256, and unsigned.
+  notes as a release risk.
+- [ ] Confirm the release notes state that the release is GitHub
+  Actions-published, Linux-only, binary-only, MIT-licensed, checksum-covered
+  with SHA-256, and unsigned.

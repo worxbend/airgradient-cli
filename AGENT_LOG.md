@@ -1705,3 +1705,4 @@ M  tests/release_dry_run.rs
 2026-06-21T17:32:14Z iteration final-20 checkpoint started
 2026-06-21T17:32:14Z iteration final-20 checkpoint status before commit:
 M  AGENT_LOG.md
+2026-06-21T17:32:14Z orchestrator finished iterations_run=20 iterations_attempted=20 iterations_completed_successfully=20 had_nonfatal_failures=false nonfatal_failure_count=0 last_nonfatal_exit_code=0 last_nonfatal_failure_reason=none loop_exit_code=0 process_exit_code=0 fatal=false terminal_reason=iterations_complete final_checkpoint_behavior=source_and_telemetry

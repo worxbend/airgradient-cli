@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     fmt,
     time::{Duration, SystemTime},
 };
@@ -13,11 +14,13 @@ use crate::{
 const REFRESH_STEP: Duration = Duration::from_secs(5);
 const MIN_REFRESH_INTERVAL: Duration = Duration::from_secs(MIN_REFRESH_INTERVAL_SECS);
 const MAX_REFRESH_INTERVAL: Duration = Duration::from_secs(MAX_REFRESH_INTERVAL_SECS);
+const MAX_READING_HISTORY: usize = 48;
 
 #[derive(Debug, Clone)]
 pub struct TuiApp {
     pub current_snapshot: Option<SensorSnapshot>,
     pub previous_successful_snapshot: Option<SensorSnapshot>,
+    reading_history: VecDeque<SensorSnapshot>,
     pub last_fetch_duration: Option<Duration>,
     pub last_success_at: Option<SystemTime>,
     pub current_error: Option<String>,
@@ -31,6 +34,7 @@ impl TuiApp {
         Self {
             current_snapshot: None,
             previous_successful_snapshot: None,
+            reading_history: VecDeque::new(),
             last_fetch_duration: None,
             last_success_at: None,
             current_error: None,
@@ -51,6 +55,7 @@ impl TuiApp {
         success_at: SystemTime,
     ) {
         self.is_fetching = false;
+        self.remember_successful_snapshot(snapshot.clone());
         self.previous_successful_snapshot = self.current_snapshot.replace(snapshot);
         self.last_fetch_duration = Some(fetch_duration);
         self.last_success_at = Some(success_at);
@@ -86,6 +91,17 @@ impl TuiApp {
             .as_ref()
             .map(|snapshot| metrics(snapshot, self.trend_baseline()))
             .unwrap_or_default()
+    }
+
+    pub fn successful_snapshots(&self) -> impl Iterator<Item = &SensorSnapshot> {
+        self.reading_history.iter()
+    }
+
+    fn remember_successful_snapshot(&mut self, snapshot: SensorSnapshot) {
+        self.reading_history.push_back(snapshot);
+        while self.reading_history.len() > MAX_READING_HISTORY {
+            self.reading_history.pop_front();
+        }
     }
 }
 
@@ -128,6 +144,7 @@ mod tests {
 
         assert_eq!(app.current_snapshot, Some(current));
         assert_eq!(app.previous_successful_snapshot, None);
+        assert_eq!(app.successful_snapshots().count(), 1);
         assert_eq!(app.last_fetch_duration, Some(Duration::from_millis(128)));
         assert_eq!(app.last_success_at, Some(success_at));
         assert_eq!(app.current_error, None);
@@ -158,6 +175,27 @@ mod tests {
         assert_eq!(app.last_fetch_duration, Some(Duration::from_millis(250)));
         assert_eq!(app.current_error.as_deref(), Some("request timed out"));
         assert!(!app.is_fetching);
+    }
+
+    #[test]
+    fn success_history_keeps_recent_readings_for_terminal_traces() {
+        let mut app = app_with_refresh(Duration::from_secs(30));
+
+        for index in 0_u32..60 {
+            app.finish_fetch_success(
+                snapshot(f64::from(index), 600.0 + f64::from(index)),
+                Duration::from_millis(50),
+                SystemTime::UNIX_EPOCH + Duration::from_secs(index.into()),
+            );
+        }
+
+        let history = app.successful_snapshots().collect::<Vec<_>>();
+        assert_eq!(history.len(), MAX_READING_HISTORY);
+        assert_eq!(
+            history.first().and_then(|snapshot| snapshot.aqi),
+            Some(12.0)
+        );
+        assert_eq!(history.last().and_then(|snapshot| snapshot.aqi), Some(59.0));
     }
 
     #[test]

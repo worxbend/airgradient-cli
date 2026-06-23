@@ -3,6 +3,10 @@
 set -euo pipefail
 
 DEFAULT_TARGET="x86_64-unknown-linux-gnu"
+SUPPORTED_TARGETS=(
+  "x86_64-unknown-linux-gnu"
+  "aarch64-unknown-linux-gnu"
+)
 TARGET="$DEFAULT_TARGET"
 OUTPUT_DIR="dist"
 BIN_NAME="airgradient-cli"
@@ -13,7 +17,7 @@ usage() {
   cat <<'USAGE'
 Usage: scripts/release-dry-run.sh [--target <triple>] [--output-dir <dir>] [--skip-build --binary <path>]
 
-Builds and stages the Linux release artifact locally.
+Builds and stages a Linux release artifact locally.
 This is a dry run only: it does not tag, publish, upload, sign, or generate shell completions.
 USAGE
 }
@@ -56,8 +60,15 @@ done
 
 [[ -n "$TARGET" ]] || fail "unsupported invocation: --target must not be empty"
 [[ -n "$OUTPUT_DIR" ]] || fail "unsupported invocation: --output-dir must not be empty"
-if [[ "$TARGET" != "$DEFAULT_TARGET" ]]; then
-  fail "unsupported target '$TARGET': first-release dry run supports only $DEFAULT_TARGET"
+TARGET_SUPPORTED=false
+for supported_target in "${SUPPORTED_TARGETS[@]}"; do
+  if [[ "$TARGET" == "$supported_target" ]]; then
+    TARGET_SUPPORTED=true
+    break
+  fi
+done
+if [[ "$TARGET_SUPPORTED" != true ]]; then
+  fail "unsupported target '$TARGET': release dry run supports only ${SUPPORTED_TARGETS[*]}"
 fi
 if [[ "$SKIP_BUILD" == false && -n "$BINARY_OVERRIDE" ]]; then
   fail "unsupported invocation: --binary requires --skip-build"

@@ -178,7 +178,7 @@ async fn run_loop<T, F, C>(
     app: &mut TuiApp,
     fetcher: &mut F,
     clock: &mut C,
-    refresh_schedule_interval: Duration,
+    initial_refresh_schedule_interval: Duration,
 ) -> Result<(), RuntimeError>
 where
     T: TerminalRuntime,
@@ -186,6 +186,7 @@ where
     C: RuntimeClock,
 {
     let mut fetch_scheduler = FetchScheduler::default();
+    let mut refresh_schedule_interval = initial_refresh_schedule_interval;
 
     let result = async {
         if app.configured_url.is_some() {
@@ -216,6 +217,20 @@ where
                             fetch_scheduler.request_refresh(app, fetcher);
                             fetch_scheduler.apply_ready_results(app, fetcher).await?;
                         }
+                        next_refresh = now + refresh_schedule_interval;
+                        terminal.draw(app)?;
+                    }
+                    RuntimeEvent::IncreaseRefreshInterval => {
+                        now = clock.now();
+                        app.increase_refresh_interval();
+                        refresh_schedule_interval = app.refresh_interval;
+                        next_refresh = now + refresh_schedule_interval;
+                        terminal.draw(app)?;
+                    }
+                    RuntimeEvent::DecreaseRefreshInterval => {
+                        now = clock.now();
+                        app.decrease_refresh_interval();
+                        refresh_schedule_interval = app.refresh_interval;
                         next_refresh = now + refresh_schedule_interval;
                         terminal.draw(app)?;
                     }
@@ -456,6 +471,8 @@ async fn observe_fetch_handle(
 enum RuntimeEvent {
     Quit,
     Refresh,
+    IncreaseRefreshInterval,
+    DecreaseRefreshInterval,
     Ignored,
 }
 
@@ -492,6 +509,8 @@ impl TerminalRuntime for CrosstermRuntime {
             Event::Key(key) if key.kind == KeyEventKind::Press => Ok(match key.code {
                 KeyCode::Char('q') | KeyCode::Esc => RuntimeEvent::Quit,
                 KeyCode::Char('r') | KeyCode::Char('R') => RuntimeEvent::Refresh,
+                KeyCode::Char('+') | KeyCode::Char('=') => RuntimeEvent::IncreaseRefreshInterval,
+                KeyCode::Char('-') | KeyCode::Char('_') => RuntimeEvent::DecreaseRefreshInterval,
                 _ => RuntimeEvent::Ignored,
             }),
             _ => Ok(RuntimeEvent::Ignored),
@@ -1611,6 +1630,33 @@ mod tests {
                 .as_ref()
                 .and_then(|snapshot| snapshot.aqi),
             Some(42.0)
+        );
+    }
+
+    #[tokio::test]
+    async fn refresh_interval_key_events_adjust_app_interval() {
+        let mut terminal = HarnessTerminal::with_events([
+            RuntimeEvent::IncreaseRefreshInterval,
+            RuntimeEvent::IncreaseRefreshInterval,
+            RuntimeEvent::DecreaseRefreshInterval,
+            RuntimeEvent::Quit,
+        ]);
+        let mut fetcher = HarnessFetcher::new([]);
+        let mut app = app(None);
+
+        run_with_adapters(&mut terminal, &mut app, &mut fetcher)
+            .await
+            .expect("runtime should quit cleanly");
+
+        assert_eq!(app.refresh_interval, Duration::from_secs(35));
+        assert!(fetcher.calls.is_empty());
+        assert_eq!(
+            terminal
+                .calls
+                .iter()
+                .filter(|call| **call == RuntimeCall::Draw)
+                .count(),
+            4
         );
     }
 

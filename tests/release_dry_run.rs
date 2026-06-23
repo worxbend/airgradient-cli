@@ -7,10 +7,20 @@ use std::{
 use tempfile::tempdir;
 
 const BIN_NAME: &str = "airgradient-cli";
-const TARGET: &str = "x86_64-unknown-linux-gnu";
+const AMD64_TARGET: &str = "x86_64-unknown-linux-gnu";
+const ARM64_TARGET: &str = "aarch64-unknown-linux-gnu";
 
 #[test]
-fn release_dry_run_stages_targeted_archive_and_checksums() {
+fn release_dry_run_stages_amd64_archive_and_checksums() {
+    assert_release_dry_run_stages_targeted_archive_and_checksums(AMD64_TARGET);
+}
+
+#[test]
+fn release_dry_run_stages_arm64_archive_and_checksums() {
+    assert_release_dry_run_stages_targeted_archive_and_checksums(ARM64_TARGET);
+}
+
+fn assert_release_dry_run_stages_targeted_archive_and_checksums(target: &str) {
     let tempdir = tempdir().expect("tempdir should be created");
     let output_dir = tempdir.path().join("dist");
     let binary_path = tempdir.path().join(BIN_NAME);
@@ -24,7 +34,7 @@ fn release_dry_run_stages_targeted_archive_and_checksums() {
             "--output-dir",
             path_str(&output_dir),
             "--target",
-            TARGET,
+            target,
         ])
         .output()
         .expect("release dry-run script should execute");
@@ -32,7 +42,7 @@ fn release_dry_run_stages_targeted_archive_and_checksums() {
     assert_success(&output);
 
     let version = package_version();
-    let artifact_name = format!("{BIN_NAME}-v{version}-{TARGET}.tar.gz");
+    let artifact_name = format!("{BIN_NAME}-v{version}-{target}.tar.gz");
     let artifact_path = output_dir.join(&artifact_name);
     let checksums_path = output_dir.join("SHA256SUMS");
 
@@ -136,7 +146,7 @@ fn unsupported_linux_target_is_rejected_before_artifacts() {
     let output = release_dry_run()
         .args([
             "--target",
-            "aarch64-unknown-linux-gnu",
+            "x86_64-unknown-linux-musl",
             "--output-dir",
             path_str(&output_dir),
         ])
@@ -145,7 +155,7 @@ fn unsupported_linux_target_is_rejected_before_artifacts() {
 
     assert_failure_contains(
         &output,
-        "release dry run failed: unsupported target 'aarch64-unknown-linux-gnu'",
+        "release dry run failed: unsupported target 'x86_64-unknown-linux-musl'",
     );
     assert!(
         !output_dir.exists(),
@@ -166,7 +176,7 @@ fn unsupported_target_is_rejected_under_skip_build_before_artifacts() {
             "--binary",
             path_str(&binary_path),
             "--target",
-            "x86_64-unknown-linux-musl",
+            "armv7-unknown-linux-gnueabihf",
             "--output-dir",
             path_str(&output_dir),
         ])
@@ -175,7 +185,7 @@ fn unsupported_target_is_rejected_under_skip_build_before_artifacts() {
 
     assert_failure_contains(
         &output,
-        "release dry run failed: unsupported target 'x86_64-unknown-linux-musl'",
+        "release dry run failed: unsupported target 'armv7-unknown-linux-gnueabihf'",
     );
     assert!(
         !output_dir.exists(),

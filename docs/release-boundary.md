@@ -5,31 +5,41 @@ This document is a maintainer-facing audit, not release automation.
 
 ## Intended First Release
 
-The first public release is a binary-only Linux release. The repository does
-not currently support crates.io publishing because `Cargo.toml` has
-`publish = false`, and it does not contain packaging, installer, shell
-completion, or multi-platform release automation.
+The first public release is a binary-only Linux release for amd64 and arm64.
+The repository does not currently support crates.io publishing because
+`Cargo.toml` has `publish = false`, and it does not contain packaging,
+installer, shell completion, macOS, or Windows release automation.
 
-The release owner is a human maintainer. GitHub Actions is currently a
-validation gate only: it runs dependency policy, the release artifact dry run,
-formatting, Clippy, tests, and a PTY coverage summary. It does not upload, sign,
-publish artifacts, tag commits, or create GitHub releases.
+The release owner is still a human maintainer, but GitHub Actions owns release
+publication after a maintainer pushes a matching `vX.Y.Z` tag or starts the
+release workflow manually with that tag. The release workflow builds Linux
+amd64 and arm64 artifacts, creates or reuses the GitHub release, uploads
+archives, and uploads a `SHA256SUMS` file. It does not tag commits, sign
+artifacts, publish crates.io packages, or create package-manager recipes.
 
 ## Shipped Promises
 
-- Binary scope: ship the `airgradient-cli` executable for Linux only.
+- Binary scope: ship the `airgradient-cli` executable for Linux amd64 and
+  Linux arm64 only.
 - Release rehearsal: run the dry-run script before publishing:
   `scripts/release-dry-run.sh --target x86_64-unknown-linux-gnu --output-dir dist`
-- Dry-run target boundary: the only supported first-release dry-run target is
-  `x86_64-unknown-linux-gnu`; every other target is refused before any build,
-  staging, or artifact write, including the `--skip-build` path.
+- Release rehearsal for arm64:
+  `scripts/release-dry-run.sh --target aarch64-unknown-linux-gnu --output-dir dist-arm64`
+- Dry-run target boundary: the supported release dry-run targets are
+  `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu`; every other
+  target is refused before any build, staging, or artifact write, including the
+  `--skip-build` path.
 - Staging-directory hygiene: maintainers must use a new or empty output
   directory for dry-run artifacts. CI may use a temporary output directory for
   this validation-only rehearsal.
-- Primary artifact name: use the versioned, target-explicit tarball filename:
+- Dry-run artifact names use versioned, target-explicit tarball filenames:
   `airgradient-cli-v<version>-x86_64-unknown-linux-gnu.tar.gz`.
+- GitHub release asset names use versioned architecture tarball filenames:
+  `airgradient-cli-v<version>-linux-amd64.tar.gz` and
+  `airgradient-cli-v<version>-linux-arm64.tar.gz`.
 - Staged dry-run outputs:
   - `dist/airgradient-cli-v<version>-x86_64-unknown-linux-gnu.tar.gz`
+  - `dist-arm64/airgradient-cli-v<version>-aarch64-unknown-linux-gnu.tar.gz`
   - `dist/SHA256SUMS`
 - License inclusion: include the checked-in `LICENSE` file in the release
   artifact bundle. The project license is MIT.
@@ -38,6 +48,7 @@ publish artifacts, tag commits, or create GitHub releases.
 - Validation gate: run the pinned local/CI checks before release:
   - `cargo deny check`
   - `scripts/release-dry-run.sh --target x86_64-unknown-linux-gnu --output-dir dist`
+  - `scripts/release-dry-run.sh --target aarch64-unknown-linux-gnu --output-dir dist-arm64`
   - `cargo fmt --check`
   - `cargo clippy --all-targets --all-features -- -D warnings`
   - `cargo test`
@@ -71,9 +82,9 @@ publish artifacts, tag commits, or create GitHub releases.
   files, or distribution-specific packages are promised.
 - No shell completions are shipped. Completion artifacts remain out of scope
   until generation and packaging are implemented and tested.
-- GitHub Actions does not own release publication.
-- No automatic release workflow, artifact upload workflow, signing workflow,
-  shell-completion generation, or generated release notes are promised.
+- GitHub Actions publishes GitHub release artifacts, but it does not create git
+  tags, sign artifacts, publish crates.io packages, generate shell completions,
+  or generate release notes beyond the default workflow note.
 - No hardware-compatibility guarantee beyond the documented HTTP/config/parser
   contracts is promised until real-device validation is recorded.
 
@@ -82,11 +93,11 @@ publish artifacts, tag commits, or create GitHub releases.
 Decision: publish checksums, do not publish signatures for the first release.
 
 Each Linux binary release must include a SHA-256 checksum file named
-`SHA256SUMS` covering the shipped `.tar.gz` release artifact. The rehearsed
-artifact is `airgradient-cli-v<version>-x86_64-unknown-linux-gnu.tar.gz`, and
-the archive must contain both `airgradient-cli` and the checked-in `LICENSE`.
-Detached cryptographic signatures are intentionally out of scope for the first
-release.
+`SHA256SUMS` covering the shipped `.tar.gz` release artifacts. The GitHub
+release artifacts are `airgradient-cli-v<version>-linux-amd64.tar.gz` and
+`airgradient-cli-v<version>-linux-arm64.tar.gz`, and every archive must contain
+both `airgradient-cli` and the checked-in `LICENSE`. Detached cryptographic
+signatures are intentionally out of scope for the first release.
 
 Release blocker: if the maintainer cannot run the dry run and produce
 `SHA256SUMS`, the release must not be cut. Missing detached signatures are an
@@ -98,9 +109,8 @@ artifacts.
 - Real-device validation: no real AirGradient hardware validation record is
   present. The first release must either record a real-device run or explicitly
   waive it in release notes as a known validation gap.
-- Release rehearsal: `scripts/release-dry-run.sh --target
-  x86_64-unknown-linux-gnu --output-dir dist` must succeed from a new or empty
-  output directory before any manual release upload.
+- Release rehearsal: both supported `scripts/release-dry-run.sh --target ...`
+  commands must succeed from new or empty output directories before publishing.
 - Checksum publication: `SHA256SUMS` must be generated and included with the
   release.
 
