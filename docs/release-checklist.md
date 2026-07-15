@@ -10,8 +10,9 @@ through the tag-driven GitHub Actions release workflow.
   releases.
 - [ ] Confirm the supported Linux release targets are
   `x86_64-unknown-linux-gnu` (amd64) and `aarch64-unknown-linux-gnu` (arm64).
-- [ ] Confirm no crates.io package, macOS binary, Windows binary, installer,
-  package-manager recipe, or shell completion artifact is being promised.
+- [ ] Confirm no crates.io package, macOS binary, Windows binary,
+  package-manager recipe, or shell completion artifact is being promised
+  beyond the curl-pipe `scripts/install.sh` convenience installer for Linux.
 
 ## Version and Tag
 
@@ -79,6 +80,8 @@ scripts/release-dry-run.sh --target aarch64-unknown-linux-gnu --output-dir dist-
   bundle.
 - [ ] Generate and publish `SHA256SUMS` covering the shipped `.tar.gz` release
   artifact files.
+- [ ] Confirm `scripts/install.sh` is uploaded as a release asset named
+  `install.sh` and the curl-pipe command in `README.md` resolves it.
 - [ ] Confirm detached signatures are not published or described for this first
   release.
 

@@ -7,8 +7,10 @@ This document is a maintainer-facing audit, not release automation.
 
 The first public release is a binary-only Linux release for amd64 and arm64.
 The repository does not currently support crates.io publishing because
-`Cargo.toml` has `publish = false`, and it does not contain packaging,
-installer, shell completion, macOS, or Windows release automation.
+`Cargo.toml` has `publish = false`, and it does not contain packaging, shell
+completion, macOS, or Windows release automation. A curl-pipe install
+convenience script (`scripts/install.sh`) is shipped; see "Shipped Promises"
+below for its exact scope.
 
 The release owner is still a human maintainer, but GitHub Actions owns release
 publication after a maintainer pushes a matching `vX.Y.Z` tag or starts the
@@ -72,6 +74,15 @@ artifacts, publish crates.io packages, or create package-manager recipes.
   target-scoped Unix behavior grounded in platform-provided `libc::EIO` where
   available. Unsupported targets must not treat arbitrary raw OS error `5` as
   normal PTY closure.
+- Curl-pipe install script: `scripts/install.sh` is attached to every GitHub
+  release as a stable-named `install.sh` asset. It resolves the latest release
+  tag (or a pinned `--version`/`AIRGRADIENT_CLI_INSTALL_VERSION`), downloads
+  the matching Linux amd64/arm64 tarball, verifies it against the release's
+  `SHA256SUMS`, installs the binary under `~/.local/bin` (or
+  `--dir`/`AIRGRADIENT_CLI_INSTALL_DIR`), and idempotently wires that directory
+  into `PATH` via `~/.bashrc`/`~/.zshrc`. It refuses to run on non-Linux hosts.
+  It is a plain download-and-verify shell script, not a package-manager
+  recipe, system service, or desktop entry.
 
 ## Non-Promises
 
@@ -79,7 +90,9 @@ artifacts, publish crates.io packages, or create package-manager recipes.
 - No Windows or macOS binaries are promised.
 - No source tarball beyond the repository snapshot/tag is promised.
 - No installer packages, package-manager recipes, desktop entries, service
-  files, or distribution-specific packages are promised.
+  files, or distribution-specific packages are promised. The curl-pipe
+  `scripts/install.sh` convenience script (see "Shipped Promises") is a plain
+  download-and-verify shell script, not any of the above.
 - No shell completions are shipped. Completion artifacts remain out of scope
   until generation and packaging are implemented and tested.
 - GitHub Actions publishes GitHub release artifacts, but it does not create git

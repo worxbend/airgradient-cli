@@ -59,6 +59,37 @@ completion generation support is added and tested first. The maintainer release
 checklist is in `docs/release-checklist.md`, and the release boundary audit is
 in `docs/release-boundary.md`.
 
+### Curl-Pipe Install (Linux)
+
+`scripts/install.sh` automates downloading a published release for Linux
+amd64/arm64: it resolves the latest release tag (or a pinned `--version`),
+downloads the matching `airgradient-cli-v<version>-linux-*.tar.gz` archive,
+verifies its checksum against the release's `SHA256SUMS`, installs the
+`airgradient-cli` binary under `~/.local/bin` (or `--dir`/
+`AIRGRADIENT_CLI_INSTALL_DIR`), and appends that directory to `PATH` in
+`~/.bashrc` and `~/.zshrc` if it's missing. It refuses to run on any OS other
+than Linux, since only Linux binaries are published.
+
+Each release upload (`.github/workflows/release.yml`) attaches
+`scripts/install.sh` itself as a release asset named `install.sh`, so it is
+reachable at a stable URL and can be piped straight into `sh`:
+
+```sh
+curl --proto '=https' --tlsv1.2 -sSf \
+  https://github.com/worxbend/airgradient-cli/releases/latest/download/install.sh | sh
+```
+
+Pin a specific release instead of the latest with `--version`:
+
+```sh
+curl --proto '=https' --tlsv1.2 -sSf \
+  https://github.com/worxbend/airgradient-cli/releases/download/v0.1.0/install.sh | sh -s -- --version v0.1.0
+```
+
+This is a convenience download-and-verify shell script, not a system package;
+it does not register with a package manager, create a desktop entry, or
+install a service.
+
 ## Release Validation
 
 Release validation is pinned to Rust 1.96.0 and cargo-deny 0.19.9. Maintainers
