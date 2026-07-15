@@ -198,6 +198,71 @@ On exit and runtime error paths after terminal setup starts, the TUI restores
 terminal state by leaving the alternate screen, showing the cursor, and
 disabling raw mode.
 
+On startup, the TUI shows a brief theme-colored splash screen before the
+dashboard; any keypress skips it immediately (and, if that key was `q`/`Esc`,
+also quits — no double keypress needed).
+
+The status line at the top is a powerline-style bar with a colored dot for
+the current AQI status (green/yellow/orange/red/purple, mirroring the
+physical AirGradient device's LED), the app name, the device URL, and the
+refresh interval. The powerline segment separators are drawn with a
+Nerd-Font/powerline-patched glyph; other terminal fonts still render the
+dashboard correctly, just without the smooth triangular joins. Metric cards
+also show a thin gauge bar under each reading, filled relative to that
+metric's typical scale and colored by its status.
+
+### Themes
+
+```sh
+airgradient-cli themes
+```
+
+Lists every built-in theme's id and label (`default`, `nord`, `dracula`,
+`gruvbox`, `mono`, and 15 more — 20 in total). Set one persistently:
+
+```sh
+airgradient-cli config set-theme nord
+```
+
+or for a single run without touching the config file:
+
+```sh
+airgradient-cli --tui --theme nord
+```
+
+An unrecognized theme id never errors — it silently falls back to the
+`default` theme, both when reading the config file and with `--theme`.
+
+Inside the TUI, press `t` (or `F2`) to open the theme picker: `↑`/`↓` (or
+`j`/`k`) live-preview a theme across the whole dashboard, `Enter` applies and
+persists it to the config file, and `Esc` (or `q`/`F2`) reverts to whatever
+was active before the picker opened.
+
+### Command palette and config editor
+
+Press `:` to open the command palette, a single-line prompt at the bottom of
+the dashboard. It accepts:
+
+| Command | Effect |
+| --- | --- |
+| `url <URL>` | Sets the device URL, applied immediately and persisted |
+| `refresh <SECONDS>` | Sets the refresh interval (`5`-`3600`), applied and persisted |
+| `theme <ID>` | Sets the theme, applied and persisted |
+| `config` / `settings` | Opens the full config editor |
+| `themes` | Opens the theme picker |
+| `save` | Confirms the current in-memory config is persisted |
+| `quit` / `q` | Quits the TUI |
+
+`Esc` cancels the palette; `Backspace` edits the typed line.
+
+Press `c` to open the full config editor: a page listing every config field
+(server URL, refresh interval, notifications, start-minimized, theme).
+`↑`/`↓` navigate, `Enter` starts editing a text field (or toggles a boolean,
+or opens the theme picker for the theme row), and a trailing "Save & Close"
+row writes every field to the config file at once. `Esc` cancels the field
+currently being edited, or discards the whole draft and returns to the
+dashboard if pressed while just navigating.
+
 Override the TUI refresh interval for one run:
 
 ```sh
@@ -272,13 +337,17 @@ The known config fields are:
   "server_url": "http://192.168.1.201/",
   "refresh_interval_secs": 30,
   "notifications_enabled": true,
-  "start_minimized": false
+  "start_minimized": false,
+  "theme": "default"
 }
 ```
 
-`config set-url` and `config set-refresh` update only the known fields they own
-and preserve unknown top-level sibling fields in the JSON file. This keeps the
-shared config compatible with future `airgradient-desktop` fields.
+`config set-url`, `config set-refresh`, and `config set-theme` update only the
+known field they own and preserve unknown top-level sibling fields in the JSON
+file. This keeps the shared config compatible with future `airgradient-desktop`
+fields. `theme` accepts any string; see `airgradient-cli themes` for the list
+of built-in ids, and note that an unrecognized id resolves to the `default`
+theme rather than erroring.
 
 The repair boundary is a top-level JSON object. If the config file contains a
 top-level array, string, number, boolean, or `null`, the CLI reports an error

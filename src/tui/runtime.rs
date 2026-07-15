@@ -22,7 +22,10 @@ use crate::{
     config,
     device::{self, FetchSettings},
     sensors,
-    tui::app::TuiApp,
+    tui::{
+        app::{PaletteOutcome, TuiApp, View},
+        theme::{self, Theme},
+    },
 };
 
 const FETCH_RESULT_POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -38,6 +41,7 @@ pub struct RuntimeOptions {
     pub config_path: PathBuf,
     pub url_override: Option<String>,
     pub refresh_override_secs: Option<u64>,
+    pub theme_override: Option<String>,
     pub fetch_settings: FetchSettings,
 }
 
@@ -77,6 +81,8 @@ pub async fn run(options: RuntimeOptions) -> Result<(), RuntimeError> {
         effective_config.configured_url,
         effective_config.refresh_interval,
     );
+    app.theme = effective_config.theme;
+    app.config_path = Some(options.config_path.clone());
     let refresh_schedule_interval = runtime_refresh_schedule_interval(
         app.refresh_interval,
         env::var(TUI_TEST_REFRESH_INTERVAL_MS_ENV).ok().as_deref(),
@@ -94,6 +100,7 @@ pub async fn run(options: RuntimeOptions) -> Result<(), RuntimeError> {
         &mut app,
         &mut fetcher,
         refresh_schedule_interval,
+        true,
     )
     .await
 }
@@ -117,7 +124,14 @@ where
     F: MeasureFetchWorker,
 {
     let refresh_schedule_interval = app.refresh_interval;
-    run_with_adapters_with_refresh_interval(terminal, app, fetcher, refresh_schedule_interval).await
+    run_with_adapters_with_refresh_interval(
+        terminal,
+        app,
+        fetcher,
+        refresh_schedule_interval,
+        false,
+    )
+    .await
 }
 
 async fn run_with_adapters_with_refresh_interval<T, F>(
@@ -125,12 +139,19 @@ async fn run_with_adapters_with_refresh_interval<T, F>(
     app: &mut TuiApp,
     fetcher: &mut F,
     refresh_schedule_interval: Duration,
+    show_splash: bool,
 ) -> Result<(), RuntimeError>
 where
     T: TerminalRuntime,
     F: MeasureFetchWorker,
 {
     terminal.enter()?;
+
+    let priming_event = if show_splash {
+        run_splash(terminal, app).await?
+    } else {
+        None
+    };
 
     let mut clock = SystemClock;
     let result = run_loop(
@@ -139,6 +160,7 @@ where
         fetcher,
         &mut clock,
         refresh_schedule_interval,
+        priming_event,
     )
     .await;
     let cleanup_result = terminal.cleanup();
@@ -179,6 +201,7 @@ async fn run_loop<T, F, C>(
     fetcher: &mut F,
     clock: &mut C,
     initial_refresh_schedule_interval: Duration,
+    priming_event: Option<RuntimeEvent>,
 ) -> Result<(), RuntimeError>
 where
     T: TerminalRuntime,
@@ -187,6 +210,7 @@ where
 {
     let mut fetch_scheduler = FetchScheduler::default();
     let mut refresh_schedule_interval = initial_refresh_schedule_interval;
+    let mut pending_priming = priming_event;
 
     let result = async {
         if app.configured_url.is_some() {
@@ -207,9 +231,20 @@ where
             let time_until_refresh = next_refresh.saturating_duration_since(now);
             let poll_timeout = time_until_refresh.min(FETCH_RESULT_POLL_INTERVAL);
 
-            if terminal.poll_event(poll_timeout).await? {
+            // A splash-priming event (see `run_splash`) is consumed exactly
+            // once, ahead of any real polling, so a keypress that skipped
+            // the splash still takes effect on this very first iteration.
+            let ready_event = if let Some(event) = pending_priming.take() {
+                Some(event)
+            } else if terminal.poll_event(poll_timeout).await? {
                 let _poll_returned_at = clock.now();
-                match terminal.read_event().await? {
+                Some(terminal.read_event(input_mode(app)).await?)
+            } else {
+                None
+            };
+
+            if let Some(event) = ready_event {
+                match event {
                     RuntimeEvent::Quit => break,
                     RuntimeEvent::Refresh => {
                         now = clock.now();
@@ -232,6 +267,83 @@ where
                         app.decrease_refresh_interval();
                         refresh_schedule_interval = app.refresh_interval;
                         next_refresh = now + refresh_schedule_interval;
+                        terminal.draw(app)?;
+                    }
+                    RuntimeEvent::OpenPalette => {
+                        app.open_command_palette();
+                        terminal.draw(app)?;
+                    }
+                    RuntimeEvent::ToggleThemeSettings => {
+                        if app.view == View::ThemeSettings {
+                            app.close_theme_settings();
+                        } else {
+                            app.open_theme_settings();
+                        }
+                        terminal.draw(app)?;
+                    }
+                    RuntimeEvent::ToggleConfigEditor => {
+                        if app.view == View::ConfigEditor {
+                            app.close_config_editor();
+                        } else {
+                            app.open_config_editor();
+                        }
+                        terminal.draw(app)?;
+                    }
+                    RuntimeEvent::Escape => {
+                        match app.view {
+                            View::ThemeSettings => app.close_theme_settings(),
+                            View::ConfigEditor if app.config_editor_editing.is_some() => {
+                                app.config_editor_cancel_edit();
+                            }
+                            View::ConfigEditor => app.close_config_editor(),
+                            View::CommandPalette => app.close_command_palette(),
+                            View::Dashboard => {}
+                        }
+                        terminal.draw(app)?;
+                    }
+                    RuntimeEvent::NavUp => {
+                        match app.view {
+                            View::ThemeSettings => app.theme_cursor_up(),
+                            View::ConfigEditor => app.config_editor_nav_up(),
+                            View::CommandPalette | View::Dashboard => {}
+                        }
+                        terminal.draw(app)?;
+                    }
+                    RuntimeEvent::NavDown => {
+                        match app.view {
+                            View::ThemeSettings => app.theme_cursor_down(),
+                            View::ConfigEditor => app.config_editor_nav_down(),
+                            View::CommandPalette | View::Dashboard => {}
+                        }
+                        terminal.draw(app)?;
+                    }
+                    RuntimeEvent::Confirm => {
+                        match app.view {
+                            View::ThemeSettings => app.confirm_theme_settings(),
+                            View::ConfigEditor => app.config_editor_confirm(),
+                            View::CommandPalette => {
+                                if app.palette_submit() == PaletteOutcome::Quit {
+                                    break;
+                                }
+                            }
+                            View::Dashboard => {}
+                        }
+                        terminal.draw(app)?;
+                    }
+                    RuntimeEvent::PaletteChar(c) => {
+                        match app.view {
+                            View::CommandPalette => app.palette_push_char(c),
+                            View::ConfigEditor => app.config_editor_push_char(c),
+                            View::ThemeSettings | View::Dashboard => {}
+                        }
+                        terminal.draw(app)?;
+                    }
+                    RuntimeEvent::PaletteBackspace => {
+                        match app.view {
+                            View::CommandPalette => app.palette_backspace(),
+                            View::ConfigEditor => app.config_editor_backspace(),
+                            View::ThemeSettings | View::Dashboard => {}
+                        }
                         terminal.draw(app)?;
                     }
                     RuntimeEvent::Ignored => {}
@@ -473,15 +585,88 @@ enum RuntimeEvent {
     Refresh,
     IncreaseRefreshInterval,
     DecreaseRefreshInterval,
+    /// Opens the `:` command palette.
+    OpenPalette,
+    /// Opens the theme picker if closed, closes it if open (`t`/`T`/`F2`).
+    ToggleThemeSettings,
+    /// Opens the config editor if closed, closes it if open (`c`/`C`).
+    ToggleConfigEditor,
+    /// Closes whichever modal view/field-edit is active; quitting on a bare
+    /// `Esc` at the dashboard is still handled by the `Quit` variant above.
+    Escape,
+    NavUp,
+    NavDown,
+    /// Commits a field edit, applies a theme selection, or submits the
+    /// palette line, depending on which view is open.
+    Confirm,
+    /// A printable character typed into the palette or an editing field.
+    PaletteChar(char),
+    PaletteBackspace,
     Ignored,
+}
+
+/// What a raw keypress means depends on which view is open and whether a
+/// config-editor field is mid-edit — `read_event` needs this to decide, for
+/// example, whether `Char('t')` types the letter "t" into a URL field or
+/// toggles the theme picker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InputMode {
+    /// Dashboard: single-key shortcuts (`q`, `r`, `+`/`-`, `:`, `t`, `c`).
+    Normal,
+    /// A modal view (theme picker / config editor) is open but no text
+    /// field is being edited: arrows navigate, Enter acts, Esc closes.
+    ModalNav,
+    /// A text field (palette input, or a config-editor field mid-edit) is
+    /// capturing every printable character.
+    TextEntry,
+}
+
+fn input_mode(app: &TuiApp) -> InputMode {
+    match app.view {
+        View::Dashboard => InputMode::Normal,
+        View::CommandPalette => InputMode::TextEntry,
+        View::ConfigEditor if app.config_editor_editing.is_some() => InputMode::TextEntry,
+        View::ConfigEditor | View::ThemeSettings => InputMode::ModalNav,
+    }
 }
 
 trait TerminalRuntime {
     fn enter(&mut self) -> Result<(), RuntimeError>;
     fn draw(&mut self, app: &TuiApp) -> Result<(), RuntimeError>;
     async fn poll_event(&mut self, timeout: Duration) -> Result<bool, RuntimeError>;
-    async fn read_event(&mut self) -> Result<RuntimeEvent, RuntimeError>;
+    async fn read_event(&mut self, mode: InputMode) -> Result<RuntimeEvent, RuntimeError>;
     fn cleanup(&mut self) -> Result<(), RuntimeError>;
+}
+
+const SPLASH_FRAME_INTERVAL: Duration = Duration::from_millis(50);
+
+/// Shows the startup splash for a fixed number of frames using the app's
+/// already-resolved theme. Any keypress skips it immediately; that key is
+/// returned rather than discarded so the caller can feed it into the main
+/// loop as a priming event — pressing `q`/`Esc` during the splash both
+/// dismisses it and quits in the same keystroke, which is what keeps the
+/// single-keypress PTY shutdown tests passing unmodified.
+async fn run_splash<T>(
+    terminal: &mut T,
+    app: &mut TuiApp,
+) -> Result<Option<RuntimeEvent>, RuntimeError>
+where
+    T: TerminalRuntime,
+{
+    let mut priming_event = None;
+
+    for frame in 0..theme::SPLASH_TOTAL_FRAMES {
+        app.splash_frame = Some(frame);
+        terminal.draw(app)?;
+
+        if terminal.poll_event(SPLASH_FRAME_INTERVAL).await? {
+            priming_event = Some(terminal.read_event(InputMode::Normal).await?);
+            break;
+        }
+    }
+
+    app.splash_frame = None;
+    Ok(priming_event)
 }
 
 #[derive(Default)]
@@ -503,18 +688,47 @@ impl TerminalRuntime for CrosstermRuntime {
         blocking_terminal_call(move || event::poll(timeout)).await
     }
 
-    async fn read_event(&mut self) -> Result<RuntimeEvent, RuntimeError> {
+    async fn read_event(&mut self, mode: InputMode) -> Result<RuntimeEvent, RuntimeError> {
         let event = blocking_terminal_call(event::read).await?;
-        match event {
-            Event::Key(key) if key.kind == KeyEventKind::Press => Ok(match key.code {
+        let Event::Key(key) = event else {
+            return Ok(RuntimeEvent::Ignored);
+        };
+        if key.kind != KeyEventKind::Press {
+            return Ok(RuntimeEvent::Ignored);
+        }
+
+        Ok(match mode {
+            InputMode::TextEntry => match key.code {
+                KeyCode::Esc => RuntimeEvent::Escape,
+                KeyCode::Enter => RuntimeEvent::Confirm,
+                KeyCode::Backspace => RuntimeEvent::PaletteBackspace,
+                KeyCode::Char(c) => RuntimeEvent::PaletteChar(c),
+                _ => RuntimeEvent::Ignored,
+            },
+            InputMode::ModalNav => match key.code {
+                KeyCode::Esc
+                | KeyCode::F(2)
+                | KeyCode::Char('q')
+                | KeyCode::Char('c')
+                | KeyCode::Char('C') => RuntimeEvent::Escape,
+                KeyCode::Up | KeyCode::Char('k') => RuntimeEvent::NavUp,
+                KeyCode::Down | KeyCode::Char('j') => RuntimeEvent::NavDown,
+                KeyCode::Enter => RuntimeEvent::Confirm,
+                _ => RuntimeEvent::Ignored,
+            },
+            InputMode::Normal => match key.code {
                 KeyCode::Char('q') | KeyCode::Esc => RuntimeEvent::Quit,
                 KeyCode::Char('r') | KeyCode::Char('R') => RuntimeEvent::Refresh,
                 KeyCode::Char('+') | KeyCode::Char('=') => RuntimeEvent::IncreaseRefreshInterval,
                 KeyCode::Char('-') | KeyCode::Char('_') => RuntimeEvent::DecreaseRefreshInterval,
+                KeyCode::Char(':') => RuntimeEvent::OpenPalette,
+                KeyCode::Char('t') | KeyCode::Char('T') | KeyCode::F(2) => {
+                    RuntimeEvent::ToggleThemeSettings
+                }
+                KeyCode::Char('c') | KeyCode::Char('C') => RuntimeEvent::ToggleConfigEditor,
                 _ => RuntimeEvent::Ignored,
-            }),
-            _ => Ok(RuntimeEvent::Ignored),
-        }
+            },
+        })
     }
 
     fn cleanup(&mut self) -> Result<(), RuntimeError> {
@@ -549,6 +763,7 @@ impl CrosstermRuntime {
 struct EffectiveConfig {
     configured_url: Option<Url>,
     refresh_interval: Duration,
+    theme: Theme,
     current_error: Option<String>,
 }
 
@@ -587,9 +802,12 @@ impl EffectiveConfig {
             .refresh_override_secs
             .unwrap_or(config.refresh_interval_secs);
 
+        let theme_id = options.theme_override.as_deref().unwrap_or(&config.theme);
+
         Self {
             configured_url,
             refresh_interval: Duration::from_secs(refresh_secs),
+            theme: Theme::by_id(theme_id),
             current_error,
         }
     }
@@ -875,7 +1093,7 @@ mod tests {
             Ok(!self.events.is_empty())
         }
 
-        async fn read_event(&mut self) -> Result<RuntimeEvent, RuntimeError> {
+        async fn read_event(&mut self, _mode: InputMode) -> Result<RuntimeEvent, RuntimeError> {
             self.calls.push(RuntimeCall::Read);
             if let Some(duration) = self.read_advances.pop_front() {
                 self.advance_clock(duration);
@@ -937,6 +1155,7 @@ mod tests {
             fetcher,
             &mut clock,
             refresh_schedule_interval,
+            None,
         )
         .await;
         let cleanup_result = terminal.cleanup();
@@ -1076,7 +1295,7 @@ mod tests {
             .await
         }
 
-        async fn read_event(&mut self) -> Result<RuntimeEvent, RuntimeError> {
+        async fn read_event(&mut self, _mode: InputMode) -> Result<RuntimeEvent, RuntimeError> {
             Ok(RuntimeEvent::Quit)
         }
 
@@ -1351,6 +1570,77 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn run_splash_draws_every_frame_and_returns_none_when_no_key_arrives() {
+        let mut terminal = HarnessTerminal::with_events([]);
+        let mut app = app(None);
+
+        let priming = run_splash(&mut terminal, &mut app)
+            .await
+            .expect("splash should not error without a terminal failure");
+
+        assert_eq!(priming, None);
+        assert_eq!(app.splash_frame, None);
+        let draw_calls = terminal
+            .calls
+            .iter()
+            .filter(|call| **call == RuntimeCall::Draw)
+            .count();
+        assert_eq!(draw_calls as u64, theme::SPLASH_TOTAL_FRAMES);
+    }
+
+    #[tokio::test]
+    async fn run_splash_skips_immediately_and_returns_the_triggering_key() {
+        let mut terminal = HarnessTerminal::with_events([RuntimeEvent::Quit]);
+        let mut app = app(None);
+
+        let priming = run_splash(&mut terminal, &mut app)
+            .await
+            .expect("splash should not error without a terminal failure");
+
+        assert_eq!(priming, Some(RuntimeEvent::Quit));
+        assert_eq!(app.splash_frame, None);
+        let draw_calls = terminal
+            .calls
+            .iter()
+            .filter(|call| **call == RuntimeCall::Draw)
+            .count();
+        assert_eq!(draw_calls, 1);
+    }
+
+    #[tokio::test]
+    async fn splash_priming_event_is_honored_as_first_loop_event() {
+        // A key pressed during the splash should both skip it and take
+        // effect immediately in the main loop — e.g. `q` both dismisses the
+        // splash and quits in the same keystroke, rather than requiring a
+        // second press. The priming event must not be silently discarded.
+        let mut terminal = HarnessTerminal::with_events([RuntimeEvent::Quit]);
+        let mut fetcher = HarnessFetcher::new([]);
+        let mut app = app(None);
+        let refresh_interval = app.refresh_interval;
+
+        run_with_adapters_with_refresh_interval(
+            &mut terminal,
+            &mut app,
+            &mut fetcher,
+            refresh_interval,
+            true,
+        )
+        .await
+        .expect("runtime should quit cleanly via the priming event");
+
+        assert_eq!(app.splash_frame, None);
+        // One splash-frame draw, then run_loop's own pre-poll draw; the
+        // queued Quit event is consumed once by the splash and never
+        // reaches a second poll/read cycle.
+        let draw_calls = terminal
+            .calls
+            .iter()
+            .filter(|call| **call == RuntimeCall::Draw)
+            .count();
+        assert_eq!(draw_calls, 2);
+    }
+
+    #[tokio::test]
     async fn harness_drives_normal_quit_without_fetch() {
         let mut terminal = HarnessTerminal::with_quit();
         let mut fetcher = HarnessFetcher::new([]);
@@ -1500,6 +1790,7 @@ mod tests {
             &mut fetcher,
             &mut fake_clock,
             refresh_schedule_interval,
+            None,
         )
         .await;
         let cleanup_result = terminal.cleanup();

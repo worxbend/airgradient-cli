@@ -720,6 +720,82 @@ fn config_show_rejects_non_object_top_level_json() {
         );
 }
 
+#[test]
+fn config_set_theme_writes_desktop_compatible_json() {
+    let dir = tempdir().expect("tempdir should be created");
+    let config_path = dir.path().join("config.json");
+
+    cli()
+        .args([
+            "--config",
+            path_str(&config_path),
+            "config",
+            "set-theme",
+            "nord",
+        ])
+        .assert()
+        .success();
+
+    let contents = fs::read_to_string(config_path).expect("config should be written");
+    let json: Value = serde_json::from_str(&contents).expect("config should be JSON");
+
+    assert_eq!(json["theme"], "nord");
+}
+
+#[test]
+fn config_set_theme_accepts_unknown_id_without_validation() {
+    let dir = tempdir().expect("tempdir should be created");
+    let config_path = dir.path().join("config.json");
+
+    cli()
+        .args([
+            "--config",
+            path_str(&config_path),
+            "config",
+            "set-theme",
+            "not-a-real-theme",
+        ])
+        .assert()
+        .success();
+
+    let contents = fs::read_to_string(config_path).expect("config should be written");
+    let json: Value = serde_json::from_str(&contents).expect("config should be JSON");
+    assert_eq!(json["theme"], "not-a-real-theme");
+}
+
+#[test]
+fn config_show_includes_theme_field() {
+    let dir = tempdir().expect("tempdir should be created");
+    let config_path = dir.path().join("config.json");
+
+    cli()
+        .args(["--config", path_str(&config_path), "config", "show"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"theme\": \"default\""));
+}
+
+#[test]
+fn themes_command_lists_all_built_in_themes() {
+    cli()
+        .args(["themes"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("default"))
+        .stdout(predicate::str::contains("nord"))
+        .stdout(predicate::str::contains("dracula"))
+        .stdout(predicate::str::contains("Mono (TTY-safe)"));
+}
+
+#[test]
+fn themes_command_rejects_json_flag() {
+    cli()
+        .args(["--json", "themes"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("themes"));
+}
+
 fn path_str(path: &Path) -> &str {
     path.to_str().expect("test path should be utf8")
 }

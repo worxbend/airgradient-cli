@@ -21,6 +21,21 @@ fn tui_exits_when_escape_is_pressed_in_pty() {
     assert_pty_run_exited_cleanly(result);
 }
 
+#[test]
+fn tui_exits_when_quit_command_is_submitted_via_palette_in_pty() {
+    let result = run_tui_in_pty(b":quit\r");
+    assert_pty_run_exited_cleanly(result);
+}
+
+#[test]
+fn tui_exits_after_opening_and_closing_theme_settings_in_pty() {
+    // 't' opens the theme picker, 'q' closes it (Esc-equivalent while a
+    // modal view is open), and the final 'q' quits — verifying the theme
+    // toggle key doesn't leave the dashboard's quit key stuck.
+    let result = run_tui_in_pty(b"tqq");
+    assert_pty_run_exited_cleanly(result);
+}
+
 fn assert_pty_run_exited_cleanly(result: PtyRunResult) {
     match result {
         PtyRunResult::Skipped(reason) => {

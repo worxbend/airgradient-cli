@@ -24,6 +24,11 @@ pub struct Config {
     pub notifications_enabled: bool,
     #[serde(default)]
     pub start_minimized: bool,
+    /// Built-in theme id (see `airgradient-cli themes`), e.g. `"nord"`. Any
+    /// string is accepted here; an unrecognized id resolves to the default
+    /// theme when the TUI starts rather than failing to load the config.
+    #[serde(default = "default_theme")]
+    pub theme: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,6 +44,7 @@ impl Default for Config {
             refresh_interval_secs: DEFAULT_REFRESH_INTERVAL_SECS,
             notifications_enabled: true,
             start_minimized: false,
+            theme: default_theme(),
         }
     }
 }
@@ -227,6 +233,14 @@ pub fn set_refresh_interval(path: &Path, seconds: u64) -> Result<Config, ConfigE
     Ok(config)
 }
 
+pub fn set_theme(path: &Path, id: &str) -> Result<Config, ConfigError> {
+    let object = read_config_object(path)?;
+    let mut config = config_from_object_lossy(&object);
+    config.theme = id.to_owned();
+    write_config(path, &config)?;
+    Ok(config)
+}
+
 pub fn validate_refresh_interval(seconds: u64) -> Result<(), ConfigError> {
     if (MIN_REFRESH_INTERVAL_SECS..=MAX_REFRESH_INTERVAL_SECS).contains(&seconds) {
         Ok(())
@@ -266,6 +280,10 @@ fn default_notifications_enabled() -> bool {
     true
 }
 
+fn default_theme() -> String {
+    "default".to_string()
+}
+
 fn display_config_from_object(object: &Map<String, Value>) -> DisplayConfig {
     let mut config = Config::default();
     let mut warnings = Vec::new();
@@ -285,6 +303,7 @@ fn display_config_from_object(object: &Map<String, Value>) -> DisplayConfig {
         false,
         &mut warnings,
     );
+    config.theme = parse_theme(object.get("theme"), &mut warnings);
 
     DisplayConfig { config, warnings }
 }
@@ -309,6 +328,22 @@ fn config_from_object_lossy(object: &Map<String, Value>) -> Config {
             false,
             &mut warnings,
         ),
+        theme: parse_theme(object.get("theme"), &mut warnings),
+    }
+}
+
+fn parse_theme(value: Option<&Value>, warnings: &mut Vec<String>) -> String {
+    match value {
+        None | Some(Value::Null) => default_theme(),
+        Some(Value::String(theme)) => theme.clone(),
+        Some(value) => {
+            warnings.push(format!(
+                "invalid theme: expected string, got {}; using {}",
+                value_type(value),
+                default_theme()
+            ));
+            default_theme()
+        }
     }
 }
 
@@ -410,6 +445,7 @@ mod tests {
         assert_eq!(config.refresh_interval_secs, 30);
         assert!(config.notifications_enabled);
         assert!(!config.start_minimized);
+        assert_eq!(config.theme, "default");
 
         let from_empty_json: Config = serde_json::from_str("{}").unwrap();
         assert_eq!(from_empty_json, config);
@@ -502,6 +538,7 @@ mod tests {
             refresh_interval_secs: 60,
             notifications_enabled: false,
             start_minimized: true,
+            theme: "nord".to_owned(),
         };
 
         write_config(&path, &config).unwrap();
@@ -512,6 +549,7 @@ mod tests {
         assert_eq!(json["refresh_interval_secs"], 60);
         assert_eq!(json["notifications_enabled"], false);
         assert_eq!(json["start_minimized"], true);
+        assert_eq!(json["theme"], "nord");
         assert_eq!(read_config(&path).unwrap(), config);
     }
 
@@ -538,5 +576,40 @@ mod tests {
 
         assert_eq!(config.refresh_interval_secs, 120);
         assert_eq!(read_config(&path).unwrap().refresh_interval_secs, 120);
+    }
+
+    #[test]
+    fn set_theme_persists_any_id_without_validation() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("config.json");
+
+        let config = set_theme(&path, "dracula").unwrap();
+
+        assert_eq!(config.theme, "dracula");
+        assert_eq!(read_config(&path).unwrap().theme, "dracula");
+    }
+
+    #[test]
+    fn set_theme_preserves_other_fields() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("config.json");
+        set_refresh_interval(&path, 90).unwrap();
+
+        let config = set_theme(&path, "gruvbox").unwrap();
+
+        assert_eq!(config.theme, "gruvbox");
+        assert_eq!(config.refresh_interval_secs, 90);
+    }
+
+    #[test]
+    fn unknown_theme_value_type_warns_and_falls_back_to_default() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("config.json");
+        fs::write(&path, r#"{"theme": 42}"#).unwrap();
+
+        let display = read_display_config(&path).unwrap();
+
+        assert_eq!(display.config.theme, "default");
+        assert!(display.warnings.iter().any(|w| w.contains("theme")));
     }
 }

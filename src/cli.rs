@@ -24,6 +24,9 @@ pub struct Cli {
     #[arg(long, value_name = "SECONDS")]
     pub refresh: Option<u64>,
 
+    #[arg(long, value_name = "ID")]
+    pub theme: Option<String>,
+
     #[arg(long, value_name = "PATH")]
     pub config: Option<PathBuf>,
 
@@ -50,6 +53,8 @@ pub enum Command {
         command: ConfigCommand,
     },
     Fetch(FetchArgs),
+    /// List built-in TUI theme ids and labels.
+    Themes,
 }
 
 #[derive(Debug, Subcommand)]
@@ -58,6 +63,7 @@ pub enum ConfigCommand {
     Show,
     SetUrl { url: String },
     SetRefresh { seconds: u64 },
+    SetTheme { id: String },
 }
 
 #[derive(Debug, Args)]
@@ -91,6 +97,9 @@ pub enum CliError {
     #[error("`--json` only applies to one-shot fetch output; config commands do not support it.")]
     JsonUnsupportedForConfig,
 
+    #[error("`--json` only applies to one-shot fetch output; `themes` does not support it.")]
+    JsonUnsupportedForThemes,
+
     #[error("invalid fetch timeout override `{value}`")]
     InvalidFetchTimeoutOverride {
         value: String,
@@ -105,6 +114,7 @@ pub async fn run(cli: Cli) -> Result<(), CliError> {
             config_path: config_path(&cli)?,
             url_override: cli.url.clone(),
             refresh_override_secs: cli.refresh,
+            theme_override: cli.theme.clone(),
             fetch_settings: fetch_settings()?,
         };
 
@@ -118,8 +128,24 @@ pub async fn run(cli: Cli) -> Result<(), CliError> {
     match &cli.command {
         Some(Command::Config { command }) => run_config_command(command, &cli).await,
         Some(Command::Fetch(fetch)) => run_fetch(&cli, fetch.json || cli.json).await,
+        Some(Command::Themes) => run_themes(&cli),
         None => run_fetch(&cli, cli.json).await,
     }
+}
+
+fn run_themes(cli: &Cli) -> Result<(), CliError> {
+    if cli.json {
+        return Err(CliError::JsonUnsupportedForThemes);
+    }
+
+    let mut table = comfy_table::Table::new();
+    table.set_header(vec!["ID", "Label"]);
+    for theme in tui::theme::ALL {
+        table.add_row(vec![theme.id, theme.label]);
+    }
+    println!("{table}");
+
+    Ok(())
 }
 
 async fn run_config_command(command: &ConfigCommand, cli: &Cli) -> Result<(), CliError> {
@@ -146,6 +172,10 @@ async fn run_config_command(command: &ConfigCommand, cli: &Cli) -> Result<(), Cl
         }
         ConfigCommand::SetRefresh { seconds } => {
             let config = config::set_refresh_interval(&path, *seconds)?;
+            println!("{}", serde_json::to_string_pretty(&config)?);
+        }
+        ConfigCommand::SetTheme { id } => {
+            let config = config::set_theme(&path, id)?;
             println!("{}", serde_json::to_string_pretty(&config)?);
         }
     }
