@@ -1,0 +1,668 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>airgradient-cli — AirGradient readings in your terminal</title>
+    <meta
+      name="description"
+      content="A fast Rust CLI and TUI dashboard for your local AirGradient air quality monitor. One-shot readings, JSON output, and a live terminal dashboard with 20 themes. Linux amd64 and arm64."
+    />
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+    <link rel="canonical" href="https://worxbend.github.io/airgradient-cli/" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="airgradient-cli" />
+    <meta
+      property="og:description"
+      content="AirGradient air quality readings in your terminal — one-shot CLI, JSON, and a live TUI dashboard."
+    />
+    <meta property="og:url" content="https://worxbend.github.io/airgradient-cli/" />
+    <meta name="twitter:card" content="summary" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,400;8..144,500;8..144,600;8..144,700&family=Roboto+Mono:wght@400;500&display=swap"
+    />
+    <link rel="stylesheet" href="assets/styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="app-bar" id="appBar">
+      <div class="wrap app-bar__inner">
+        <a class="brand" href="#top">
+          <img class="brand__mark" src="assets/logo.svg" alt="" width="28" height="28" />
+          airgradient-cli
+        </a>
+        <nav>
+          <a href="#install">Install</a>
+          <a href="#features">Features</a>
+          <a href="#output">Output</a>
+          <a href="#themes">Themes</a>
+          <a href="#usage">Usage</a>
+          <a href="#config">Config</a>
+        </nav>
+        <nav class="compact">
+          <button
+            class="icon-btn"
+            id="schemeToggle"
+            type="button"
+            aria-label="Toggle light and dark theme"
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path
+                d="M12 18a6 6 0 1 1 0-12 6 6 0 0 1 0 12Zm0-2a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM11 1h2v3h-2V1Zm0 19h2v3h-2v-3ZM3.5 4.9 4.9 3.5l2.1 2.1-1.4 1.4-2.1-2.1Zm13.5 13.5 1.4-1.4 2.1 2.1-1.4 1.4-2.1-2.1ZM19.1 3.5l1.4 1.4-2.1 2.1-1.4-1.4 2.1-2.1ZM5.6 17l1.4 1.4-2.1 2.1-1.4-1.4L5.6 17ZM23 11v2h-3v-2h3ZM4 11v2H1v-2h3Z"
+              />
+            </svg>
+          </button>
+          <a
+            class="icon-btn"
+            href="https://github.com/worxbend/airgradient-cli"
+            aria-label="View on GitHub"
+            rel="noopener"
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path
+                d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2c-3.3.7-4-1.6-4-1.6-.6-1.4-1.4-1.8-1.4-1.8-1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.7-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0C17.3 4.7 18.3 5 18.3 5c.6 1.7.2 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .3Z"
+              />
+            </svg>
+          </a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero" id="top">
+        <div class="wrap hero__grid">
+          <div>
+            <div class="chip-row">
+              <span class="chip chip--accent"
+                ><span class="chip__dot"></span>v0.1.1</span
+              >
+              <span class="chip">Rust</span>
+              <span class="chip">Linux amd64 · arm64</span>
+              <span class="chip">MIT</span>
+            </div>
+            <h1 class="display-large">
+              Your air quality,<br />in the terminal.
+            </h1>
+            <p class="lede body-large">
+              A fast Rust CLI and live TUI dashboard for your local AirGradient
+              monitor. Reads the same config as the desktop app, talks straight
+              to the device on your LAN, and never phones home.
+            </p>
+            <div class="hero__actions">
+              <a class="btn btn--filled" href="#install">
+                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M12 16 6 10l1.4-1.4 3.6 3.6V2h2v10.2l3.6-3.6L18 10l-6 6Zm-8 6v-6h2v4h12v-4h2v6H4Z" />
+                </svg>
+                Install now
+              </a>
+              <a
+                class="btn btn--tonal"
+                href="https://github.com/worxbend/airgradient-cli/releases/latest"
+                rel="noopener"
+                >Releases</a
+              >
+              <a
+                class="btn btn--outlined"
+                href="https://github.com/worxbend/airgradient-cli"
+                rel="noopener"
+                >Source</a
+              >
+            </div>
+          </div>
+
+          <div class="install-card elev-2">
+            <div class="code">
+              <div class="code__bar">
+                <span class="code__dots"><span></span><span></span><span></span></span>
+                <span class="code__title">bash</span>
+              </div>
+              <button class="copy-btn" data-copy="#heroCmd" type="button">
+                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M9 18q-.8 0-1.4-.6T7 16V4q0-.8.6-1.4T9 2h9q.8 0 1.4.6T20 4v12q0 .8-.6 1.4T18 18H9Zm0-2h9V4H9v12Zm-4 6q-.8 0-1.4-.6T3 20V6h2v14h11v2H5Z" />
+                </svg>
+                Copy
+              </button>
+              <pre><code id="heroCmd">curl --proto '=https' --tlsv1.2 -sSf \
+  https://worxbend.github.io/airgradient-cli/install.sh | sh</code></pre>
+            </div>
+            <p class="install-note">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M12 2 4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5l-8-3Zm-1 15-4-4 1.4-1.4L11 14.2l5.6-5.6L18 10l-7 7Z" />
+              </svg>
+              Verifies the SHA256 checksum before installing.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section--tint" id="install">
+        <div class="wrap">
+          <div class="section__head reveal">
+            <span class="overline">Install</span>
+            <h2 class="headline-large">Two commands, no package manager</h2>
+            <p class="body-large">
+              The installer resolves the latest release, downloads the archive
+              for your architecture, checks it against the release’s
+              <code>SHA256SUMS</code>, and drops the binary in
+              <code>~/.local/bin</code>.
+            </p>
+          </div>
+
+          <div class="steps reveal">
+            <div class="step">
+              <h3>Run the installer</h3>
+              <p>Pipe it to <code>sh</code>, or download and read it first.</p>
+            </div>
+            <div class="step">
+              <h3>Point it at your device</h3>
+              <p>
+                <code>airgradient-cli config set-url 192.168.1.201</code>
+              </p>
+            </div>
+            <div class="step">
+              <h3>Read the air</h3>
+              <p><code>airgradient-cli</code> or <code>-t</code> for the dashboard.</p>
+            </div>
+          </div>
+
+          <div class="grid reveal" style="margin-top: 2.5rem">
+            <div>
+              <h3 class="title-medium" style="margin-bottom: 0.75rem">
+                Latest release
+              </h3>
+              <div class="code code--wrap">
+                <button class="copy-btn" data-copy="#cmdLatest" type="button">Copy</button>
+                <pre><code id="cmdLatest">curl --proto '=https' --tlsv1.2 -sSf \
+  https://worxbend.github.io/airgradient-cli/install.sh | sh</code></pre>
+              </div>
+            </div>
+            <div>
+              <h3 class="title-medium" style="margin-bottom: 0.75rem">
+                Pin a version
+              </h3>
+              <div class="code code--wrap">
+                <button class="copy-btn" data-copy="#cmdPinned" type="button">Copy</button>
+                <pre><code id="cmdPinned">curl --proto '=https' --tlsv1.2 -sSf \
+  https://github.com/worxbend/airgradient-cli/releases/download/v0.1.1/install.sh \
+  | sh -s -- --version v0.1.1</code></pre>
+              </div>
+            </div>
+            <div>
+              <h3 class="title-medium" style="margin-bottom: 0.75rem">
+                Custom directory
+              </h3>
+              <div class="code code--wrap">
+                <button class="copy-btn" data-copy="#cmdDir" type="button">Copy</button>
+                <pre><code id="cmdDir">curl --proto '=https' --tlsv1.2 -sSf \
+  https://worxbend.github.io/airgradient-cli/install.sh \
+  | sh -s -- --dir /usr/local/bin</code></pre>
+              </div>
+            </div>
+            <div>
+              <h3 class="title-medium" style="margin-bottom: 0.75rem">
+                Inspect before running
+              </h3>
+              <div class="code code--wrap">
+                <button class="copy-btn" data-copy="#cmdInspect" type="button">Copy</button>
+                <pre><code id="cmdInspect">curl -fsSLO https://worxbend.github.io/airgradient-cli/install.sh
+less install.sh
+sh install.sh --help</code></pre>
+              </div>
+            </div>
+          </div>
+
+          <div class="callout reveal">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M12 17q.4 0 .7-.3t.3-.7-.3-.7-.7-.3-.7.3-.3.7.3.7.7.3Zm-1-4h2V7h-2v6Zm1 9a10 10 0 1 1 0-20 10 10 0 0 1 0 20Z" />
+            </svg>
+            <p>
+              <strong>Linux only.</strong> Published binaries cover
+              <code>x86_64-unknown-linux-gnu</code> and
+              <code>aarch64-unknown-linux-gnu</code>. On anything else, build
+              from source with <code>cargo build --release</code> — see the
+              <a href="https://github.com/worxbend/airgradient-cli/blob/main/docs/release-boundary.md">release boundary</a>.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="features">
+        <div class="wrap">
+          <div class="section__head reveal">
+            <span class="overline">Features</span>
+            <h2 class="headline-large">Built for the terminal, not the browser</h2>
+          </div>
+          <div class="grid grid--cards reveal">
+            <article class="card">
+              <div class="card__icon">
+                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 3h16a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm0 4v12h16V7H4Zm2 2 4 4-4 4v-2.5L8.5 13 6 11.5V9Zm6 6h6v2h-6v-2Z"/></svg>
+              </div>
+              <h3>One-shot readings</h3>
+              <p>
+                Run it bare and get an AQI headline plus a full metric table.
+                Exits non-zero when the device is unreachable, so it drops
+                straight into scripts and monitoring.
+              </p>
+            </article>
+            <article class="card">
+              <div class="card__icon">
+                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 3h8v8H3V3Zm10 0h8v5h-8V3ZM3 13h8v8H3v-8Zm10 3h8v5h-8v-5Zm0-6h8v4h-8v-4Z"/></svg>
+              </div>
+              <h3>Live TUI dashboard</h3>
+              <p>
+                <code>-t</code> opens an auto-refreshing Ratatui dashboard with
+                gauges, trend arrows, and status colors that mirror the device’s
+                own LED.
+              </p>
+            </article>
+            <article class="card">
+              <div class="card__icon">
+                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 4h16v2H4V4Zm2 4h12v2H6V8Zm-2 4h16v2H4v-2Zm2 4h12v2H6v-2Z"/></svg>
+              </div>
+              <h3>JSON for pipelines</h3>
+              <p>
+                <code>--json</code> emits every metric with its raw value,
+                formatted value, unit, status, and trend — ready for
+                <code>jq</code>, Prometheus textfile, or a cron job.
+              </p>
+            </article>
+            <article class="card">
+              <div class="card__icon">
+                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 2 2 0 0 0 2-2c0-.5-.2-1-.5-1.3-.3-.4-.5-.8-.5-1.2a2 2 0 0 1 2-2h2.3A4.7 4.7 0 0 0 22 10.8C22 5.9 17.5 2 12 2Zm-5.5 10a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm3-4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm3.5 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Z"/></svg>
+              </div>
+              <h3>20 built-in themes</h3>
+              <p>
+                Nord, Dracula, Gruvbox, Catppuccin, Tokyo Night, and more —
+                including a TTY-safe mono theme that leaves your terminal
+                palette alone.
+              </p>
+            </article>
+            <article class="card">
+              <div class="card__icon">
+                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Zm7.4-2.5a7.6 7.6 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7.5 7.5 0 0 0-1.7-1l-.4-2.5H10.9l-.4 2.5a7.5 7.5 0 0 0-1.7 1l-2.4-1-2 3.4L4.6 11a7.6 7.6 0 0 0 0 2l-2 1.6 2 3.4 2.4-1c.5.4 1.1.8 1.7 1l.4 2.5h4.1l.4-2.5c.6-.2 1.2-.6 1.7-1l2.4 1 2-3.4-2-1.6Z"/></svg>
+              </div>
+              <h3>Config editor built in</h3>
+              <p>
+                Press <kbd>c</kbd> for a full-screen config form or <kbd>:</kbd>
+                for a command palette. Edits stay in a draft until you save.
+              </p>
+            </article>
+            <article class="card">
+              <div class="card__icon">
+                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17 9V7a5 5 0 0 0-10 0v2H5v12h14V9h-2ZM9 7a3 3 0 0 1 6 0v2H9V7Zm3 6a2 2 0 0 1 1 3.7V19h-2v-2.3A2 2 0 0 1 12 13Z"/></svg>
+              </div>
+              <h3>Local-only, tolerant</h3>
+              <p>
+                Talks to your device over the LAN and nothing else. A malformed
+                config warns per field instead of failing, so a bad value never
+                locks you out of the tool that fixes it.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section--tint" id="output">
+        <div class="wrap">
+          <div class="section__head reveal">
+            <span class="overline">Output</span>
+            <h2 class="headline-large">Readable by humans, parseable by scripts</h2>
+            <p class="body-large">
+              Real output from <code>airgradient-cli fetch</code> against a
+              device serving the standard <code>/measures/current</code> payload.
+            </p>
+          </div>
+
+          <div class="reveal">
+            <div class="segmented" role="tablist" aria-label="Output format">
+              <button role="tab" id="tab-text" aria-controls="panel-text" aria-selected="true">
+                Terminal
+              </button>
+              <button role="tab" id="tab-json" aria-controls="panel-json" aria-selected="false">
+                JSON
+              </button>
+            </div>
+
+            <div class="code" role="tabpanel" id="panel-text" aria-labelledby="tab-text">
+              <div class="code__bar">
+                <span class="code__dots"><span></span><span></span><span></span></span>
+                <span class="code__title">airgradient-cli fetch</span>
+              </div>
+              <pre><code>Device: http://192.168.1.201/ | Fetch: 2ms
+AQI 41 - Good
+
++-------------+-------+----------+----------+-------+
+| Metric      | Value | Unit     | Status   | Trend |
++===================================================+
+| AQI         | 41    |          | Good     | --    |
+|-------------+-------+----------+----------+-------|
+| CO2         | 612   | ppm      | Good     | --    |
+|-------------+-------+----------+----------+-------|
+| PM2.5       | 7.4   | ug/m3    | Good     | --    |
+|-------------+-------+----------+----------+-------|
+| PM1.0       | 4.2   | ug/m3    | Good     | --    |
+|-------------+-------+----------+----------+-------|
+| PM10        | 11.8  | ug/m3    | Good     | --    |
+|-------------+-------+----------+----------+-------|
+| PM0.3 count | 1234  | count/dL | Elevated | --    |
+|-------------+-------+----------+----------+-------|
+| TVOC        | 83    | index    | Good     | --    |
+|-------------+-------+----------+----------+-------|
+| NOx         | 2     | index    | Moderate | --    |
+|-------------+-------+----------+----------+-------|
+| Temperature | 22.6  | C        | Good     | --    |
+|-------------+-------+----------+----------+-------|
+| Humidity    | 48.1  | %        | Good     | --    |
++-------------+-------+----------+----------+-------+</code></pre>
+            </div>
+
+            <div class="code" role="tabpanel" id="panel-json" aria-labelledby="tab-json" hidden>
+              <div class="code__bar">
+                <span class="code__dots"><span></span><span></span><span></span></span>
+                <span class="code__title">airgradient-cli fetch --json</span>
+              </div>
+              <pre><code>{
+  "device_url": "http://192.168.1.201/",
+  "fetch_duration_ms": 2,
+  "last_update": null,
+  "metrics": [
+    {
+      "formatted_value": "41",
+      "key": "aqi",
+      "label": "AQI",
+      "status": "good",
+      "status_label": "Good",
+      "trend": "unknown",
+      "unit": "",
+      "value": 41.0
+    },
+    {
+      "formatted_value": "612",
+      "key": "co2",
+      "label": "CO2",
+      "status": "good",
+      "status_label": "Good",
+      "trend": "unknown",
+      "unit": "ppm",
+      "value": 612.0
+    }
+  ]
+}</code></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="themes">
+        <div class="wrap">
+          <div class="section__head reveal">
+            <span class="overline">Themes</span>
+            <h2 class="headline-large">Twenty palettes, one flag</h2>
+            <p class="body-large">
+              Set one with <code>airgradient-cli config set-theme nord</code>, or
+              press <kbd>t</kbd> in the dashboard to preview them live. An
+              unknown id falls back to the default rather than erroring.
+            </p>
+          </div>
+          <div class="themes reveal">
+            <div class="theme">
+              <span class="theme__swatch" aria-hidden="true"><i style="background:#5AD6FF"></i><i style="background:#50FFA6"></i><i style="background:#FFC75F"></i><i style="background:#FF565C"></i></span>
+              <span class="theme__meta">
+                <span class="theme__label">AirGradient</span><br />
+                <span class="theme__id">default</span>
+              </span>
+            </div>
+            <div class="theme">
+              <span class="theme__swatch" aria-hidden="true"><i style="background:#D97757"></i><i style="background:#87B37B"></i><i style="background:#E0B44C"></i><i style="background:#E06C5F"></i></span>
+              <span class="theme__meta">
+                <span class="theme__label">Claude</span><br />
+                <span class="theme__id">claude</span>
+              </span>
+            </div>
+            <div class="theme">
+              <span class="theme__swatch" aria-hidden="true"><i style="background:#37E0B0"></i><i style="background:#37E0B0"></i><i style="background:#F2C94C"></i><i style="background:#F25F5F"></i></span>
+              <span class="theme__meta">
+                <span class="theme__label">Codex</span><br />
+                <span class="theme__id">codex</span>
+              </span>
+            </div>
+            <div class="theme">
+              <span class="theme__swatch" aria-hidden="true"><i style="background:#6AE05A"></i><i style="background:#6AE05A"></i><i style="background:#F0E050"></i><i style="background:#E05050"></i></span>
+              <span class="theme__meta">
+                <span class="theme__label">Btop</span><br />
+                <span class="theme__id">btop</span>
+              </span>
+            </div>
+            <div class="theme">
+              <span class="theme__swatch" aria-hidden="true"><i style="background:#88C0D0"></i><i style="background:#A3BE8C"></i><i style="background:#EBCB8B"></i><i style="background:#BF616A"></i></span>
+              <span class="theme__meta">
+                <span class="theme__label">Nord</span><br />
+                <span class="theme__id">nord</span>
+              </span>
+            </div>
+            <div class="theme">
+              <span class="theme__swatch" aria-hidden="true"><i style="background:#BD93F9"></i><i style="background:#50FA7B"></i><i style="background:#F1FA8C"></i><i style="background:#FF5555"></i></span>
+              <span class="theme__meta">
+                <span class="theme__label">Dracula</span><br />
+                <span class="theme__id">dracula</span>
+              </span>
+            </div>
+            <div class="theme">
+              <span class="theme__swatch" aria-hidden="true"><i style="background:#FE8019"></i><i style="background:#B8BB26"></i><i style="background:#FABD2F"></i><i style="background:#FB4934"></i></span>
+              <span class="theme__meta">
+                <span class="theme__label">Gruvbox</span><br />
+                <span class="theme__id">gruvbox</span>
+              </span>
+            </div>
+            <div class="theme">
+              <span class="theme__swatch" aria-hidden="true"><i style="background:#268BD2"></i><i style="background:#859900"></i><i style="background:#B58900"></i><i style="background:#DC322F"></i></span>
+              <span class="theme__meta">
+                <span class="theme__label">Solarized Dark</span><br />
+                <span class="theme__id">solarized-dark</span>
+              </span>
+            </div>
+            <div class="theme">
+              <span class="theme__swatch" aria-hidden="true"><i style="background:#A6E22E"></i><i style="background:#A6E22E"></i><i style="background:#E6DB74"></i><i style="background:#F92672"></i></span>
+              <span class="theme__meta">
+                <span class="theme__label">Monokai</span><br />
+                <span class="theme__id">monokai</span>
+              </span>
+            </div>
+            <div class="theme">
+              <span class="theme__swatch" aria-hidden="true"><i style="background:#61AFEF"></i><i style="background:#98C379"></i><i style="background:#E5C07B"></i><i style="background:#E06C75"></i></span>
+              <span class="theme__meta">
+                <span class="theme__label">One Dark</span><br />
+                <span class="theme__id">one-dark</span>
+              </span>
+            </div>
+            <div class="theme">
+              <span class="theme__swatch" aria-hidden="true"><i style="background:#7AA2F7"></i><i style="background:#9ECE6A"></i><i style="background:#E0AF68"></i><i style="background:#F7768E"></i></span>
+              <span class="theme__meta">
+                <span class="theme__label">Tokyo Night</span><br />
+                <span class="theme__id">tokyo-night</span>
+              </span>
+            </div>
+            <div class="theme">
+              <span class="theme__swatch" aria-hidden="true"><i style="background:#CBA6F7"></i><i style="background:#A6E3A1"></i><i style="background:#F9E2AF"></i><i style="background:#F38BA8"></i></span>
+              <span class="theme__meta">
+                <span class="theme__label">Catppuccin Mocha</span><br />
+                <span class="theme__id">catppuccin-mocha</span>
+              </span>
+            </div>
+            <div class="theme">
+              <span class="theme__swatch" aria-hidden="true"><i style="background:#C4A7E7"></i><i style="background:#9CCFD8"></i><i style="background:#F6C177"></i><i style="background:#EB6F92"></i></span>
+              <span class="theme__meta">
+                <span class="theme__label">Rose Pine</span><br />
+                <span class="theme__id">rose-pine</span>
+              </span>
+            </div>
+            <div class="theme">
+              <span class="theme__swatch" aria-hidden="true"><i style="background:#FFB454"></i><i style="background:#91B362"></i><i style="background:#E6B450"></i><i style="background:#D95757"></i></span>
+              <span class="theme__meta">
+                <span class="theme__label">Ayu Dark</span><br />
+                <span class="theme__id">ayu-dark</span>
+              </span>
+            </div>
+            <div class="theme">
+              <span class="theme__swatch" aria-hidden="true"><i style="background:#A7C080"></i><i style="background:#A7C080"></i><i style="background:#DBBC7F"></i><i style="background:#E67E80"></i></span>
+              <span class="theme__meta">
+                <span class="theme__label">Everforest Dark</span><br />
+                <span class="theme__id">everforest-dark</span>
+              </span>
+            </div>
+            <div class="theme">
+              <span class="theme__swatch" aria-hidden="true"><i style="background:#7E9CD8"></i><i style="background:#98BB6C"></i><i style="background:#E6C384"></i><i style="background:#C34043"></i></span>
+              <span class="theme__meta">
+                <span class="theme__label">Kanagawa</span><br />
+                <span class="theme__id">kanagawa</span>
+              </span>
+            </div>
+            <div class="theme">
+              <span class="theme__swatch" aria-hidden="true"><i style="background:#FF7EDB"></i><i style="background:#72F1B8"></i><i style="background:#FEDE5D"></i><i style="background:#FE4450"></i></span>
+              <span class="theme__meta">
+                <span class="theme__label">Synthwave &#x27;84</span><br />
+                <span class="theme__id">synthwave-84</span>
+              </span>
+            </div>
+            <div class="theme">
+              <span class="theme__swatch" aria-hidden="true"><i style="background:#58A6FF"></i><i style="background:#3FB950"></i><i style="background:#D29922"></i><i style="background:#F85149"></i></span>
+              <span class="theme__meta">
+                <span class="theme__label">GitHub Dark</span><br />
+                <span class="theme__id">github-dark</span>
+              </span>
+            </div>
+            <div class="theme">
+              <span class="theme__swatch" aria-hidden="true"><i style="background:#719CD6"></i><i style="background:#81B29A"></i><i style="background:#DBC074"></i><i style="background:#C94F6D"></i></span>
+              <span class="theme__meta">
+                <span class="theme__label">Nightfox</span><br />
+                <span class="theme__id">nightfox</span>
+              </span>
+            </div>
+            <div class="theme">
+              <span class="theme__swatch" aria-hidden="true"><i style="background:#8A8A8A"></i><i style="background:#B5B5B5"></i><i style="background:#6E6E6E"></i><i style="background:#D6D6D6"></i></span>
+              <span class="theme__meta">
+                <span class="theme__label">Mono (TTY-safe)</span><br />
+                <span class="theme__id">mono</span>
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section--tint" id="usage">
+        <div class="wrap">
+          <div class="section__head reveal">
+            <span class="overline">Usage</span>
+            <h2 class="headline-large">The whole surface</h2>
+          </div>
+          <div class="table-scroll reveal">
+            <table>
+              <thead>
+                <tr><th>Command</th><th>What it does</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><code>airgradient-cli</code></td><td>Fetch once and render the metric table</td></tr>
+                <tr><td><code>airgradient-cli -t</code></td><td>Open the live TUI dashboard</td></tr>
+                <tr><td><code>airgradient-cli fetch --json</code></td><td>Emit one JSON document of all metrics</td></tr>
+                <tr><td><code>airgradient-cli themes</code></td><td>List built-in theme ids and labels</td></tr>
+                <tr><td><code>airgradient-cli config path</code></td><td>Print the resolved config file path</td></tr>
+                <tr><td><code>airgradient-cli config show</code></td><td>Print the effective config as JSON</td></tr>
+                <tr><td><code>airgradient-cli config set-url &lt;URL&gt;</code></td><td>Save a device URL (bare hosts become <code>http://</code>)</td></tr>
+                <tr><td><code>airgradient-cli config set-refresh &lt;S&gt;</code></td><td>Save a refresh interval, 5–3600 seconds</td></tr>
+                <tr><td><code>airgradient-cli config set-theme &lt;ID&gt;</code></td><td>Save a TUI theme id</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3 class="title-large reveal" style="margin: 2.5rem 0 1rem">Global flags</h3>
+          <div class="table-scroll reveal">
+            <table>
+              <thead>
+                <tr><th>Flag</th><th>Effect</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><code>--url &lt;URL&gt;</code></td><td>Override the device URL for this run only; not written to config</td></tr>
+                <tr><td><code>--refresh &lt;SECONDS&gt;</code></td><td>Override the TUI refresh interval for this run</td></tr>
+                <tr><td><code>--theme &lt;ID&gt;</code></td><td>Override the theme for this run</td></tr>
+                <tr><td><code>--config &lt;PATH&gt;</code></td><td>Use a different config file</td></tr>
+                <tr><td><code>--json</code></td><td>JSON instead of the table</td></tr>
+                <tr><td><code>--no-color</code></td><td>Strip ANSI color</td></tr>
+                <tr><td><code>-v, --verbose</code></td><td>Add error source chains; repeat for more</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3 class="title-large reveal" style="margin: 2.5rem 0 1rem">Dashboard keys</h3>
+          <div class="table-scroll reveal">
+            <table>
+              <thead>
+                <tr><th>Key</th><th>Action</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><code>r</code></td><td>Refresh now</td></tr>
+                <tr><td><code>+</code> / <code>-</code></td><td>Lengthen or shorten the refresh interval</td></tr>
+                <tr><td><code>:</code></td><td>Command palette</td></tr>
+                <tr><td><code>t</code> / <code>F2</code></td><td>Theme picker with live preview</td></tr>
+                <tr><td><code>c</code></td><td>Config editor</td></tr>
+                <tr><td><code>q</code> / <code>Esc</code></td><td>Quit</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="config">
+        <div class="wrap">
+          <div class="section__head reveal">
+            <span class="overline">Config</span>
+            <h2 class="headline-large">Shared with the desktop app</h2>
+            <p class="body-large">
+              The CLI reads and writes the same JSON file as
+              <code>airgradient-desktop</code>, at
+              <code>$XDG_CONFIG_HOME/airgradient-desktop/config.json</code>
+              (falling back to <code>~/.config</code>). Fields it does not know
+              about are preserved on write.
+            </p>
+          </div>
+          <div class="code reveal">
+            <div class="code__bar">
+              <span class="code__dots"><span></span><span></span><span></span></span>
+              <span class="code__title">config.json</span>
+            </div>
+            <pre><code>{
+  "server_url": "http://192.168.1.201/",
+  "refresh_interval_secs": 30,
+  "notifications_enabled": true,
+  "start_minimized": false,
+  "theme": "default"
+}</code></pre>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="wrap footer__inner">
+        <p>
+          MIT licensed · Built in Rust ·
+          <a href="https://github.com/worxbend/airgradient-cli">worxbend/airgradient-cli</a>
+        </p>
+        <nav>
+          <a href="https://github.com/worxbend/airgradient-cli/releases">Releases</a>
+          <a href="https://github.com/worxbend/airgradient-cli/blob/main/README.md">README</a>
+          <a href="https://github.com/worxbend/airgradient-cli/blob/main/docs/code-style.md">Code style</a>
+          <a href="https://github.com/worxbend/airgradient-cli/issues">Issues</a>
+        </nav>
+      </div>
+    </footer>
+
+    <div class="snackbar" id="snackbar" role="status" aria-live="polite"></div>
+    <script src="assets/app.js"></script>
+  </body>
+</html>
