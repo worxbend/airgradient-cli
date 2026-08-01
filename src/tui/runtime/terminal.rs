@@ -20,7 +20,10 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 
 use crate::tui::app::TuiApp;
 
-use super::{RuntimeError, event_loop::InputMode, event_loop::RuntimeEvent};
+use super::{
+    RuntimeError,
+    event::{InputMode, RuntimeEvent},
+};
 
 pub(super) trait TerminalRuntime {
     fn enter(&mut self) -> Result<(), RuntimeError>;

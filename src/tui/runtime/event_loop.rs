@@ -4,13 +4,15 @@
 //! terminal with a short timeout, applies any finished fetch, and redraws
 //! only when something actually changed.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::tui::{
     app::{PaletteOutcome, TuiApp, View},
     runtime::{
         RuntimeError,
+        event::{InputMode, RuntimeEvent, input_mode},
         fetch::{FetchScheduler, MeasureFetchWorker},
+        schedule::{RefreshSchedule, RuntimeClock},
         terminal::TerminalRuntime,
     },
     theme,
@@ -22,87 +24,6 @@ use crate::tui::{
 pub(super) const FETCH_RESULT_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 const SPLASH_FRAME_INTERVAL: Duration = Duration::from_millis(50);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum RuntimeEvent {
-    Quit,
-    Refresh,
-    IncreaseRefreshInterval,
-    DecreaseRefreshInterval,
-    /// Opens the `:` command palette.
-    OpenPalette,
-    /// Opens the theme picker if closed, closes it if open (`t`/`T`/`F2`).
-    ToggleThemeSettings,
-    /// Opens the config editor if closed, closes it if open (`c`/`C`).
-    ToggleConfigEditor,
-    /// Closes whichever modal view/field-edit is active; quitting on a bare
-    /// `Esc` at the dashboard is still handled by the `Quit` variant above.
-    Escape,
-    NavUp,
-    NavDown,
-    /// Commits a field edit, applies a theme selection, or submits the
-    /// palette line, depending on which view is open.
-    Confirm,
-    /// A printable character typed into the palette or an editing field.
-    PaletteChar(char),
-    PaletteBackspace,
-    Ignored,
-}
-
-/// What a raw keypress means depends on which view is open and whether a
-/// config-editor field is mid-edit — `read_event` needs this to decide, for
-/// example, whether `Char('t')` types the letter "t" into a URL field or
-/// toggles the theme picker.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum InputMode {
-    /// Dashboard: single-key shortcuts (`q`, `r`, `+`/`-`, `:`, `t`, `c`).
-    Normal,
-    /// A modal view (theme picker / config editor) is open but no text
-    /// field is being edited: arrows navigate, Enter acts, Esc closes.
-    ModalNav,
-    /// A text field (palette input, or a config-editor field mid-edit) is
-    /// capturing every printable character.
-    TextEntry,
-}
-
-fn input_mode(app: &TuiApp) -> InputMode {
-    match app.view {
-        View::Dashboard => InputMode::Normal,
-        View::CommandPalette => InputMode::TextEntry,
-        View::ConfigEditor if app.config_editor_editing.is_some() => InputMode::TextEntry,
-        View::ConfigEditor | View::ThemeSettings => InputMode::ModalNav,
-    }
-}
-
-/// The loop's read of wall-clock time, injected so tests can drive refresh
-/// deadlines deterministically instead of sleeping.
-pub(super) trait RuntimeClock {
-    fn now(&mut self) -> Instant;
-}
-
-pub(super) struct SystemClock;
-
-impl RuntimeClock for SystemClock {
-    fn now(&mut self) -> Instant {
-        Instant::now()
-    }
-}
-
-/// When the next automatic refresh is due, and the interval it repeats on.
-/// Held together because every event that changes one changes the other.
-struct RefreshSchedule {
-    interval: Duration,
-    next_at: Instant,
-}
-
-impl RefreshSchedule {
-    /// Restarts the countdown from `now`. Called after every refresh so the
-    /// interval is measured between refreshes rather than drifting off a
-    /// fixed origin.
-    fn restart_from(&mut self, now: Instant) {
-        self.next_at = now + self.interval;
-    }
-}
 
 /// What the loop should do after applying an event to the app model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

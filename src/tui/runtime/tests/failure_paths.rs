@@ -1,6 +1,8 @@
 //! What the loop does when the terminal or a fetch fails: cancellation of
 //! in-flight work, error context that survives unwinding, and cleanup.
 
+use std::sync::atomic::Ordering;
+
 use super::*;
 
 #[tokio::test]

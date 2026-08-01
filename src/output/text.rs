@@ -38,7 +38,7 @@ fn render_header(metadata: OutputMetadata<'_>) -> String {
     }
 
     if let Some(fetch_duration) = metadata.fetch_duration {
-        parts.push(format!("Fetch: {}", format_duration(fetch_duration)));
+        parts.push(format!("Fetch: {}", format_fetch_latency(fetch_duration)));
     }
 
     if parts.is_empty() {
@@ -92,7 +92,13 @@ fn colorize_status(text: &str, status: Status, no_color: bool) -> String {
     }
 }
 
-fn format_duration(duration: std::time::Duration) -> String {
+/// Fetch latency at two-decimal precision.
+///
+/// Deliberately not the TUI's `ui::format::format_duration`, which rounds to
+/// whole units for a status bar read at a glance. This output is scraped and
+/// compared between runs, so a 1.20s and a 1.80s fetch must not both print as
+/// "1s". The two agree below a second, where both print whole milliseconds.
+fn format_fetch_latency(duration: std::time::Duration) -> String {
     let millis = duration.as_millis();
     if millis < 1_000 {
         format!("{millis}ms")

@@ -14,11 +14,13 @@ the project-specific rules; the general reasoning behind them is in
   is to find the seam, not to compress the code. `src/tui/ui/` and
   `src/tui/runtime/` show the intended shape: a small `mod.rs` that dispatches,
   and siblings that each own one surface.
-- **Known deviation:** `src/tui/runtime/tests/mod.rs` is ~520 lines of shared
-  test fakes. It is a single cohesive harness (the doubles for the two runtime
-  seams) and splitting it would require widening the visibility of a dozen
-  fields purely to satisfy the line count. If it grows further, split the
-  fetcher doubles out and mark them `pub(super)`.
+- No file in `src/` currently exceeds 403 lines. The largest is
+  `src/tui/theme/palette.rs`, which is a data table — one constant per theme
+  — and reads top to bottom without holding any state in mind. Prefer keeping
+  a table whole over splitting it at an arbitrary midpoint.
+- Test doubles get the same treatment as production code: the runtime's fakes
+  are split by which seam they stand in for (`terminal_fakes`, `fetch_fakes`)
+  rather than piled into the test module's `mod.rs`.
 
 ## Module Layout
 
@@ -74,6 +76,13 @@ Presentation constants belong to the layer that owns the concept, not to each
 renderer. `MISSING_VALUE` and `Trend::display_symbol` live in
 `src/sensors/presentation.rs` because the text, JSON, and TUI outputs must all
 show the same placeholder for the same absent reading.
+
+Where two layers genuinely need different behavior, give the functions
+different names and say why in a doc comment. `format_fetch_latency` (precise,
+for scraped CLI output) and `ui::format::format_duration` (coarse, for a
+status bar) are deliberately separate — but they must not both be called
+`format_duration`, because then grepping the name cannot tell you which one a
+call site meant.
 
 ## Testing
 

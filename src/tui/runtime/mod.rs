@@ -5,7 +5,9 @@
 //!
 //! - [`effective_config`] — merging config file, CLI overrides, and defaults
 //! - [`terminal`] — the crossterm/ratatui adapter and its teardown ordering
+//! - [`event`] — what a keypress means in the currently active mode
 //! - [`fetch`] — scheduling background measurement fetches
+//! - [`schedule`] — when the next automatic refresh is due
 //! - [`event_loop`] — the draw/poll/refresh loop that drives them
 //!
 //! Everything below the top-level [`run`] is written against the
@@ -13,8 +15,10 @@
 //! the loop is tested with in-memory fakes and no real terminal.
 
 mod effective_config;
+mod event;
 mod event_loop;
 mod fetch;
+mod schedule;
 mod terminal;
 
 #[cfg(test)]
@@ -35,8 +39,10 @@ use crate::{
 };
 
 use effective_config::{EffectiveConfig, runtime_refresh_schedule_interval};
-use event_loop::{RuntimeEvent, SystemClock, run_loop, run_splash};
+use event::RuntimeEvent;
+use event_loop::{run_loop, run_splash};
 use fetch::{BackgroundMeasureFetcher, MeasureFetchWorker};
+use schedule::SystemClock;
 use terminal::{CrosstermRuntime, TerminalRuntime};
 
 pub use effective_config::TUI_TEST_REFRESH_INTERVAL_MS_ENV;
