@@ -32,20 +32,22 @@ Rehearse the Linux release artifact locally before publishing anything:
 
 ```sh
 scripts/release-dry-run.sh --target x86_64-unknown-linux-gnu --output-dir dist
+scripts/release-dry-run.sh --target aarch64-unknown-linux-gnu --output-dir dist-arm64
 ```
 
-The only supported first-release dry-run target is
-`x86_64-unknown-linux-gnu`. The dry run rejects every other target before
-building, staging, or writing artifacts, including when `--skip-build` is used.
-Use a new or empty staging directory for local rehearsal so stale files cannot
-be mistaken for the current release. CI may use a temporary output directory for
-the same validation-only check. The dry run reads the crate version from
-`Cargo.toml`, builds with Cargo, and stages outputs without tagging, creating a
-GitHub release, uploading, signing, publishing, generating shell completions, or
-producing package-manager recipes, macOS binaries, or Windows binaries.
-Expected outputs are:
+The supported release dry-run targets are `x86_64-unknown-linux-gnu` (amd64)
+and `aarch64-unknown-linux-gnu` (arm64). The dry run rejects every other target
+before building, staging, or writing artifacts, including when `--skip-build` is
+used. Use a new or empty staging directory for local rehearsal so stale files
+cannot be mistaken for the current release. CI may use a temporary output
+directory for the same validation-only check. The dry run reads the crate
+version from `Cargo.toml`, builds with Cargo, and stages outputs without
+tagging, creating a GitHub release, uploading, signing, publishing, generating
+shell completions, or producing package-manager recipes, macOS binaries, or
+Windows binaries. Expected outputs are:
 
 - `dist/airgradient-cli-v<version>-x86_64-unknown-linux-gnu.tar.gz`
+- `dist-arm64/airgradient-cli-v<version>-aarch64-unknown-linux-gnu.tar.gz`
 - `dist/SHA256SUMS`
 
 The `.tar.gz` bundle must contain the built `airgradient-cli` executable and
@@ -98,10 +100,14 @@ should run the local checks in the same order as CI:
 ```sh
 cargo deny check
 scripts/release-dry-run.sh --target x86_64-unknown-linux-gnu --output-dir dist
+scripts/release-dry-run.sh --target aarch64-unknown-linux-gnu --output-dir dist-arm64
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test
 ```
+
+The code conventions these checks assume are written down in
+`docs/code-style.md`.
 
 After `cargo test`, record the PTY coverage summary: real pseudo-terminal
 coverage exercised, PTY unavailable and conditionally skipped, or infrastructure

@@ -1,7 +1,9 @@
 use std::{fs, path::PathBuf};
 
-const TARGET: &str = "x86_64-unknown-linux-gnu";
-const ARTIFACT_PATTERN: &str = "airgradient-cli-v<version>-x86_64-unknown-linux-gnu.tar.gz";
+const AMD64_TARGET: &str = "x86_64-unknown-linux-gnu";
+const ARM64_TARGET: &str = "aarch64-unknown-linux-gnu";
+const AMD64_ARTIFACT_PATTERN: &str = "airgradient-cli-v<version>-x86_64-unknown-linux-gnu.tar.gz";
+const ARM64_ARTIFACT_PATTERN: &str = "airgradient-cli-v<version>-aarch64-unknown-linux-gnu.tar.gz";
 const SCRIPT_ARTIFACT_TEMPLATE: &str = "$BIN_NAME-v$VERSION-$TARGET.tar.gz";
 const CHECKSUMS: &str = "SHA256SUMS";
 
@@ -17,11 +19,12 @@ fn release_contract_strings_do_not_drift() {
     assert_release_doc_contract("docs/release-boundary.md", &boundary);
     assert_release_doc_contract("docs/release-checklist.md", &checklist);
 
-    assert_contains("scripts/release-dry-run.sh", &dry_run, TARGET);
+    assert_contains("scripts/release-dry-run.sh", &dry_run, AMD64_TARGET);
+    assert_contains("scripts/release-dry-run.sh", &dry_run, ARM64_TARGET);
     assert_contains(
         "scripts/release-dry-run.sh",
         &dry_run,
-        "first-release dry run supports only $DEFAULT_TARGET",
+        "release dry run supports only ${SUPPORTED_TARGETS[*]}",
     );
     assert_contains(
         "scripts/release-dry-run.sh",
@@ -40,7 +43,7 @@ fn release_contract_strings_do_not_drift() {
         &ci,
         "Validate release dry run (validation-only)",
     );
-    assert_contains(".github/workflows/ci.yml", &ci, TARGET);
+    assert_contains(".github/workflows/ci.yml", &ci, AMD64_TARGET);
     assert_contains(".github/workflows/ci.yml", &ci, "mktemp -d");
     assert_contains(
         ".github/workflows/ci.yml",
@@ -69,15 +72,17 @@ fn release_contract_strings_do_not_drift() {
     );
 }
 
+/// Every release doc must name *both* supported Linux triples and both staged
+/// artifact names. Asserting the triples rather than one prose sentence is
+/// deliberate: the single-target wording this test used to pin went stale when
+/// arm64 was added to `scripts/release-dry-run.sh`, so the docs disagreed with
+/// the script while the test still passed on the two docs that were updated.
 fn assert_release_doc_contract(path: &str, contents: &str) {
-    assert_contains(path, contents, TARGET);
-    assert_contains(path, contents, ARTIFACT_PATTERN);
+    assert_contains(path, contents, AMD64_TARGET);
+    assert_contains(path, contents, ARM64_TARGET);
+    assert_contains(path, contents, AMD64_ARTIFACT_PATTERN);
+    assert_contains(path, contents, ARM64_ARTIFACT_PATTERN);
     assert_contains(path, contents, CHECKSUMS);
-    assert_contains(
-        path,
-        contents,
-        "only supported first-release dry-run target",
-    );
     assert_contains(path, contents, "validation-only");
     assert_contains_any(
         path,
@@ -99,16 +104,27 @@ fn assert_release_doc_contract(path: &str, contents: &str) {
 
 fn assert_contains(path: &str, contents: &str, expected: &str) {
     assert!(
-        contents.contains(expected),
+        flowed(contents).contains(&flowed(expected)),
         "{path} should contain release-contract string {expected:?}"
     );
 }
 
 fn assert_contains_any(path: &str, contents: &str, expected: &[&str]) {
+    let flowed_contents = flowed(contents);
     assert!(
-        expected.iter().any(|needle| contents.contains(needle)),
+        expected
+            .iter()
+            .any(|needle| flowed_contents.contains(&flowed(needle))),
         "{path} should contain one of these release-contract strings: {expected:?}"
     );
+}
+
+/// Collapses every run of whitespace to a single space so a contract phrase
+/// still matches after a doc is rewrapped. Without this, hard-wrapping a
+/// paragraph splits a phrase like "every other target" across a newline and
+/// fails the test even though the promise itself never changed.
+fn flowed(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn read(path: &str) -> String {

@@ -2,9 +2,7 @@ use comfy_table::{Table, presets::ASCII_FULL};
 use owo_colors::{OwoColorize, colors::css::Orange};
 
 use crate::output::OutputMetadata;
-use crate::sensors::{Metric, SensorSnapshot, Status, Trend, metrics};
-
-const MISSING_VALUE: &str = "--";
+use crate::sensors::{MISSING_VALUE, Metric, SensorSnapshot, Status, metrics};
 
 pub fn render(
     snapshot: &SensorSnapshot,
@@ -72,18 +70,11 @@ fn render_metric_table(metrics: &[Metric], no_color: bool) -> String {
                 .unwrap_or_else(|| MISSING_VALUE.to_string()),
             metric.unit.to_string(),
             colorize_status(metric.status.label(), metric.status, no_color),
-            render_trend(metric.trend),
+            metric.trend.display_symbol().to_string(),
         ]);
     }
 
     table.to_string()
-}
-
-fn render_trend(trend: Trend) -> String {
-    match trend {
-        Trend::Unknown => MISSING_VALUE.to_string(),
-        _ => trend.symbol().to_string(),
-    }
 }
 
 fn colorize_status(text: &str, status: Status, no_color: bool) -> String {

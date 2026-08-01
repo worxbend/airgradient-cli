@@ -6,6 +6,13 @@ use super::thresholds::{
     classify_pm10, classify_pm25, classify_temperature, classify_tvoc,
 };
 
+/// What every renderer shows in place of a reading the device did not report.
+///
+/// Defined once here, next to the metrics it applies to, so the text, JSON,
+/// and TUI outputs cannot drift into using different placeholders for the
+/// same absent value.
+pub const MISSING_VALUE: &str = "--";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Trend {
@@ -22,6 +29,16 @@ impl Trend {
             Self::Stable => "-",
             Self::Up => "up",
             Self::Down => "down",
+        }
+    }
+
+    /// The trend as shown to a user. An unknown trend has no symbol of its
+    /// own — there is nothing to compare against yet — so it reads as the
+    /// missing-value placeholder rather than as an empty cell.
+    pub const fn display_symbol(self) -> &'static str {
+        match self {
+            Self::Unknown => MISSING_VALUE,
+            other => other.symbol(),
         }
     }
 }
@@ -178,6 +195,22 @@ fn trend(value: Option<f64>, previous: Option<f64>) -> Trend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unknown_trend_displays_as_the_missing_value_placeholder() {
+        // The text, JSON, and TUI renderers all go through this, so a drift
+        // here would show three different placeholders for the same state.
+        assert_eq!(Trend::Unknown.symbol(), "");
+        assert_eq!(Trend::Unknown.display_symbol(), MISSING_VALUE);
+    }
+
+    #[test]
+    fn known_trends_display_as_their_own_symbol() {
+        for trend in [Trend::Stable, Trend::Up, Trend::Down] {
+            assert_eq!(trend.display_symbol(), trend.symbol());
+            assert_ne!(trend.display_symbol(), MISSING_VALUE);
+        }
+    }
 
     #[test]
     fn builds_expected_metric_definitions() {

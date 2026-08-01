@@ -1,48 +1,15 @@
-use ratatui::style::{Color, Modifier, Style};
+//! The built-in theme palettes.
+//!
+//! This file is a data table, not logic: one `Theme` constant per palette,
+//! then [`ALL`] listing them in the order the theme picker shows them. The
+//! default is first; the rest are ordered by how likely a user is to reach
+//! for them, with the TTY-safe `MONO` last.
+//!
+//! Behavior for these values lives in the parent module.
 
-use crate::sensors::{Status, Trend};
+use ratatui::style::Color;
 
-pub const MISSING_VALUE: &str = "--";
-
-/// Minimum dashboard contract shared by runtime rendering and render tests.
-/// Smaller terminals show a compact fallback instead of overlapping panels.
-pub const MIN_TERMINAL_WIDTH: u16 = 36;
-pub const MIN_TERMINAL_HEIGHT: u16 = 20;
-
-/// Frame budget for the startup splash animation, shared by the runtime
-/// (which drives frame timing) and the renderer (which computes shimmer
-/// phase / progress-bar fill from `frame_no as f64 / SPLASH_TOTAL_FRAMES as f64`).
-pub const SPLASH_TOTAL_FRAMES: u64 = 24;
-
-/// A selectable color palette for the TUI, chosen via the `theme` config
-/// field, `--theme`, or the in-app theme settings view (`t`/`F2`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Theme {
-    pub id: &'static str,
-    pub label: &'static str,
-    /// Base terminal background, painted behind every screen so nothing is
-    /// terminal-transparent.
-    pub bg: Color,
-    /// Primary accent (titles, app name, active highlights).
-    pub accent: Color,
-    /// Secondary accent (alt borders, "very unhealthy" status).
-    pub accent_alt: Color,
-    /// Default body text.
-    pub fg: Color,
-    /// Secondary / dimmed text.
-    pub muted: Color,
-    /// Unfocused panel border.
-    pub border: Color,
-    /// Focused panel border.
-    pub border_focus: Color,
-    pub success: Color,
-    pub warning: Color,
-    pub danger: Color,
-    pub info: Color,
-    /// Inverse/header background, e.g. status-line segments.
-    pub highlight_bg: Color,
-    pub highlight_fg: Color,
-}
+use super::Theme;
 
 macro_rules! rgb {
     ($r:expr, $g:expr, $b:expr) => {
@@ -50,7 +17,7 @@ macro_rules! rgb {
     };
 }
 
-const DEFAULT: Theme = Theme {
+pub(super) const DEFAULT: Theme = Theme {
     id: "default",
     label: "AirGradient",
     bg: rgb!(0x07, 0x0A, 0x12),
@@ -68,7 +35,7 @@ const DEFAULT: Theme = Theme {
     highlight_fg: rgb!(0x05, 0x08, 0x0E),
 };
 
-const CLAUDE: Theme = Theme {
+pub(super) const CLAUDE: Theme = Theme {
     id: "claude",
     label: "Claude",
     bg: rgb!(0x1B, 0x19, 0x16),
@@ -86,7 +53,7 @@ const CLAUDE: Theme = Theme {
     highlight_fg: rgb!(0x1B, 0x19, 0x16),
 };
 
-const CODEX: Theme = Theme {
+pub(super) const CODEX: Theme = Theme {
     id: "codex",
     label: "Codex",
     bg: rgb!(0x0A, 0x14, 0x12),
@@ -104,7 +71,7 @@ const CODEX: Theme = Theme {
     highlight_fg: rgb!(0x0A, 0x14, 0x12),
 };
 
-const BTOP: Theme = Theme {
+pub(super) const BTOP: Theme = Theme {
     id: "btop",
     label: "Btop",
     bg: rgb!(0x0A, 0x14, 0x0A),
@@ -122,7 +89,7 @@ const BTOP: Theme = Theme {
     highlight_fg: rgb!(0x0A, 0x14, 0x0A),
 };
 
-const NORD: Theme = Theme {
+pub(super) const NORD: Theme = Theme {
     id: "nord",
     label: "Nord",
     bg: rgb!(0x2E, 0x34, 0x40),
@@ -140,7 +107,7 @@ const NORD: Theme = Theme {
     highlight_fg: rgb!(0x2E, 0x34, 0x40),
 };
 
-const DRACULA: Theme = Theme {
+pub(super) const DRACULA: Theme = Theme {
     id: "dracula",
     label: "Dracula",
     bg: rgb!(0x28, 0x2A, 0x36),
@@ -158,7 +125,7 @@ const DRACULA: Theme = Theme {
     highlight_fg: rgb!(0x1E, 0x1F, 0x29),
 };
 
-const GRUVBOX: Theme = Theme {
+pub(super) const GRUVBOX: Theme = Theme {
     id: "gruvbox",
     label: "Gruvbox",
     bg: rgb!(0x28, 0x28, 0x28),
@@ -176,7 +143,7 @@ const GRUVBOX: Theme = Theme {
     highlight_fg: rgb!(0x28, 0x28, 0x28),
 };
 
-const SOLARIZED_DARK: Theme = Theme {
+pub(super) const SOLARIZED_DARK: Theme = Theme {
     id: "solarized-dark",
     label: "Solarized Dark",
     bg: rgb!(0x00, 0x2B, 0x36),
@@ -194,7 +161,7 @@ const SOLARIZED_DARK: Theme = Theme {
     highlight_fg: rgb!(0x00, 0x2B, 0x36),
 };
 
-const MONOKAI: Theme = Theme {
+pub(super) const MONOKAI: Theme = Theme {
     id: "monokai",
     label: "Monokai",
     bg: rgb!(0x27, 0x28, 0x22),
@@ -212,7 +179,7 @@ const MONOKAI: Theme = Theme {
     highlight_fg: rgb!(0x27, 0x28, 0x22),
 };
 
-const ONE_DARK: Theme = Theme {
+pub(super) const ONE_DARK: Theme = Theme {
     id: "one-dark",
     label: "One Dark",
     bg: rgb!(0x28, 0x2C, 0x34),
@@ -230,7 +197,7 @@ const ONE_DARK: Theme = Theme {
     highlight_fg: rgb!(0x28, 0x2C, 0x34),
 };
 
-const TOKYO_NIGHT: Theme = Theme {
+pub(super) const TOKYO_NIGHT: Theme = Theme {
     id: "tokyo-night",
     label: "Tokyo Night",
     bg: rgb!(0x1A, 0x1B, 0x26),
@@ -248,7 +215,7 @@ const TOKYO_NIGHT: Theme = Theme {
     highlight_fg: rgb!(0x1A, 0x1B, 0x26),
 };
 
-const CATPPUCCIN_MOCHA: Theme = Theme {
+pub(super) const CATPPUCCIN_MOCHA: Theme = Theme {
     id: "catppuccin-mocha",
     label: "Catppuccin Mocha",
     bg: rgb!(0x1E, 0x1E, 0x2E),
@@ -266,7 +233,7 @@ const CATPPUCCIN_MOCHA: Theme = Theme {
     highlight_fg: rgb!(0x1E, 0x1E, 0x2E),
 };
 
-const ROSE_PINE: Theme = Theme {
+pub(super) const ROSE_PINE: Theme = Theme {
     id: "rose-pine",
     label: "Rose Pine",
     bg: rgb!(0x19, 0x17, 0x24),
@@ -284,7 +251,7 @@ const ROSE_PINE: Theme = Theme {
     highlight_fg: rgb!(0x19, 0x17, 0x24),
 };
 
-const MONO: Theme = Theme {
+pub(super) const MONO: Theme = Theme {
     id: "mono",
     label: "Mono (TTY-safe)",
     // Reset (not a fixed color) so this theme never overrides the user's
@@ -304,7 +271,7 @@ const MONO: Theme = Theme {
     highlight_fg: Color::Black,
 };
 
-const AYU_DARK: Theme = Theme {
+pub(super) const AYU_DARK: Theme = Theme {
     id: "ayu-dark",
     label: "Ayu Dark",
     bg: rgb!(0x0A, 0x0E, 0x14),
@@ -322,7 +289,7 @@ const AYU_DARK: Theme = Theme {
     highlight_fg: rgb!(0x0A, 0x0E, 0x14),
 };
 
-const EVERFOREST_DARK: Theme = Theme {
+pub(super) const EVERFOREST_DARK: Theme = Theme {
     id: "everforest-dark",
     label: "Everforest Dark",
     bg: rgb!(0x2D, 0x35, 0x3B),
@@ -340,7 +307,7 @@ const EVERFOREST_DARK: Theme = Theme {
     highlight_fg: rgb!(0x2D, 0x35, 0x3B),
 };
 
-const KANAGAWA: Theme = Theme {
+pub(super) const KANAGAWA: Theme = Theme {
     id: "kanagawa",
     label: "Kanagawa",
     bg: rgb!(0x1F, 0x1F, 0x28),
@@ -358,7 +325,7 @@ const KANAGAWA: Theme = Theme {
     highlight_fg: rgb!(0x1F, 0x1F, 0x28),
 };
 
-const SYNTHWAVE_84: Theme = Theme {
+pub(super) const SYNTHWAVE_84: Theme = Theme {
     id: "synthwave-84",
     label: "Synthwave '84",
     bg: rgb!(0x26, 0x23, 0x35),
@@ -376,7 +343,7 @@ const SYNTHWAVE_84: Theme = Theme {
     highlight_fg: rgb!(0x26, 0x23, 0x35),
 };
 
-const GITHUB_DARK: Theme = Theme {
+pub(super) const GITHUB_DARK: Theme = Theme {
     id: "github-dark",
     label: "GitHub Dark",
     bg: rgb!(0x0D, 0x11, 0x17),
@@ -394,7 +361,7 @@ const GITHUB_DARK: Theme = Theme {
     highlight_fg: rgb!(0x0D, 0x11, 0x17),
 };
 
-const NIGHTFOX: Theme = Theme {
+pub(super) const NIGHTFOX: Theme = Theme {
     id: "nightfox",
     label: "Nightfox",
     bg: rgb!(0x19, 0x23, 0x30),
@@ -434,260 +401,3 @@ pub const ALL: &[Theme] = &[
     NIGHTFOX,
     MONO,
 ];
-
-/// Blend `tint` into `base` by `t` (0.0 = `base`, 1.0 = `tint`). Only defined
-/// for `Rgb` colors; any named/reset color passes `base` through unchanged so
-/// the TTY-safe `Mono` theme is never tinted away from the user's terminal
-/// palette.
-fn blend(base: Color, tint: Color, t: f32) -> Color {
-    match (base, tint) {
-        (Color::Rgb(br, bg, bb), Color::Rgb(tr, tg, tb)) => {
-            let mix = |b: u8, t_channel: u8| -> u8 {
-                let b = f32::from(b);
-                let t_channel = f32::from(t_channel);
-                (b + (t_channel - b) * t).round().clamp(0.0, 255.0) as u8
-            };
-            Color::Rgb(mix(br, tr), mix(bg, tg), mix(bb, tb))
-        }
-        _ => base,
-    }
-}
-
-impl Theme {
-    pub fn default_theme() -> Theme {
-        DEFAULT
-    }
-
-    /// Look up a built-in theme by id, case-insensitively. Unknown ids fall
-    /// back to the default theme rather than erroring, so a stale or
-    /// hand-edited config value never blocks the TUI from starting.
-    pub fn by_id(id: &str) -> Theme {
-        ALL.iter()
-            .find(|theme| theme.id.eq_ignore_ascii_case(id))
-            .copied()
-            .unwrap_or_else(Theme::default_theme)
-    }
-
-    pub fn index(self) -> usize {
-        ALL.iter()
-            .position(|theme| theme.id == self.id)
-            .unwrap_or(0)
-    }
-
-    fn card_style(&self, tint: Color) -> Style {
-        Style::default()
-            .fg(blend(self.fg, tint, 0.12))
-            .bg(blend(self.bg, tint, 0.16))
-    }
-
-    /// Centralizes the AQI/metric status → color mapping shared by card
-    /// borders, status text, status badges, and the powerline status line's
-    /// AQI dot — the "green/yellow/orange/red" scale mirrored from the
-    /// physical AirGradient device's LED bar.
-    pub fn status_color(&self, status: Status) -> Color {
-        match status {
-            Status::Unknown => self.border,
-            Status::Good => self.success,
-            Status::Moderate => self.warning,
-            Status::Elevated => blend(self.warning, self.danger, 0.5),
-            Status::Unhealthy => self.danger,
-            Status::VeryUnhealthy => self.accent_alt,
-        }
-    }
-
-    pub fn title_style(&self) -> Style {
-        Style::default()
-            .fg(self.accent)
-            .add_modifier(Modifier::BOLD)
-    }
-
-    pub fn muted_style(&self) -> Style {
-        Style::default().fg(self.muted)
-    }
-
-    pub fn border_style(&self) -> Style {
-        Style::default().fg(self.border)
-    }
-
-    pub fn active_border_style(&self) -> Style {
-        Style::default().fg(self.border_focus)
-    }
-
-    pub fn secondary_border_style(&self) -> Style {
-        Style::default().fg(self.accent_alt)
-    }
-
-    pub fn good_card_style(&self) -> Style {
-        self.card_style(self.success)
-    }
-
-    pub fn neutral_card_style(&self) -> Style {
-        self.card_style(self.info)
-    }
-
-    pub fn warning_card_style(&self) -> Style {
-        self.card_style(self.warning)
-    }
-
-    pub fn panel_style(&self) -> Style {
-        Style::default().fg(self.fg).bg(self.bg)
-    }
-
-    pub fn accent_style(&self) -> Style {
-        Style::default().fg(self.info).add_modifier(Modifier::BOLD)
-    }
-
-    pub fn warning_accent_style(&self) -> Style {
-        Style::default()
-            .fg(self.warning)
-            .add_modifier(Modifier::BOLD)
-    }
-
-    pub fn trace_style(&self) -> Style {
-        Style::default().fg(self.success)
-    }
-
-    pub fn header_style(&self) -> Style {
-        Style::default()
-            .fg(self.highlight_fg)
-            .bg(self.highlight_bg)
-            .add_modifier(Modifier::BOLD)
-    }
-
-    pub fn deck_title_style(&self) -> Style {
-        Style::default()
-            .fg(self.fg)
-            .bg(blend(self.bg, self.accent_alt, 0.4))
-            .add_modifier(Modifier::BOLD)
-    }
-
-    pub fn command_style(&self) -> Style {
-        Style::default()
-            .fg(self.highlight_fg)
-            .bg(self.warning)
-            .add_modifier(Modifier::BOLD)
-    }
-
-    pub fn status_badge_style(&self, status: Status) -> Style {
-        Style::default()
-            .fg(self.highlight_fg)
-            .bg(self.status_color(status))
-            .add_modifier(Modifier::BOLD)
-    }
-
-    pub fn footer_style(&self) -> Style {
-        Style::default()
-            .fg(self.muted)
-            .bg(blend(self.bg, self.border, 0.5))
-    }
-
-    pub fn label_style(&self) -> Style {
-        Style::default().fg(blend(self.fg, self.muted, 0.5))
-    }
-
-    pub fn value_style(&self) -> Style {
-        Style::default().fg(self.fg).add_modifier(Modifier::BOLD)
-    }
-
-    pub fn error_style(&self) -> Style {
-        Style::default()
-            .fg(self.danger)
-            .add_modifier(Modifier::BOLD)
-    }
-
-    pub fn status_style(&self, status: Status) -> Style {
-        match status {
-            Status::Unknown => self.muted_style(),
-            _ => Style::default().fg(self.status_color(status)),
-        }
-    }
-
-    pub fn trend_style(&self, trend: Trend) -> Style {
-        match trend {
-            Trend::Unknown => self.muted_style(),
-            Trend::Stable => Style::default().fg(self.muted),
-            Trend::Up => Style::default().fg(self.danger),
-            Trend::Down => Style::default().fg(self.success),
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn by_id_falls_back_to_default_for_unknown_name() {
-        assert_eq!(Theme::by_id("does-not-exist"), Theme::default_theme());
-    }
-
-    #[test]
-    fn by_id_is_case_insensitive() {
-        assert_eq!(Theme::by_id("BTOP").id, "btop");
-        assert_eq!(Theme::by_id("Nord").id, "nord");
-    }
-
-    #[test]
-    fn by_id_resolves_default_id() {
-        assert_eq!(Theme::by_id("default"), DEFAULT);
-        assert_eq!(Theme::by_id("DEFAULT"), DEFAULT);
-    }
-
-    #[test]
-    fn all_themes_have_unique_ids() {
-        let mut ids: Vec<&str> = ALL.iter().map(|theme| theme.id).collect();
-        ids.sort_unstable();
-        ids.dedup();
-        assert_eq!(ids.len(), ALL.len());
-    }
-
-    #[test]
-    fn there_are_twenty_built_in_themes() {
-        assert_eq!(ALL.len(), 20);
-    }
-
-    #[test]
-    fn index_matches_position_in_all() {
-        for (i, theme) in ALL.iter().enumerate() {
-            assert_eq!(theme.index(), i);
-        }
-    }
-
-    #[test]
-    fn mono_theme_does_not_override_terminal_background() {
-        assert_eq!(MONO.bg, Color::Reset);
-    }
-
-    #[test]
-    fn blend_at_zero_returns_base_and_at_one_returns_tint() {
-        let base = Color::Rgb(10, 20, 30);
-        let tint = Color::Rgb(200, 150, 100);
-        assert_eq!(blend(base, tint, 0.0), base);
-        assert_eq!(blend(base, tint, 1.0), tint);
-    }
-
-    #[test]
-    fn blend_passes_through_non_rgb_colors() {
-        assert_eq!(blend(Color::Reset, Color::Rgb(1, 2, 3), 0.5), Color::Reset);
-    }
-
-    #[test]
-    fn status_color_covers_every_status_distinctly_for_default_theme() {
-        let theme = Theme::default_theme();
-        let colors = [
-            theme.status_color(Status::Unknown),
-            theme.status_color(Status::Good),
-            theme.status_color(Status::Moderate),
-            theme.status_color(Status::Elevated),
-            theme.status_color(Status::Unhealthy),
-            theme.status_color(Status::VeryUnhealthy),
-        ];
-        for (i, a) in colors.iter().enumerate() {
-            for (j, b) in colors.iter().enumerate() {
-                if i != j {
-                    assert_ne!(a, b, "status colors {i} and {j} should differ");
-                }
-            }
-        }
-    }
-}
