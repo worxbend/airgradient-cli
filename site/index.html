@@ -80,7 +80,7 @@
           <div>
             <div class="chip-row">
               <span class="chip chip--accent"
-                ><span class="chip__dot"></span>v0.1.1</span
+                ><span class="chip__dot"></span>v0.2.0</span
               >
               <span class="chip">Rust</span>
               <span class="chip">Linux amd64 · arm64</span>
@@ -189,8 +189,8 @@
               <div class="code code--wrap">
                 <button class="copy-btn" data-copy="#cmdPinned" type="button">Copy</button>
                 <pre><code id="cmdPinned">curl --proto '=https' --tlsv1.2 -sSf \
-  https://github.com/worxbend/airgradient-cli/releases/download/v0.1.1/install.sh \
-  | sh -s -- --version v0.1.1</code></pre>
+  https://github.com/worxbend/airgradient-cli/releases/download/v0.2.0/install.sh \
+  | sh -s -- --version v0.2.0</code></pre>
               </div>
             </div>
             <div>
@@ -287,10 +287,12 @@ sh install.sh --help</code></pre>
               <div class="card__icon">
                 <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Zm7.4-2.5a7.6 7.6 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7.5 7.5 0 0 0-1.7-1l-.4-2.5H10.9l-.4 2.5a7.5 7.5 0 0 0-1.7 1l-2.4-1-2 3.4L4.6 11a7.6 7.6 0 0 0 0 2l-2 1.6 2 3.4 2.4-1c.5.4 1.1.8 1.7 1l.4 2.5h4.1l.4-2.5c.6-.2 1.2-.6 1.7-1l2.4 1 2-3.4-2-1.6Z"/></svg>
               </div>
-              <h3>Config editor built in</h3>
+              <h3>Vim keys &amp; mouse</h3>
               <p>
-                Press <kbd>c</kbd> for a full-screen config form or <kbd>:</kbd>
-                for a command palette. Edits stay in a draft until you save.
+                <kbd>j</kbd>/<kbd>k</kbd>, <kbd>gg</kbd>/<kbd>G</kbd>,
+                <kbd>Ctrl-d</kbd>/<kbd>Ctrl-u</kbd>, <kbd>:</kbd> for the
+                command line, and <kbd>Space</kbd> as an AstroNvim-style
+                which-key leader. Or just scroll and click.
               </p>
             </article>
             <article class="card">
@@ -599,18 +601,43 @@ AQI 41 - Good
           </div>
 
           <h3 class="title-large reveal" style="margin: 2.5rem 0 1rem">Dashboard keys</h3>
+          <p class="body-medium reveal" style="margin: -0.5rem 0 1rem; color: var(--on-surface-variant)">
+            Bindings follow vim, and AstroNvim where it has a convention.
+            <code>&lt;Space&gt;</code> is the leader and opens a which-key popup
+            listing what the next key does.
+          </p>
           <div class="table-scroll reveal">
             <table>
               <thead>
                 <tr><th>Key</th><th>Action</th></tr>
               </thead>
               <tbody>
+                <tr><td><code>&lt;Space&gt;</code></td><td>Which-key popup (leader)</td></tr>
+                <tr><td><code>&lt;Space&gt;</code> then <code>r</code> <code>t</code> <code>c</code> <code>:</code> <code>q</code></td><td>Refresh · themes · config · palette · quit</td></tr>
                 <tr><td><code>r</code></td><td>Refresh now</td></tr>
                 <tr><td><code>+</code> / <code>-</code></td><td>Lengthen or shorten the refresh interval</td></tr>
                 <tr><td><code>:</code></td><td>Command palette</td></tr>
                 <tr><td><code>t</code> / <code>F2</code></td><td>Theme picker with live preview</td></tr>
                 <tr><td><code>c</code></td><td>Config editor</td></tr>
-                <tr><td><code>q</code> / <code>Esc</code></td><td>Quit</td></tr>
+                <tr><td><code>q</code> / <code>Esc</code> / <code>Ctrl-c</code></td><td>Quit</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3 class="title-large reveal" style="margin: 2.5rem 0 1rem">Motions &amp; mouse</h3>
+          <div class="table-scroll reveal">
+            <table>
+              <thead>
+                <tr><th>Input</th><th>Action</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><code>j</code> / <code>k</code></td><td>Move down / up in a list</td></tr>
+                <tr><td><code>gg</code> / <code>G</code></td><td>Jump to first / last</td></tr>
+                <tr><td><code>Ctrl-d</code> / <code>Ctrl-u</code></td><td>Half-page down / up</td></tr>
+                <tr><td><code>Enter</code> / <code>l</code></td><td>Apply, edit, or toggle</td></tr>
+                <tr><td><code>Ctrl-w</code> / <code>Ctrl-u</code></td><td>Delete word / clear line while typing</td></tr>
+                <tr><td>Scroll wheel</td><td>Move the cursor through a list</td></tr>
+                <tr><td>Left click</td><td>Select the row you clicked</td></tr>
               </tbody>
             </table>
           </div>

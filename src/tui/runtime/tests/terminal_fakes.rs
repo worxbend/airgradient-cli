@@ -21,6 +21,7 @@ use crate::tui::{
         event::{InputMode, RuntimeEvent},
         terminal::{TerminalRuntime, blocking_terminal_call},
     },
+    ui::HitTarget,
 };
 
 use super::test_clock_start;
@@ -48,6 +49,9 @@ pub(super) struct HarnessTerminal {
     pub(super) calls: Vec<RuntimeCall>,
     pub(super) drawn_errors: Vec<Option<String>>,
     pub(super) cleanup_called: bool,
+    /// What `hit_test` should report, standing in for the geometry a real
+    /// render would have recorded.
+    pub(super) hit: Option<HitTarget>,
 }
 
 impl HarnessTerminal {
@@ -65,7 +69,13 @@ impl HarnessTerminal {
             calls: Vec::new(),
             drawn_errors: Vec::new(),
             cleanup_called: false,
+            hit: None,
         }
+    }
+
+    pub(super) fn with_hit(mut self, target: HitTarget) -> Self {
+        self.hit = Some(target);
+        self
     }
 
     pub(super) fn with_quit() -> Self {
@@ -148,6 +158,10 @@ impl TerminalRuntime for HarnessTerminal {
             return Err(error.into());
         }
         Ok(self.events.pop_front().unwrap_or(RuntimeEvent::Ignored))
+    }
+
+    fn hit_test(&self, _column: u16, _row: u16) -> Option<HitTarget> {
+        self.hit
     }
 
     fn cleanup(&mut self) -> Result<(), RuntimeError> {

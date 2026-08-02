@@ -62,10 +62,17 @@ pub(super) fn render_splash(frame: &mut Frame<'_>, area: Rect, theme: Theme, fra
 }
 
 /// The splash panel, centered, shrinking to fit terminals smaller than its
-/// preferred size but never below the minimum that still fits the wordmark.
+/// preferred size but never below the minimum that still fits the wordmark —
+/// and never larger than the area itself, which would draw outside the buffer.
 fn centered_splash_box(area: Rect) -> Rect {
-    let width = 46u16.min(area.width.saturating_sub(2)).max(10);
-    let height = 8u16.min(area.height.saturating_sub(2)).max(5);
+    let width = 46u16
+        .min(area.width.saturating_sub(2))
+        .max(10)
+        .min(area.width);
+    let height = 8u16
+        .min(area.height.saturating_sub(2))
+        .max(5)
+        .min(area.height);
 
     Rect {
         x: area.x + area.width.saturating_sub(width) / 2,

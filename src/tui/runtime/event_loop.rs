@@ -7,10 +7,10 @@
 use std::time::Duration;
 
 use crate::tui::{
-    app::{PaletteOutcome, TuiApp, View},
+    app::{LeaderAction, PaletteOutcome, TuiApp, View},
     runtime::{
         RuntimeError,
-        event::{InputMode, RuntimeEvent, input_mode},
+        event::{InputMode, RuntimeEvent, apply_hit, input_mode},
         fetch::{FetchScheduler, MeasureFetchWorker},
         schedule::{RefreshSchedule, RuntimeClock},
         terminal::TerminalRuntime,
@@ -219,6 +219,28 @@ where
             schedule.restart_from(now);
             terminal.draw(app)?;
         }
+        RuntimeEvent::LeaderKey(key) => {
+            // Resolving the leader can mean "do the timing-sensitive thing",
+            // so it expands into the same events the loop already handles.
+            let action = app.resolve_leader(key);
+            return Box::pin(apply_leader_action(
+                action,
+                terminal,
+                app,
+                fetcher,
+                clock,
+                fetch_scheduler,
+                schedule,
+            ))
+            .await;
+        }
+        RuntimeEvent::MouseClick(column, row) => {
+            match terminal.hit_test(column, row) {
+                Some(target) if apply_hit(app, target) => terminal.draw(app)?,
+                // A click on empty space is not an error, just nothing.
+                _ => {}
+            }
+        }
         view_event => match apply_view_event(view_event, app) {
             EventOutcome::Quit => return Ok(true),
             EventOutcome::Redraw => terminal.draw(app)?,
@@ -229,10 +251,68 @@ where
     Ok(false)
 }
 
+/// Runs the command a resolved leader sequence stands for.
+#[allow(clippy::too_many_arguments)]
+async fn apply_leader_action<T, F, C>(
+    action: LeaderAction,
+    terminal: &mut T,
+    app: &mut TuiApp,
+    fetcher: &mut F,
+    clock: &mut C,
+    fetch_scheduler: &mut FetchScheduler,
+    schedule: &mut RefreshSchedule,
+) -> Result<bool, RuntimeError>
+where
+    T: TerminalRuntime,
+    F: MeasureFetchWorker,
+    C: RuntimeClock,
+{
+    let event = match action {
+        LeaderAction::Refresh => RuntimeEvent::Refresh,
+        LeaderAction::OpenThemes => RuntimeEvent::ToggleThemeSettings,
+        LeaderAction::OpenConfig => RuntimeEvent::ToggleConfigEditor,
+        LeaderAction::OpenPalette => RuntimeEvent::OpenPalette,
+        LeaderAction::LongerInterval => RuntimeEvent::IncreaseRefreshInterval,
+        LeaderAction::ShorterInterval => RuntimeEvent::DecreaseRefreshInterval,
+        LeaderAction::Quit => return Ok(true),
+        // An unbound key just closes the popup, which already happened when
+        // the sequence resolved — so only the repaint is left.
+        LeaderAction::Dismiss => {
+            terminal.draw(app)?;
+            return Ok(false);
+        }
+    };
+
+    handle_event(
+        event,
+        terminal,
+        app,
+        fetcher,
+        clock,
+        fetch_scheduler,
+        schedule,
+    )
+    .await
+}
+
 /// Applies the events that only move view state around — no clock, no
 /// network. What each one does depends on which view is open.
 fn apply_view_event(event: RuntimeEvent, app: &mut TuiApp) -> EventOutcome {
+    // Any other key breaks a half-typed `g` prefix, exactly as in vim.
+    let had_pending_g = std::mem::take(&mut app.pending_g);
+
     match event {
+        RuntimeEvent::GPrefix => {
+            if !had_pending_g {
+                app.pending_g = true;
+                return EventOutcome::Unchanged;
+            }
+            match app.view {
+                View::ThemeSettings => app.theme_cursor_first(),
+                View::ConfigEditor => app.config_editor_nav_first(),
+                View::CommandPalette | View::Dashboard => return EventOutcome::Unchanged,
+            }
+        }
         RuntimeEvent::Quit => return EventOutcome::Quit,
         RuntimeEvent::OpenPalette => app.open_command_palette(),
         RuntimeEvent::ToggleThemeSettings => {
@@ -249,6 +329,7 @@ fn apply_view_event(event: RuntimeEvent, app: &mut TuiApp) -> EventOutcome {
                 app.open_config_editor();
             }
         }
+        RuntimeEvent::Escape if app.leader_pending => app.cancel_leader(),
         RuntimeEvent::Escape => match app.view {
             View::ThemeSettings => app.close_theme_settings(),
             View::ConfigEditor if app.config_editor_editing.is_some() => {
@@ -258,10 +339,36 @@ fn apply_view_event(event: RuntimeEvent, app: &mut TuiApp) -> EventOutcome {
             View::CommandPalette => app.close_command_palette(),
             View::Dashboard => {}
         },
+        RuntimeEvent::ToggleLeader => app.toggle_leader(),
         RuntimeEvent::NavUp => match app.view {
             View::ThemeSettings => app.theme_cursor_up(),
             View::ConfigEditor => app.config_editor_nav_up(),
             View::CommandPalette | View::Dashboard => {}
+        },
+        RuntimeEvent::NavFirst => match app.view {
+            View::ThemeSettings => app.theme_cursor_first(),
+            View::ConfigEditor => app.config_editor_nav_first(),
+            View::CommandPalette | View::Dashboard => {}
+        },
+        RuntimeEvent::NavLast => match app.view {
+            View::ThemeSettings => app.theme_cursor_last(),
+            View::ConfigEditor => app.config_editor_nav_last(),
+            View::CommandPalette | View::Dashboard => {}
+        },
+        RuntimeEvent::NavHalfPage(direction) => match app.view {
+            View::ThemeSettings => app.theme_cursor_half_page(direction),
+            View::ConfigEditor => app.config_editor_half_page(direction),
+            View::CommandPalette | View::Dashboard => {}
+        },
+        RuntimeEvent::DeleteWordBefore => match app.view {
+            View::CommandPalette => app.palette_delete_word(),
+            View::ConfigEditor => app.config_editor_delete_word(),
+            View::ThemeSettings | View::Dashboard => {}
+        },
+        RuntimeEvent::ClearLine => match app.view {
+            View::CommandPalette => app.palette_clear_line(),
+            View::ConfigEditor => app.config_editor_clear_line(),
+            View::ThemeSettings | View::Dashboard => {}
         },
         RuntimeEvent::NavDown => match app.view {
             View::ThemeSettings => app.theme_cursor_down(),
@@ -289,10 +396,13 @@ fn apply_view_event(event: RuntimeEvent, app: &mut TuiApp) -> EventOutcome {
             View::ThemeSettings | View::Dashboard => {}
         },
         RuntimeEvent::Ignored => return EventOutcome::Unchanged,
-        // Handled by `handle_event`, which needs the clock and scheduler.
+        // Handled by `handle_event`, which needs the clock, scheduler, and
+        // the terminal's hit map.
         RuntimeEvent::Refresh
         | RuntimeEvent::IncreaseRefreshInterval
-        | RuntimeEvent::DecreaseRefreshInterval => return EventOutcome::Unchanged,
+        | RuntimeEvent::DecreaseRefreshInterval
+        | RuntimeEvent::LeaderKey(_)
+        | RuntimeEvent::MouseClick(_, _) => return EventOutcome::Unchanged,
     }
 
     EventOutcome::Redraw

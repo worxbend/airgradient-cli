@@ -11,7 +11,7 @@ use crate::{
     device,
 };
 
-use super::{ConfigField, TuiApp, View, clamp_refresh_interval};
+use super::{ConfigField, TuiApp, View, clamp_refresh_interval, palette::delete_word_before};
 
 impl TuiApp {
     pub fn open_config_editor(&mut self) {
@@ -42,17 +42,66 @@ impl TuiApp {
     }
 
     pub fn config_editor_nav_up(&mut self) {
-        self.config_editor_cursor = self.config_editor_cursor.saturating_sub(1);
+        self.move_config_cursor(-1);
     }
 
     pub fn config_editor_nav_down(&mut self) {
-        let max = ConfigField::ALL.len().saturating_sub(1);
-        self.config_editor_cursor = (self.config_editor_cursor + 1).min(max);
+        self.move_config_cursor(1);
+    }
+
+    /// `gg` — jump to the first field.
+    pub fn config_editor_nav_first(&mut self) {
+        self.set_config_cursor(0);
+    }
+
+    /// `G` — jump to the last row, which is "Save & Close".
+    pub fn config_editor_nav_last(&mut self) {
+        self.set_config_cursor(ConfigField::ALL.len().saturating_sub(1));
+    }
+
+    /// `<C-d>` / `<C-u>` — half-page scroll over the field list.
+    pub fn config_editor_half_page(&mut self, direction: i32) {
+        let half = (ConfigField::ALL.len() / 2).max(1) as i32;
+        self.move_config_cursor(direction * half);
+    }
+
+    /// Moves the cursor to a field, e.g. from a mouse click on its row.
+    /// Ignored mid-edit so a stray click cannot silently retarget the buffer
+    /// the user is typing into.
+    pub fn select_config_field_index(&mut self, index: usize) {
+        if self.config_editor_editing.is_some() {
+            return;
+        }
+        self.set_config_cursor(index);
+    }
+
+    fn move_config_cursor(&mut self, delta: i32) {
+        let last = ConfigField::ALL.len().saturating_sub(1) as i32;
+        let next = (self.config_editor_cursor as i32 + delta).clamp(0, last);
+        self.set_config_cursor(next as usize);
+    }
+
+    fn set_config_cursor(&mut self, index: usize) {
+        self.config_editor_cursor = index.min(ConfigField::ALL.len().saturating_sub(1));
     }
 
     pub fn config_editor_push_char(&mut self, c: char) {
         if let Some(buffer) = self.config_editor_editing.as_mut() {
             buffer.push(c);
+        }
+    }
+
+    /// `<C-w>` in a config field being edited.
+    pub fn config_editor_delete_word(&mut self) {
+        if let Some(buffer) = self.config_editor_editing.as_mut() {
+            delete_word_before(buffer);
+        }
+    }
+
+    /// `<C-u>` in a config field being edited.
+    pub fn config_editor_clear_line(&mut self) {
+        if let Some(buffer) = self.config_editor_editing.as_mut() {
+            buffer.clear();
         }
     }
 

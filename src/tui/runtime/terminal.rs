@@ -12,7 +12,10 @@ use std::{
 
 use crossterm::{
     cursor::Show,
-    event::{self, Event, KeyCode, KeyEventKind},
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
+        KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    },
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -24,6 +27,7 @@ use super::{
     RuntimeError,
     event::{InputMode, RuntimeEvent},
 };
+use crate::tui::ui::{HitMap, HitTarget};
 
 pub(super) trait TerminalRuntime {
     fn enter(&mut self) -> Result<(), RuntimeError>;
@@ -31,6 +35,15 @@ pub(super) trait TerminalRuntime {
     async fn poll_event(&mut self, timeout: Duration) -> Result<bool, RuntimeError>;
     async fn read_event(&mut self, mode: InputMode) -> Result<RuntimeEvent, RuntimeError>;
     fn cleanup(&mut self) -> Result<(), RuntimeError>;
+
+    /// What was drawn at a terminal cell, for resolving a mouse click.
+    ///
+    /// Defaults to "nothing": an implementation that never renders — every
+    /// test fake — has no geometry to test against, and a click that resolves
+    /// to nothing is correctly a no-op.
+    fn hit_test(&self, _column: u16, _row: u16) -> Option<HitTarget> {
+        None
+    }
 }
 
 #[derive(Default)]
@@ -53,17 +66,13 @@ impl TerminalRuntime for CrosstermRuntime {
     }
 
     async fn read_event(&mut self, mode: InputMode) -> Result<RuntimeEvent, RuntimeError> {
-        let event = blocking_terminal_call(event::read).await?;
-        let Event::Key(key) = event else {
-            return Ok(RuntimeEvent::Ignored);
-        };
-        // Key *release* events also arrive on some terminals; acting on both
-        // would fire every shortcut twice.
-        if key.kind != KeyEventKind::Press {
-            return Ok(RuntimeEvent::Ignored);
-        }
-
-        Ok(key_event(key.code, mode))
+        Ok(match blocking_terminal_call(event::read).await? {
+            // Key *release* events also arrive on some terminals; acting on
+            // both would fire every shortcut twice.
+            Event::Key(key) if key.kind == KeyEventKind::Press => key_event(key, mode),
+            Event::Mouse(mouse) => mouse_event(mouse, mode),
+            _ => RuntimeEvent::Ignored,
+        })
     }
 
     fn cleanup(&mut self) -> Result<(), RuntimeError> {
@@ -72,6 +81,12 @@ impl TerminalRuntime for CrosstermRuntime {
             None => Ok(()),
         }
     }
+
+    fn hit_test(&self, column: u16, row: u16) -> Option<HitTarget> {
+        self.session
+            .as_ref()
+            .and_then(|session| session.hits.hit(column, row))
+    }
 }
 
 /// Maps a keypress to a runtime event for the currently active input mode.
@@ -79,23 +94,50 @@ impl TerminalRuntime for CrosstermRuntime {
 /// The same key means different things per mode by design — in
 /// [`InputMode::TextEntry`] every printable character is content, so the
 /// dashboard shortcuts (`q`, `t`, `c`, …) must not be reachable there.
-fn key_event(code: KeyCode, mode: InputMode) -> RuntimeEvent {
+fn key_event(key: KeyEvent, mode: InputMode) -> RuntimeEvent {
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+
     match mode {
-        InputMode::TextEntry => match code {
+        // Vim's insert-mode line editing: everything printable is content,
+        // and only the control chords act.
+        InputMode::TextEntry => match key.code {
             KeyCode::Esc => RuntimeEvent::Escape,
             KeyCode::Enter => RuntimeEvent::Confirm,
             KeyCode::Backspace => RuntimeEvent::PaletteBackspace,
+            KeyCode::Char('w') if ctrl => RuntimeEvent::DeleteWordBefore,
+            KeyCode::Char('u') if ctrl => RuntimeEvent::ClearLine,
+            KeyCode::Char('c') if ctrl => RuntimeEvent::Escape,
             KeyCode::Char(c) => RuntimeEvent::PaletteChar(c),
             _ => RuntimeEvent::Ignored,
         },
-        InputMode::ModalNav => match code {
+        // The which-key popup owns the next key, whatever it is.
+        InputMode::Leader => match key.code {
+            KeyCode::Esc => RuntimeEvent::Escape,
+            KeyCode::Char(' ') => RuntimeEvent::ToggleLeader,
+            KeyCode::Char(c) => RuntimeEvent::LeaderKey(c),
+            _ => RuntimeEvent::Escape,
+        },
+        InputMode::ModalNav => match key.code {
+            KeyCode::Char('d') if ctrl => RuntimeEvent::NavHalfPage(1),
+            KeyCode::Char('u') if ctrl => RuntimeEvent::NavHalfPage(-1),
+            KeyCode::Char('c') if ctrl => RuntimeEvent::Escape,
             KeyCode::Esc | KeyCode::F(2) | KeyCode::Char('q' | 'c' | 'C') => RuntimeEvent::Escape,
             KeyCode::Up | KeyCode::Char('k') => RuntimeEvent::NavUp,
             KeyCode::Down | KeyCode::Char('j') => RuntimeEvent::NavDown,
-            KeyCode::Enter => RuntimeEvent::Confirm,
+            // `g` is a prefix; the event loop pairs it with the next one.
+            KeyCode::Char('g') => RuntimeEvent::GPrefix,
+            KeyCode::Char('G') => RuntimeEvent::NavLast,
+            KeyCode::Home => RuntimeEvent::NavFirst,
+            KeyCode::End => RuntimeEvent::NavLast,
+            KeyCode::PageDown => RuntimeEvent::NavHalfPage(1),
+            KeyCode::PageUp => RuntimeEvent::NavHalfPage(-1),
+            // `l`/`Right` enters, matching vim tree/file pickers.
+            KeyCode::Enter | KeyCode::Char('l') | KeyCode::Right => RuntimeEvent::Confirm,
             _ => RuntimeEvent::Ignored,
         },
-        InputMode::Normal => match code {
+        InputMode::Normal => match key.code {
+            KeyCode::Char('c') if ctrl => RuntimeEvent::Quit,
+            KeyCode::Char(' ') => RuntimeEvent::ToggleLeader,
             KeyCode::Char('q') | KeyCode::Esc => RuntimeEvent::Quit,
             KeyCode::Char('r' | 'R') => RuntimeEvent::Refresh,
             KeyCode::Char('+' | '=') => RuntimeEvent::IncreaseRefreshInterval,
@@ -103,6 +145,26 @@ fn key_event(code: KeyCode, mode: InputMode) -> RuntimeEvent {
             KeyCode::Char(':') => RuntimeEvent::OpenPalette,
             KeyCode::Char('t' | 'T') | KeyCode::F(2) => RuntimeEvent::ToggleThemeSettings,
             KeyCode::Char('c' | 'C') => RuntimeEvent::ToggleConfigEditor,
+            _ => RuntimeEvent::Ignored,
+        },
+    }
+}
+
+/// Maps a mouse action to a runtime event.
+///
+/// The wheel scrolls the active list, and a left click selects what it landed
+/// on. Text entry ignores the mouse entirely: there is no cursor to move
+/// within the line, so a click there would only be able to do something
+/// surprising.
+fn mouse_event(mouse: MouseEvent, mode: InputMode) -> RuntimeEvent {
+    match mode {
+        InputMode::TextEntry | InputMode::Leader => RuntimeEvent::Ignored,
+        InputMode::Normal | InputMode::ModalNav => match mouse.kind {
+            MouseEventKind::ScrollUp => RuntimeEvent::NavUp,
+            MouseEventKind::ScrollDown => RuntimeEvent::NavDown,
+            MouseEventKind::Down(MouseButton::Left) => {
+                RuntimeEvent::MouseClick(mouse.column, mouse.row)
+            }
             _ => RuntimeEvent::Ignored,
         },
     }
@@ -138,6 +200,10 @@ struct TerminalSession {
     terminal: Terminal<CrosstermBackend<Stdout>>,
     raw_mode_enabled: bool,
     alternate_screen_enabled: bool,
+    mouse_capture_enabled: bool,
+    /// Click targets from the most recent frame, used to resolve mouse
+    /// coordinates back to the row the user clicked.
+    hits: HitMap,
 }
 
 impl TerminalSession {
@@ -150,16 +216,26 @@ impl TerminalSession {
 
         let mut stdout = io::stdout();
         if let Err(error) = execute!(stdout, EnterAlternateScreen) {
-            cleanup_failed_terminal_setup(&mut stdout, raw_mode_enabled, false);
+            cleanup_failed_terminal_setup(&mut stdout, raw_mode_enabled, false, false);
             return Err(error.into());
         }
+
+        // Mouse capture is best-effort: a terminal that refuses it still gets
+        // a fully keyboard-driven TUI, which is worse than nothing only if we
+        // aborted the launch over it.
+        let mouse_capture_enabled = execute!(stdout, EnableMouseCapture).is_ok();
 
         let backend = CrosstermBackend::new(stdout);
         let terminal = match Terminal::new(backend) {
             Ok(terminal) => terminal,
             Err(error) => {
                 let mut stdout = io::stdout();
-                cleanup_failed_terminal_setup(&mut stdout, raw_mode_enabled, true);
+                cleanup_failed_terminal_setup(
+                    &mut stdout,
+                    raw_mode_enabled,
+                    true,
+                    mouse_capture_enabled,
+                );
                 return Err(error.into());
             }
         };
@@ -168,12 +244,15 @@ impl TerminalSession {
             terminal,
             raw_mode_enabled,
             alternate_screen_enabled: true,
+            mouse_capture_enabled,
+            hits: HitMap::default(),
         })
     }
 
     fn draw(&mut self, app: &TuiApp) -> Result<(), RuntimeError> {
+        let hits = &mut self.hits;
         self.terminal
-            .draw(|frame| crate::tui::ui::draw(frame, app))?;
+            .draw(|frame| crate::tui::ui::draw_with_hits(frame, app, hits))?;
         Ok(())
     }
 
@@ -182,11 +261,21 @@ impl TerminalSession {
     /// terminal in a worse state than finishing the teardown.
     fn restore(&mut self) -> Result<(), RuntimeError> {
         let mut first_error = None;
-        let cleanup_steps =
-            terminal_cleanup_steps(self.raw_mode_enabled, self.alternate_screen_enabled);
+        let cleanup_steps = terminal_cleanup_steps(
+            self.raw_mode_enabled,
+            self.alternate_screen_enabled,
+            self.mouse_capture_enabled,
+        );
 
         for step in cleanup_steps {
             match step {
+                TerminalCleanupStep::DisableMouseCapture => {
+                    if let Err(error) = execute!(self.terminal.backend_mut(), DisableMouseCapture) {
+                        first_error.get_or_insert(error);
+                    } else {
+                        self.mouse_capture_enabled = false;
+                    }
+                }
                 TerminalCleanupStep::LeaveAlternateScreen => {
                     if let Err(error) = execute!(self.terminal.backend_mut(), LeaveAlternateScreen)
                     {
@@ -219,6 +308,7 @@ impl TerminalSession {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum TerminalCleanupStep {
+    DisableMouseCapture,
     LeaveAlternateScreen,
     ShowCursor,
     DisableRawMode,
@@ -230,8 +320,16 @@ pub(super) enum TerminalCleanupStep {
 pub(super) fn terminal_cleanup_steps(
     raw_mode_enabled: bool,
     alternate_screen_enabled: bool,
+    mouse_capture_enabled: bool,
 ) -> Vec<TerminalCleanupStep> {
     let mut steps = Vec::new();
+
+    // Mouse capture goes first: it is written to the alternate screen, so
+    // releasing it after leaving would emit the escape sequence onto the
+    // user's restored shell instead.
+    if mouse_capture_enabled {
+        steps.push(TerminalCleanupStep::DisableMouseCapture);
+    }
 
     if alternate_screen_enabled {
         steps.push(TerminalCleanupStep::LeaveAlternateScreen);
@@ -255,9 +353,17 @@ fn cleanup_failed_terminal_setup<W: io::Write>(
     writer: &mut W,
     raw_mode_enabled: bool,
     alternate_screen_enabled: bool,
+    mouse_capture_enabled: bool,
 ) {
-    for step in terminal_cleanup_steps(raw_mode_enabled, alternate_screen_enabled) {
+    for step in terminal_cleanup_steps(
+        raw_mode_enabled,
+        alternate_screen_enabled,
+        mouse_capture_enabled,
+    ) {
         match step {
+            TerminalCleanupStep::DisableMouseCapture => {
+                let _ = execute!(writer, DisableMouseCapture);
+            }
             TerminalCleanupStep::LeaveAlternateScreen => {
                 let _ = execute!(writer, LeaveAlternateScreen);
             }

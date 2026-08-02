@@ -16,9 +16,13 @@ mod air_monitor_card;
 mod chrome;
 mod dashboard;
 mod format;
+mod hit;
+mod leader;
 mod settings;
 mod splash;
 mod status_line;
+
+pub use hit::{HitMap, HitTarget};
 
 use ratatui::{
     Frame,
@@ -47,7 +51,27 @@ pub(super) const ADVANCED_LAYOUT_HEIGHT: u16 = 28;
 /// over everything, then the full-screen settings views, then the size guard,
 /// and finally the dashboard with its optional error and palette bands.
 pub fn draw(frame: &mut Frame<'_>, app: &TuiApp) {
+    draw_with_hits(frame, app, &mut HitMap::default());
+}
+
+/// Draws a frame and records where the clickable things ended up.
+///
+/// The production runtime uses this so mouse clicks can be resolved against
+/// the frame the user is actually looking at; callers that do not handle mouse
+/// input can use [`draw`] and ignore the map.
+pub fn draw_with_hits(frame: &mut Frame<'_>, app: &TuiApp, hits: &mut HitMap) {
+    hits.clear();
+
     let area = frame.area();
+
+    // A terminal can report a zero-sized viewport — during a resize, or from a
+    // PTY whose window size was never set. Every renderer below assumes it has
+    // at least one cell to draw into, and ratatui panics on a write outside
+    // the buffer, so there is nothing to do but return.
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
     let theme = app.theme;
 
     // Every screen paints an opaque, theme-colored backdrop first so
@@ -61,11 +85,11 @@ pub fn draw(frame: &mut Frame<'_>, app: &TuiApp) {
 
     match app.view {
         View::ThemeSettings => {
-            settings::render_theme_settings(frame, area, app);
+            settings::render_theme_settings(frame, area, app, hits);
             return;
         }
         View::ConfigEditor => {
-            settings::render_config_editor(frame, area, app);
+            settings::render_config_editor(frame, area, app, hits);
             return;
         }
         View::CommandPalette | View::Dashboard => {}
@@ -77,6 +101,11 @@ pub fn draw(frame: &mut Frame<'_>, app: &TuiApp) {
     }
 
     render_dashboard_screen(frame, area, app);
+
+    // Drawn last so the which-key popup sits above the dashboard.
+    if app.leader_pending {
+        leader::render_leader_popup(frame, area, app);
+    }
 }
 
 /// Splits the dashboard screen into its five vertical bands and fills them.

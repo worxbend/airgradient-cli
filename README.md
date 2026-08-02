@@ -44,7 +44,7 @@ your architecture, **verifies its SHA256 checksum**, drops the binary in
 
 ```sh
 curl --proto '=https' --tlsv1.2 -sSf \
-  https://github.com/worxbend/airgradient-cli/releases/download/v0.1.1/install.sh | sh -s -- --version v0.1.1
+  https://github.com/worxbend/airgradient-cli/releases/download/v0.2.0/install.sh | sh -s -- --version v0.2.0
 ```
 
 **Install somewhere else**
@@ -130,7 +130,8 @@ AQI 41 - Good
 | 📊 **Live TUI dashboard** | `-t` opens an auto-refreshing Ratatui dashboard with gauges, trend arrows, and status colors mirroring the device's own LED. |
 | 🧾 **JSON for pipelines** | `--json` emits every metric with raw value, formatted value, unit, status, and trend. Pipe it to `jq`, Prometheus, or cron. |
 | 🎨 **20 built-in themes** | Nord, Dracula, Gruvbox, Catppuccin, Tokyo Night… plus a TTY-safe `mono` that leaves your terminal palette alone. |
-| ⌨️ **Palette + config editor** | `:` for a command palette, `c` for a full-screen config form. Edits stay in a draft until you save. |
+| ⌨️ **Vim / AstroNvim keys** | `j`/`k`, `gg`/`G`, `<C-d>`/`<C-u>`, `:` for the command line, and `<Space>` as a which-key leader. |
+| 🖱️ **Mouse navigation** | Scroll to move through lists, click to select a row. |
 | 🔒 **Local-only, tolerant** | LAN only, nothing else. A malformed config warns per field instead of failing, so a bad value never locks you out of the tool that fixes it. |
 | 🤝 **Shares desktop config** | Same JSON file as `airgradient-desktop`. Unknown fields are preserved on write. |
 
@@ -170,14 +171,54 @@ exits with an error instead of silently changing the command output contract.
 
 ### Dashboard keys
 
+Bindings follow vim, and [AstroNvim](https://astronvim.com) where it has a
+convention. `<Space>` is the leader and opens a which-key popup listing what
+the next key does.
+
 | Key | Action |
 | --- | --- |
+| `<Space>` | Which-key popup (leader) |
+| `<Space>` `r` / `t` / `c` / `:` / `q` | Refresh · themes · config · palette · quit |
 | `r` | Refresh now |
 | `+` / `-` | Lengthen / shorten the refresh interval |
 | `:` | Command palette |
 | `t` / `F2` | Theme picker with live preview |
 | `c` | Config editor |
-| `q` / `Esc` | Quit |
+| `q` / `Esc` / `<C-c>` | Quit |
+
+### Motions (theme picker, config editor)
+
+| Key | Action |
+| --- | --- |
+| `j` / `k`, `↓` / `↑` | Move down / up |
+| `gg` / `G` | Jump to first / last |
+| `<C-d>` / `<C-u>` | Half-page down / up |
+| `Enter` / `l` / `→` | Apply, edit, or toggle |
+| `Esc` / `q` / `<C-c>` | Close without applying |
+
+### Text entry (palette, config fields)
+
+| Key | Action |
+| --- | --- |
+| `<C-w>` | Delete the word before the cursor |
+| `<C-u>` | Clear the line |
+| `Backspace` | Delete a character |
+| `Enter` | Submit |
+| `Esc` / `<C-c>` | Cancel |
+
+### Mouse
+
+The dashboard enables mouse reporting, so the terminal's own text selection is
+replaced by the app's own handling (hold `Shift` in most terminals to select
+text as usual).
+
+| Action | Effect |
+| --- | --- |
+| Scroll wheel | Move the cursor in the theme picker / config editor |
+| Left click | Select the row you clicked |
+
+Mouse capture is best-effort: a terminal that refuses it still gets a fully
+keyboard-driven TUI.
 
 <details>
 <summary><b>TUI behavior in detail</b></summary>

@@ -642,3 +642,132 @@ fn renders_long_fetch_error_with_last_success_on_narrow_width() {
     assert!(output.output.contains("AQI"));
     assert!(output.output.contains("42"));
 }
+
+/// Renders and returns both the visible text lines and the click zones the
+/// renderer recorded for that same frame.
+fn render_with_hits(app: &TuiApp, width: u16, height: u16) -> (Vec<String>, ui::HitMap) {
+    let backend = TestBackend::new(width, height);
+    let mut terminal = Terminal::new(backend).expect("test terminal should be created");
+    let mut hits = ui::HitMap::default();
+
+    terminal
+        .draw(|frame| ui::draw_with_hits(frame, app, &mut hits))
+        .expect("dashboard should render");
+
+    let buffer = terminal.backend().buffer();
+    let mut lines = Vec::new();
+    for row in 0..height {
+        let mut line = String::new();
+        for column in 0..width {
+            line.push_str(buffer[(column, row)].symbol());
+        }
+        lines.push(line);
+    }
+
+    (lines, hits)
+}
+
+#[test]
+fn theme_rows_are_clickable_where_they_are_drawn() {
+    let mut app = TuiApp::new(None, Duration::from_secs(30));
+    app.open_theme_settings();
+
+    let (lines, hits) = render_with_hits(&app, 100, 40);
+
+    // Every recorded zone must land on the row whose label is actually there,
+    // which is the property that keeps clicks honest as the layout reflows.
+    for (index, candidate) in theme::ALL.iter().enumerate() {
+        let target = ui::HitTarget::ThemeRow(index);
+        let row = (0..40u16)
+            .find(|row| hits.hit(4, *row) == Some(target))
+            .unwrap_or_else(|| panic!("theme row {index} should be clickable"));
+
+        assert!(
+            lines[row as usize].contains(candidate.label),
+            "click zone for {:?} sits on {:?}, which does not show that theme",
+            candidate.id,
+            lines[row as usize]
+        );
+    }
+}
+
+#[test]
+fn clicking_outside_the_theme_list_hits_nothing() {
+    let mut app = TuiApp::new(None, Duration::from_secs(30));
+    app.open_theme_settings();
+
+    let (_, hits) = render_with_hits(&app, 100, 40);
+
+    // The very first cell is the panel border, not a row.
+    assert_eq!(hits.hit(0, 0), None);
+}
+
+#[test]
+fn config_rows_are_clickable_where_they_are_drawn() {
+    let mut app = TuiApp::new(None, Duration::from_secs(30));
+    app.open_config_editor();
+
+    let (lines, hits) = render_with_hits(&app, 100, 40);
+
+    let row = (0..40u16)
+        .find(|row| hits.hit(4, *row) == Some(ui::HitTarget::ConfigRow(0)))
+        .expect("the first config row should be clickable");
+
+    assert!(
+        lines[row as usize].contains("Server URL"),
+        "config row 0 click zone sits on {:?}",
+        lines[row as usize]
+    );
+}
+
+#[test]
+fn the_dashboard_records_no_click_zones() {
+    // Nothing on the dashboard is clickable yet, so a stray click there must
+    // resolve to nothing rather than to a stale zone from a previous frame.
+    let app = TuiApp::new(None, Duration::from_secs(30));
+
+    let (_, hits) = render_with_hits(&app, 100, 40);
+
+    assert_eq!(hits.hit(10, 10), None);
+}
+
+#[test]
+fn the_leader_popup_lists_every_binding() {
+    let mut app = TuiApp::new(None, Duration::from_secs(30));
+    app.toggle_leader();
+
+    let (lines, _) = render_with_hits(&app, 100, 40);
+    let screen = lines.join("\n");
+
+    for binding in airgradient_cli::tui::app::LEADER_BINDINGS {
+        assert!(
+            screen.contains(binding.label),
+            "which-key popup is missing {:?}",
+            binding.label
+        );
+    }
+}
+
+#[test]
+fn rendering_into_a_zero_sized_terminal_does_not_panic() {
+    // A terminal can report 0x0 during a resize, or from a PTY whose window
+    // size was never set. ratatui panics on any write outside the buffer, so
+    // the renderer has to bail before drawing anything.
+    for (width, height) in [(0, 0), (0, 24), (80, 0), (1, 1)] {
+        let backend = TestBackend::new(width.max(1), height.max(1));
+        let mut terminal = Terminal::new(backend).expect("test terminal should be created");
+        terminal.backend_mut().resize(width, height);
+
+        let mut app = TuiApp::new(None, Duration::from_secs(30));
+        app.splash_frame = Some(3);
+
+        terminal
+            .draw(|frame| ui::draw(frame, &app))
+            .unwrap_or_else(|error| panic!("{width}x{height} splash should render: {error}"));
+
+        app.splash_frame = None;
+        terminal
+            .draw(|frame| ui::draw(frame, &app))
+            .unwrap_or_else(|error| panic!("{width}x{height} dashboard should render: {error}"));
+    }
+}

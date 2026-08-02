@@ -2,13 +2,14 @@
 //! the transitions the event loop applies to it.
 //!
 //! This module owns the state itself plus the fetch lifecycle and refresh
-//! interval. The three interactive modes each own their own transitions:
-//! [`palette`], [`theme_settings`], and [`config_editor`].
+//! interval. The interactive modes each own their own transitions:
+//! [`palette`], [`theme_settings`], [`config_editor`], and [`leader`].
 //!
 //! Nothing here does I/O on the render path — persisting a change is
 //! best-effort and never blocks the state update the user just made.
 
 mod config_editor;
+mod leader;
 mod palette;
 mod theme_settings;
 
@@ -23,6 +24,8 @@ use std::{
 };
 
 use url::Url;
+
+pub use leader::{LEADER_BINDINGS, LeaderAction, LeaderBinding};
 
 use crate::{
     config::{Config, MAX_REFRESH_INTERVAL_SECS, MIN_REFRESH_INTERVAL_SECS},
@@ -122,6 +125,16 @@ pub struct TuiApp {
     /// checked first thing by `ui::draw`. Only ever set by the production
     /// runtime path — stays `None` in unit/render tests.
     pub splash_frame: Option<u64>,
+
+    /// True while `<Space>` has been pressed and the which-key popup is
+    /// waiting for the second key of the sequence, mirroring AstroNvim's
+    /// leader behavior.
+    pub leader_pending: bool,
+
+    /// First key of a pending `g`-prefixed motion (vim's `gg`). Cleared as
+    /// soon as the next key resolves it, so `g` followed by anything else is
+    /// simply discarded rather than remembered.
+    pub pending_g: bool,
 }
 
 impl TuiApp {
@@ -154,6 +167,8 @@ impl TuiApp {
             config_editor_error: None,
 
             splash_frame: None,
+            leader_pending: false,
+            pending_g: false,
         }
     }
 

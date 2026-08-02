@@ -84,6 +84,8 @@ pub(super) fn render_footer(frame: &mut Frame<'_>, area: Rect, theme: Theme) {
             Span::raw(" theme   "),
             Span::styled("c", theme.value_style()),
             Span::raw(" config   "),
+            Span::styled("space", theme.value_style()),
+            Span::raw(" keys   "),
         ]);
     }
 
@@ -104,7 +106,7 @@ pub(super) fn render_footer(frame: &mut Frame<'_>, area: Rect, theme: Theme) {
 
 fn render_showcase_footer(frame: &mut Frame<'_>, area: Rect, theme: Theme) {
     let line = Line::from(Span::styled(
-        "Latest measurements loaded.   r refresh   +/- interval   : palette   t theme   c config   q/Esc quit",
+        "Latest measurements loaded.   space keys   r refresh   +/- interval   : palette   t theme   c config   q/Esc quit",
         theme.label_style(),
     ));
 

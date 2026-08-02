@@ -24,13 +24,45 @@ impl TuiApp {
     }
 
     pub fn theme_cursor_up(&mut self) {
-        self.settings_cursor = self.settings_cursor.saturating_sub(1);
-        self.theme = theme::ALL[self.settings_cursor];
+        self.move_theme_cursor(-1);
     }
 
     pub fn theme_cursor_down(&mut self) {
-        let max = theme::ALL.len().saturating_sub(1);
-        self.settings_cursor = (self.settings_cursor + 1).min(max);
+        self.move_theme_cursor(1);
+    }
+
+    /// `gg` — jump to the first theme.
+    pub fn theme_cursor_first(&mut self) {
+        self.set_theme_cursor(0);
+    }
+
+    /// `G` — jump to the last theme.
+    pub fn theme_cursor_last(&mut self) {
+        self.set_theme_cursor(theme::ALL.len().saturating_sub(1));
+    }
+
+    /// `<C-d>` / `<C-u>` — vim's half-page scroll. The list is short enough
+    /// that a "page" is the whole list, so half of it is the useful step.
+    pub fn theme_cursor_half_page(&mut self, direction: i32) {
+        let half = (theme::ALL.len() / 2).max(1) as i32;
+        self.move_theme_cursor(direction * half);
+    }
+
+    /// Selects a theme by index, e.g. from a mouse click on its row.
+    pub fn select_theme_index(&mut self, index: usize) {
+        self.set_theme_cursor(index);
+    }
+
+    fn move_theme_cursor(&mut self, delta: i32) {
+        let last = theme::ALL.len().saturating_sub(1) as i32;
+        let next = (self.settings_cursor as i32 + delta).clamp(0, last);
+        self.set_theme_cursor(next as usize);
+    }
+
+    fn set_theme_cursor(&mut self, index: usize) {
+        // Every cursor move previews the theme immediately; `close_theme_settings`
+        // is what puts the original back if the user cancels.
+        self.settings_cursor = index.min(theme::ALL.len().saturating_sub(1));
         self.theme = theme::ALL[self.settings_cursor];
     }
 

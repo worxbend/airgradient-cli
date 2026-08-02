@@ -17,6 +17,7 @@ use crate::{
     tui::{
         app::{ConfigField, TuiApp},
         theme::{self, Theme},
+        ui::hit::{HitMap, HitTarget},
     },
 };
 
@@ -26,14 +27,21 @@ const CONFIG_LABEL_WIDTH: usize = 22;
 /// Full-screen theme picker, styled after obsctl-rs/twi's settings view:
 /// arrow keys live-preview a theme across the whole UI, Enter confirms and
 /// persists it, Esc reverts to whatever was active before opening this view.
-pub(super) fn render_theme_settings(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
+pub(super) fn render_theme_settings(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    app: &TuiApp,
+    hits: &mut HitMap,
+) {
     let theme = app.theme;
 
     let outer = Block::default()
         .borders(Borders::ALL)
         .style(theme.panel_style())
         .border_style(theme.active_border_style())
-        .title(" Themes — \u{2191}/\u{2193} preview \u{00b7} Enter apply \u{00b7} Esc/F2 cancel ");
+        .title(
+            " Themes — j/k preview \u{00b7} gg/G ends \u{00b7} Enter apply \u{00b7} Esc cancel ",
+        );
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
@@ -42,11 +50,11 @@ pub(super) fn render_theme_settings(frame: &mut Frame<'_>, area: Rect, app: &Tui
         .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
         .split(inner);
 
-    render_theme_list(frame, sections[0], app);
+    render_theme_list(frame, sections[0], app, hits);
     render_theme_preview(frame, sections[1], theme);
 }
 
-fn render_theme_list(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
+fn render_theme_list(frame: &mut Frame<'_>, area: Rect, app: &TuiApp, hits: &mut HitMap) {
     let theme = app.theme;
     let lines: Vec<Line> = theme::ALL
         .iter()
@@ -69,16 +77,47 @@ fn render_theme_list(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
         })
         .collect();
 
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .style(theme.panel_style())
+        .border_style(theme.border_style())
+        .title(" Themes ");
+    let inner = block.inner(area);
+
     frame.render_widget(
-        Paragraph::new(lines).style(theme.panel_style()).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .style(theme.panel_style())
-                .border_style(theme.border_style())
-                .title(" Themes "),
-        ),
+        Paragraph::new(lines)
+            .style(theme.panel_style())
+            .block(block),
         area,
     );
+
+    record_row_hits(hits, inner, theme::ALL.len(), HitTarget::ThemeRow);
+}
+
+/// Registers one click zone per visible list row.
+///
+/// Rows past the bottom of `inner` are skipped rather than recorded off-screen:
+/// a click there lands on whatever is actually drawn, not on a row the user
+/// cannot see.
+fn record_row_hits(
+    hits: &mut HitMap,
+    inner: Rect,
+    row_count: usize,
+    target: impl Fn(usize) -> HitTarget,
+) {
+    let visible = usize::from(inner.height).min(row_count);
+
+    for index in 0..visible {
+        hits.push(
+            Rect {
+                x: inner.x,
+                y: inner.y.saturating_add(index as u16),
+                width: inner.width,
+                height: 1,
+            },
+            target(index),
+        );
+    }
 }
 
 /// Sample of the currently highlighted theme, covering every role the
@@ -127,15 +166,18 @@ fn render_theme_preview(frame: &mut Frame<'_>, area: Rect, theme: Theme) {
 /// Full-screen config editor: navigate fields with arrows, Enter edits a
 /// text field / toggles a boolean / opens the theme picker / saves, Esc
 /// cancels the current field edit (or discards the whole draft and closes).
-pub(super) fn render_config_editor(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
+pub(super) fn render_config_editor(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    app: &TuiApp,
+    hits: &mut HitMap,
+) {
     let theme = app.theme;
     let outer = Block::default()
         .borders(Borders::ALL)
         .style(theme.panel_style())
         .border_style(theme.active_border_style())
-        .title(
-            " Config — \u{2191}/\u{2193} navigate \u{00b7} Enter edit/toggle \u{00b7} Esc cancel ",
-        );
+        .title(" Config — j/k navigate \u{00b7} Enter edit/toggle \u{00b7} Esc cancel ");
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
@@ -159,6 +201,8 @@ pub(super) fn render_config_editor(frame: &mut Frame<'_>, area: Rect, app: &TuiA
             .wrap(Wrap { trim: true }),
         inner,
     );
+
+    record_row_hits(hits, inner, ConfigField::ALL.len(), HitTarget::ConfigRow);
 }
 
 fn config_field_row(app: &TuiApp, field: ConfigField, selected: bool) -> Line<'static> {

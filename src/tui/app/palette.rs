@@ -36,6 +36,16 @@ impl TuiApp {
         self.palette_input.pop();
     }
 
+    /// `<C-w>` — delete the word before the cursor, vim/readline style.
+    pub fn palette_delete_word(&mut self) {
+        delete_word_before(&mut self.palette_input);
+    }
+
+    /// `<C-u>` — clear the whole line.
+    pub fn palette_clear_line(&mut self) {
+        self.palette_input.clear();
+    }
+
     pub fn palette_submit(&mut self) -> PaletteOutcome {
         let input = std::mem::take(&mut self.palette_input);
         self.view = View::Dashboard;
@@ -105,5 +115,17 @@ impl TuiApp {
         if let Some(path) = &self.config_path {
             let _ = config::set_refresh_interval(path, seconds);
         }
+    }
+}
+
+/// Deletes the word before the end of `buffer`, matching `<C-w>` in vim's
+/// insert mode and in readline: trailing whitespace goes first, then the run
+/// of non-whitespace before it. An empty buffer is left alone.
+pub(super) fn delete_word_before(buffer: &mut String) {
+    while buffer.ends_with(char::is_whitespace) {
+        buffer.pop();
+    }
+    while !buffer.is_empty() && !buffer.ends_with(char::is_whitespace) {
+        buffer.pop();
     }
 }

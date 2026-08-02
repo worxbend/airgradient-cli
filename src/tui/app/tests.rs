@@ -2,7 +2,7 @@
 //! bounds, and the palette / theme-picker / config-editor state machines.
 
 use super::*;
-use crate::{config, sensors::Trend};
+use crate::{config, sensors::Trend, tui::theme};
 
 fn app_with_refresh(refresh_interval: Duration) -> TuiApp {
     TuiApp::new(None, refresh_interval)
@@ -383,4 +383,173 @@ fn config_editor_toggles_booleans_immediately() {
     let before = app.config_draft.notifications_enabled;
     app.config_editor_confirm();
     assert_eq!(app.config_draft.notifications_enabled, !before);
+}
+
+// -- Vim motions --------------------------------------------------------
+
+#[test]
+fn theme_motions_jump_to_the_ends_of_the_list() {
+    let mut app = app_with_refresh(Duration::from_secs(30));
+    app.open_theme_settings();
+
+    app.theme_cursor_last();
+    assert_eq!(app.settings_cursor, theme::ALL.len() - 1);
+    assert_eq!(app.theme, theme::ALL[theme::ALL.len() - 1]);
+
+    app.theme_cursor_first();
+    assert_eq!(app.settings_cursor, 0);
+    assert_eq!(app.theme, theme::ALL[0]);
+}
+
+#[test]
+fn theme_half_page_motions_stay_inside_the_list() {
+    let mut app = app_with_refresh(Duration::from_secs(30));
+    app.open_theme_settings();
+    app.theme_cursor_first();
+
+    app.theme_cursor_half_page(1);
+    assert_eq!(app.settings_cursor, theme::ALL.len() / 2);
+
+    // Repeated scrolling clamps at the end rather than wrapping or panicking.
+    for _ in 0..5 {
+        app.theme_cursor_half_page(1);
+    }
+    assert_eq!(app.settings_cursor, theme::ALL.len() - 1);
+
+    for _ in 0..5 {
+        app.theme_cursor_half_page(-1);
+    }
+    assert_eq!(app.settings_cursor, 0);
+}
+
+#[test]
+fn config_editor_motions_jump_to_the_ends_of_the_field_list() {
+    let mut app = app_with_refresh(Duration::from_secs(30));
+    app.open_config_editor();
+
+    app.config_editor_nav_last();
+    assert_eq!(app.config_editor_field(), ConfigField::SaveAndClose);
+
+    app.config_editor_nav_first();
+    assert_eq!(app.config_editor_field(), ConfigField::ServerUrl);
+}
+
+// -- Mouse selection ----------------------------------------------------
+
+#[test]
+fn clicking_a_theme_row_selects_and_previews_it() {
+    let mut app = app_with_refresh(Duration::from_secs(30));
+    app.open_theme_settings();
+
+    app.select_theme_index(3);
+
+    assert_eq!(app.settings_cursor, 3);
+    assert_eq!(app.theme, theme::ALL[3]);
+}
+
+#[test]
+fn selecting_out_of_range_clamps_instead_of_panicking() {
+    let mut app = app_with_refresh(Duration::from_secs(30));
+    app.open_theme_settings();
+
+    app.select_theme_index(usize::MAX);
+
+    assert_eq!(app.settings_cursor, theme::ALL.len() - 1);
+}
+
+#[test]
+fn clicking_a_config_row_is_ignored_while_a_field_is_being_edited() {
+    let mut app = app_with_refresh(Duration::from_secs(30));
+    app.open_config_editor();
+    app.config_editor_confirm(); // start editing the server URL
+    assert!(app.config_editor_editing.is_some());
+
+    app.select_config_field_index(4);
+
+    // The click must not retarget the buffer the user is typing into.
+    assert_eq!(app.config_editor_field(), ConfigField::ServerUrl);
+}
+
+// -- Text-entry chords --------------------------------------------------
+
+#[test]
+fn ctrl_w_deletes_the_word_before_the_cursor() {
+    let mut app = app_with_refresh(Duration::from_secs(30));
+    app.open_command_palette();
+    for c in "url 192.168.1.201".chars() {
+        app.palette_push_char(c);
+    }
+
+    app.palette_delete_word();
+    assert_eq!(app.palette_input, "url ");
+
+    app.palette_delete_word();
+    assert_eq!(app.palette_input, "");
+
+    // Deleting from an empty line is a no-op, not a panic.
+    app.palette_delete_word();
+    assert_eq!(app.palette_input, "");
+}
+
+#[test]
+fn ctrl_u_clears_the_whole_palette_line() {
+    let mut app = app_with_refresh(Duration::from_secs(30));
+    app.open_command_palette();
+    for c in "theme nord".chars() {
+        app.palette_push_char(c);
+    }
+
+    app.palette_clear_line();
+
+    assert_eq!(app.palette_input, "");
+}
+
+// -- Leader / which-key -------------------------------------------------
+
+#[test]
+fn leader_toggles_and_cancels() {
+    let mut app = app_with_refresh(Duration::from_secs(30));
+    assert!(!app.leader_pending);
+
+    app.toggle_leader();
+    assert!(app.leader_pending);
+
+    // A second <Space> backs out, as which-key does.
+    app.toggle_leader();
+    assert!(!app.leader_pending);
+
+    app.toggle_leader();
+    app.cancel_leader();
+    assert!(!app.leader_pending);
+}
+
+#[test]
+fn leader_resolves_bound_keys_and_dismisses_unbound_ones() {
+    let mut app = app_with_refresh(Duration::from_secs(30));
+
+    app.toggle_leader();
+    assert_eq!(app.resolve_leader('t'), LeaderAction::OpenThemes);
+    assert!(!app.leader_pending, "resolving disarms the leader");
+
+    app.toggle_leader();
+    assert_eq!(app.resolve_leader('q'), LeaderAction::Quit);
+
+    app.toggle_leader();
+    assert_eq!(app.resolve_leader('z'), LeaderAction::Dismiss);
+    assert!(!app.leader_pending);
+}
+
+#[test]
+fn every_advertised_leader_binding_resolves_to_an_action() {
+    // The which-key popup is a promise: anything it lists must actually work.
+    let mut app = app_with_refresh(Duration::from_secs(30));
+
+    for binding in LEADER_BINDINGS {
+        assert_ne!(
+            app.resolve_leader(binding.key),
+            LeaderAction::Dismiss,
+            "leader binding {:?} is advertised but unbound",
+            binding.key
+        );
+    }
 }
