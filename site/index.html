@@ -3,6 +3,19 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!--
+      This page's job is to convince a stranger to pipe a remote script into
+      their shell. The set of origins it trusts should therefore be as small as
+      the instructions are consequential: everything it loads comes from this
+      site, and nothing else is allowed to load at all. The fonts used to come
+      from Google; they are now served from assets/fonts/ for the same reason.
+      `unsafe-inline` is present for styles only, because the markup uses
+      `style="..."` attributes; no inline script is allowed.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
     <title>airgradient-cli — AirGradient readings in your terminal</title>
     <meta
       name="description"
@@ -20,12 +33,7 @@
     <meta property="og:url" content="https://worxbend.github.io/airgradient-cli/" />
     <meta name="twitter:card" content="summary" />
 
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,400;8..144,500;8..144,600;8..144,700&family=Roboto+Mono:wght@400;500&display=swap"
-    />
+    <link rel="stylesheet" href="assets/fonts.css" />
     <link rel="stylesheet" href="assets/styles.css" />
   </head>
   <body>
