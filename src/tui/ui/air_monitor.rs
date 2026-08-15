@@ -109,7 +109,9 @@ fn render_air_monitor_hero_row(
             CardSpec {
                 title: "Temperature",
                 icon: "♨",
-                detail: "Comfort: Warm",
+                // Empty on purpose: the card then shows the status computed
+                // from the reading, like every other card in this layout.
+                detail: "",
                 style: theme.neutral_card_style(),
             },
         );
@@ -124,7 +126,7 @@ fn render_air_monitor_hero_row(
             CardSpec {
                 title: "Humidity",
                 icon: "♢",
-                detail: "Comfort: Comfortable",
+                detail: "",
                 style: theme.good_card_style(),
             },
         );

@@ -721,6 +721,30 @@ fn config_rows_are_clickable_where_they_are_drawn() {
 }
 
 #[test]
+fn wide_dashboard_comfort_cards_report_the_measured_status() {
+    // These two cards used to print a fixed "Comfort: Warm" / "Comfort:
+    // Comfortable", so a freezing, damp room was described as warm and
+    // comfortable.
+    let mut app = app(Some(device_url()));
+    app.finish_fetch_success(
+        SensorSnapshot {
+            temperature_c: Some(4.0),
+            humidity: Some(91.0),
+            ..populated_snapshot()
+        },
+        Duration::from_millis(125),
+        SystemTime::now(),
+    );
+
+    let output = render_at(&app, 120, 40);
+
+    assert!(!output.output.contains("Warm"), "{}", output.output);
+    assert!(!output.output.contains("Comfortable"), "{}", output.output);
+    assert!(output.output.contains("Elevated"), "{}", output.output);
+    assert!(output.output.contains("Unhealthy"), "{}", output.output);
+}
+
+#[test]
 fn config_rows_stay_clickable_when_a_long_value_would_wrap() {
     // A stored URL longer than the panel is wide used to wrap onto a second
     // visual line, pushing every field below it one row down from its own
