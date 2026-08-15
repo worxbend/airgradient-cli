@@ -305,3 +305,72 @@ fn prefers_compensated_temperature_and_humidity() {
     assert_eq!(snapshot.temperature_c, Some(20.5));
     assert_eq!(snapshot.humidity, Some(44.0));
 }
+
+#[test]
+fn prefers_compensated_particulate_readings() {
+    // What the monitor's own display and the AirGradient dashboard show is the
+    // corrected value, so a dashboard reading the raw one disagrees with the
+    // device standing next to it.
+    let snapshot = parse_snapshot(&json!({
+        "pm01": 4.2,
+        "pm01Compensated": 3.8,
+        "pm02": 7.4,
+        "pm02Compensated": 5.1,
+        "pm10": 11.8,
+        "pm10Compensated": 10.2
+    }));
+
+    assert_eq!(snapshot.pm25, Some(5.1));
+    assert_eq!(snapshot.pm1, Some(3.8));
+    assert_eq!(snapshot.pm10, Some(10.2));
+}
+
+#[test]
+fn derives_aqi_from_the_compensated_pm25_reading() {
+    let snapshot = parse_snapshot(&json!({ "pm02": 35.5, "pm02Compensated": 9.0 }));
+
+    assert_eq!(snapshot.pm25, Some(9.0));
+    assert_eq!(snapshot.aqi, Some(us_aqi_from_pm25(9.0)));
+}
+
+#[test]
+fn honors_the_firmware_switch_for_uncompensated_display() {
+    let snapshot = parse_snapshot(&json!({
+        "pm02": 7.4,
+        "pm02Compensated": 5.1,
+        "monitorDisplayCompensatedValues": false
+    }));
+
+    assert_eq!(snapshot.pm25, Some(7.4));
+}
+
+#[test]
+fn accepts_the_display_switch_as_a_string() {
+    let snapshot = parse_snapshot(&json!({
+        "pm02": 7.4,
+        "pm02Compensated": 5.1,
+        "monitorDisplayCompensatedValues": "false"
+    }));
+
+    assert_eq!(snapshot.pm25, Some(7.4));
+}
+
+#[test]
+fn falls_back_to_the_raw_reading_when_the_compensated_one_is_out_of_range() {
+    let snapshot = parse_snapshot(&json!({ "pm02": 7.4, "pm02Compensated": 1_000.1 }));
+
+    assert_eq!(snapshot.pm25, Some(7.4));
+}
+
+#[test]
+fn does_not_mistake_neighboring_particulate_fields_for_the_reading() {
+    // A real payload also carries `pm02Standard` (a different particle-count
+    // basis) and `pm02Count`. Neither is the mass concentration this reports.
+    let snapshot = parse_snapshot(&json!({
+        "pm02Standard": 99.0,
+        "pm02Count": 4321.0,
+        "pm02": 7.4
+    }));
+
+    assert_eq!(snapshot.pm25, Some(7.4));
+}

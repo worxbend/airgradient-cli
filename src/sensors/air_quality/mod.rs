@@ -5,6 +5,11 @@
 //! accepted key spellings and bounded to a physically plausible range. An
 //! out-of-range or unparseable value becomes `None` rather than failing the
 //! whole payload — one bad sensor must not blank the entire dashboard.
+//!
+//! Where the firmware reports a reading twice — the raw sensor output and the
+//! corrected `…Compensated` value — the corrected one is what the monitor's
+//! own display and the AirGradient dashboard show, so it is what this reports.
+//! See [`preferred_value`] and [`display_shows_compensated_particulates`].
 
 #[cfg(test)]
 mod tests;
@@ -22,9 +27,24 @@ const AQI_KEYS: &[&str] = &[
     "us_aqi",
 ];
 const CO2_KEYS: &[&str] = &["rco2", "co2", "co2Ppm", "co2_ppm"];
+/// Corrected particulate readings, added in firmware 3.1.4.
+///
+/// AirGradient applies a correction algorithm to the raw sensor output, and
+/// that corrected number is what the monitor's own display and the AirGradient
+/// dashboard show. Only `pm02Compensated` is documented today; the PM1 and
+/// PM10 spellings are listed for firmware that reports them, and cost nothing
+/// when it does not.
+const PM25_COMPENSATED_KEYS: &[&str] = &["pm02Compensated", "pm25Compensated", "pm2_5Compensated"];
+const PM1_COMPENSATED_KEYS: &[&str] = &["pm01Compensated", "pm1Compensated"];
+const PM10_COMPENSATED_KEYS: &[&str] = &["pm10Compensated"];
+
 const PM25_KEYS: &[&str] = &["pm02", "pm2_5", "pm25", "pm2.5", "pm2_5_ugm3"];
 const PM1_KEYS: &[&str] = &["pm01", "pm1", "pm1_0", "pm1.0", "pm1_0_ugm3"];
 const PM10_KEYS: &[&str] = &["pm10", "pm10_0", "pm10.0", "pm10_ugm3"];
+
+/// The firmware's own switch for whether the monitor's display shows corrected
+/// particulate values. Absent on firmware that predates it.
+const DISPLAY_COMPENSATED_KEY: &str = "monitorDisplayCompensatedValues";
 const PM03_COUNT_KEYS: &[&str] = &[
     "pm003Count",
     "pm03Count",
@@ -84,47 +104,116 @@ pub struct SensorSnapshot {
 
 impl SensorSnapshot {
     pub fn from_airgradient_payload(payload: &Value) -> Self {
-        let pm25 = find_bounded_number(payload, PM25_KEYS, 0.0, MAX_PM_MASS_UG_M3);
+        let corrected_particulates = display_shows_compensated_particulates(payload);
+        let particulate = |compensated_keys, raw_keys| {
+            preferred_value(
+                payload,
+                corrected_particulates,
+                compensated_keys,
+                raw_keys,
+                0.0,
+                MAX_PM_MASS_UG_M3,
+            )
+        };
+
+        let pm25 = particulate(PM25_COMPENSATED_KEYS, PM25_KEYS);
         let explicit_aqi = find_bounded_number(payload, AQI_KEYS, 0.0, MAX_AQI);
 
         Self {
             aqi: explicit_aqi.or_else(|| pm25.map(us_aqi_from_pm25)),
             co2: find_bounded_number(payload, CO2_KEYS, 0.0, MAX_CO2_PPM),
             pm25,
-            pm1: find_bounded_number(payload, PM1_KEYS, 0.0, MAX_PM_MASS_UG_M3),
-            pm10: find_bounded_number(payload, PM10_KEYS, 0.0, MAX_PM_MASS_UG_M3),
+            pm1: particulate(PM1_COMPENSATED_KEYS, PM1_KEYS),
+            pm10: particulate(PM10_COMPENSATED_KEYS, PM10_KEYS),
             pm03_count: find_bounded_number(payload, PM03_COUNT_KEYS, 0.0, MAX_PM03_COUNT_PER_DL),
             tvoc: find_bounded_number(payload, TVOC_KEYS, 0.0, MAX_TVOC_INDEX),
             nox: find_bounded_number(payload, NOX_KEYS, 0.0, MAX_NOX_INDEX),
-            temperature_c: find_bounded_number(
+            // Temperature and humidity always prefer the corrected reading:
+            // the firmware's display switch is documented as covering the
+            // particulate values only.
+            temperature_c: preferred_value(
                 payload,
+                true,
                 TEMPERATURE_COMPENSATED_KEYS,
+                TEMPERATURE_KEYS,
                 MIN_TEMPERATURE_C,
                 MAX_TEMPERATURE_C,
-            )
-            .or_else(|| {
-                find_bounded_number(
-                    payload,
-                    TEMPERATURE_KEYS,
-                    MIN_TEMPERATURE_C,
-                    MAX_TEMPERATURE_C,
-                )
-            }),
-            humidity: find_bounded_number(
+            ),
+            humidity: preferred_value(
                 payload,
+                true,
                 HUMIDITY_COMPENSATED_KEYS,
+                HUMIDITY_KEYS,
                 MIN_HUMIDITY_PERCENT,
                 MAX_HUMIDITY_PERCENT,
-            )
-            .or_else(|| {
-                find_bounded_number(
-                    payload,
-                    HUMIDITY_KEYS,
-                    MIN_HUMIDITY_PERCENT,
-                    MAX_HUMIDITY_PERCENT,
-                )
-            }),
+            ),
         }
+    }
+}
+
+/// Reads a measurement the firmware reports twice — raw and corrected —
+/// preferring the corrected one when `prefer_compensated` is set.
+///
+/// The fallback is not just for old firmware: a corrected value outside the
+/// plausible range is rejected by [`find_bounded_number`] and the raw reading
+/// is shown instead, which is better than showing nothing.
+fn preferred_value(
+    payload: &Value,
+    prefer_compensated: bool,
+    compensated_keys: &[&str],
+    raw_keys: &[&str],
+    min: f64,
+    max: f64,
+) -> Option<f64> {
+    prefer_compensated
+        .then(|| find_bounded_number(payload, compensated_keys, min, max))
+        .flatten()
+        .or_else(|| find_bounded_number(payload, raw_keys, min, max))
+}
+
+/// Whether to report the corrected particulate readings, mirroring what the
+/// monitor itself is showing.
+///
+/// The device applies a correction algorithm to the raw particulate sensor
+/// output, and `monitorDisplayCompensatedValues` says whether its own display
+/// uses the result. Following that switch is the whole point: a dashboard that
+/// disagrees with the number on the monitor standing next to it is worse than
+/// one that is arguably less accurate. Firmware that does not report the
+/// switch at all gets the corrected values, which is what the AirGradient
+/// dashboard and app show.
+fn display_shows_compensated_particulates(payload: &Value) -> bool {
+    find_bool(payload, DISPLAY_COMPENSATED_KEY).unwrap_or(true)
+}
+
+/// Finds a boolean anywhere in the payload, accepting the `"true"`/`"false"`
+/// strings some firmware revisions emit for the same field.
+fn find_bool(value: &Value, wanted: &str) -> Option<bool> {
+    let matcher = KeyMatcher::new(wanted);
+
+    match value {
+        Value::Object(map) => map
+            .iter()
+            .find(|(key, _)| matcher.matches(key))
+            .and_then(|(_, found)| value_as_bool(found))
+            .or_else(|| {
+                map.values()
+                    .filter(|child| matches!(child, Value::Object(_) | Value::Array(_)))
+                    .find_map(|child| find_bool(child, wanted))
+            }),
+        Value::Array(items) => items.iter().find_map(|child| find_bool(child, wanted)),
+        _ => None,
+    }
+}
+
+fn value_as_bool(value: &Value) -> Option<bool> {
+    match value {
+        Value::Bool(value) => Some(*value),
+        Value::String(text) => match text.trim().to_ascii_lowercase().as_str() {
+            "true" => Some(true),
+            "false" => Some(false),
+            _ => None,
+        },
+        _ => None,
     }
 }
 

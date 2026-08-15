@@ -12,6 +12,7 @@ fn fixture(name: &str) -> Value {
         "compensated_fallback_payload" => {
             include_str!("fixtures/compensated_fallback_payload.json")
         }
+        "firmware_3_7_payload" => include_str!("fixtures/firmware_3_7_payload.json"),
         _ => unreachable!("unknown fixture {name}"),
     };
 
@@ -31,6 +32,28 @@ fn parses_current_airgradient_style_fixture() {
     assert_eq!(snapshot.humidity, Some(48.1));
     assert_eq!(snapshot.tvoc, Some(83.0));
     assert_eq!(snapshot.nox, Some(2.0));
+}
+
+#[test]
+fn reports_what_a_current_firmware_monitor_shows_on_its_own_display() {
+    // A full `/measures/current` body from firmware 3.7. The payload carries
+    // three different PM2.5-shaped numbers — `pm02` (raw mass), `pm02Standard`
+    // (a different particle basis), and `pm02Count` (a particle count) — plus
+    // the corrected `pm02Compensated` that the monitor's display and the
+    // AirGradient dashboard show. Only the last one is the reading to report.
+    let snapshot = parse_snapshot(&fixture("firmware_3_7_payload"));
+
+    assert_eq!(snapshot.pm25, Some(5.1));
+    assert_eq!(snapshot.pm1, Some(4.2));
+    assert_eq!(snapshot.pm10, Some(11.8));
+    assert_eq!(snapshot.co2, Some(612.0));
+    assert_eq!(snapshot.pm03_count, Some(1234.0));
+    assert_eq!(snapshot.temperature_c, Some(22.6));
+    assert_eq!(snapshot.humidity, Some(48.1));
+    assert_eq!(snapshot.tvoc, Some(83.0));
+    assert_eq!(snapshot.nox, Some(2.0));
+    // US AQI for 5.1 ug/m3, the same basis the monitor uses.
+    assert_eq!(snapshot.aqi, Some(28.0));
 }
 
 #[test]

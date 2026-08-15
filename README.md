@@ -132,6 +132,7 @@ AQI 41 - Good
 | 🎨 **20 built-in themes** | Nord, Dracula, Gruvbox, Catppuccin, Tokyo Night… plus a TTY-safe `mono` that leaves your terminal palette alone. |
 | ⌨️ **Vim / AstroNvim keys** | `j`/`k`, `gg`/`G`, `<C-d>`/`<C-u>`, `:` for the command line, and `<Space>` as a which-key leader. |
 | 🖱️ **Mouse navigation** | Scroll to move through lists, click to select a row. |
+| 🎯 **Matches your monitor** | Reads the corrected (`…Compensated`) values the AirGradient display and dashboard show, and follows the firmware's own `monitorDisplayCompensatedValues` switch, so the numbers agree with the device on your shelf. |
 | 🔒 **Local-only, tolerant** | LAN only, nothing else. A malformed config warns per field instead of failing, so a bad value never locks you out of the tool that fixes it. |
 | 🤝 **Shares desktop config** | Same JSON file as `airgradient-desktop`. Unknown fields are preserved on write. |
 
