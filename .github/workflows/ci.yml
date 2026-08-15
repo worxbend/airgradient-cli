@@ -4,6 +4,12 @@ on:
   push:
   pull_request:
 
+# CI only reads the repository. Without this block the job inherits the
+# repository default, which on older repositories is read/write — a token that
+# every dependency's build script and proc macro runs alongside.
+permissions:
+  contents: read
+
 jobs:
   rust:
     runs-on: ubuntu-latest

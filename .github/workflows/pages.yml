@@ -15,10 +15,10 @@ on:
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
+# Narrowed per job below: building only reads the repository, and only the
+# deploy job needs the Pages and OIDC permissions.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 # Never cancel an in-flight publish: a half-deployed site is worse than a
 # slightly stale one.
@@ -59,6 +59,9 @@ jobs:
     name: Deploy to Pages
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
