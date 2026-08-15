@@ -383,6 +383,43 @@ async fn refresh_interval_key_events_adjust_app_interval() {
 }
 
 #[tokio::test]
+async fn palette_refresh_command_changes_the_polling_cadence() {
+    // `:refresh 5` must shorten the actual countdown, not just the number the
+    // status line prints: the app starts on the longest interval, so the second
+    // fetch can only happen if the schedule adopted the new one.
+    let clock = test_clock_start();
+    let mut terminal = HarnessTerminal::with_events(
+        [RuntimeEvent::OpenPalette]
+            .into_iter()
+            .chain("refresh 5".chars().map(RuntimeEvent::PaletteChar))
+            .chain([RuntimeEvent::Confirm, RuntimeEvent::Quit]),
+    )
+    .with_clock(clock.clone());
+    // One scripted `true` poll per typing event, then a single quiet poll that
+    // pushes the clock past the freshly requested five seconds.
+    for _ in 0..11 {
+        terminal.polls.push_back(Ok(true));
+        terminal.poll_advances.push_back(Duration::ZERO);
+    }
+    terminal.polls.push_back(Ok(false));
+    terminal.poll_advances.push_back(Duration::from_secs(6));
+    let mut fetcher =
+        HarnessFetcher::new([Ok(successful_payload()), Ok(later_successful_payload())]);
+    let url = configured_url();
+    let mut app = TuiApp::new(
+        Some(url.clone()),
+        Duration::from_secs(MAX_REFRESH_INTERVAL_SECS),
+    );
+
+    run_with_harness_clock(&mut terminal, &mut app, &mut fetcher, clock)
+        .await
+        .expect("runtime should quit cleanly");
+
+    assert_eq!(app.refresh_interval, Duration::from_secs(5));
+    assert_eq!(fetcher.calls, [url.clone(), url]);
+}
+
+#[tokio::test]
 async fn failure_after_success_preserves_last_successful_snapshot() {
     let mut terminal = HarnessTerminal::with_events([RuntimeEvent::Refresh, RuntimeEvent::Quit]);
     let mut fetcher =

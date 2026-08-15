@@ -129,6 +129,11 @@ where
         interval: initial_refresh_schedule_interval,
         next_at: clock.now() + initial_refresh_schedule_interval,
     };
+    // The interval the schedule was last told about. Compared against, rather
+    // than assigned from, `app.refresh_interval` every iteration, because the
+    // two are allowed to differ at startup: tests hand the loop a short
+    // schedule interval while the app still displays the configured one.
+    let mut scheduled_app_interval = app.refresh_interval;
 
     loop {
         if fetch_scheduler.apply_ready_results(app, fetcher).await? {
@@ -162,6 +167,17 @@ where
             .await?;
             if quit {
                 break;
+            }
+
+            // Any event may have changed the app's interval — the `+`/`-`
+            // keys, `:refresh N` in the command palette, or Save & Close in
+            // the config editor. Each of those used to only update what the
+            // status line displays, leaving the loop polling on the old
+            // cadence, so the interval is adopted here once for all of them.
+            if app.refresh_interval != scheduled_app_interval {
+                scheduled_app_interval = app.refresh_interval;
+                schedule.interval = scheduled_app_interval;
+                schedule.restart_from(clock.now());
             }
         }
 
@@ -213,9 +229,10 @@ where
             } else {
                 app.decrease_refresh_interval();
             }
-            // A manual interval change also drops any test-only scheduler
-            // override: from here on the app's own interval is the schedule.
-            schedule.interval = app.refresh_interval;
+            // The new interval is adopted by the caller, which watches
+            // `app.refresh_interval` for every event. Restarting here still
+            // matters for the case where the interval did not move because it
+            // was already at its minimum or maximum.
             schedule.restart_from(now);
             terminal.draw(app)?;
         }
