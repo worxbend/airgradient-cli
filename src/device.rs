@@ -50,6 +50,11 @@ pub enum DeviceError {
     #[error("unsupported device URL scheme `{scheme}`; expected http or https")]
     UnsupportedScheme { scheme: String },
 
+    #[error(
+        "device URL must not embed credentials; remove the `user:password@` part before the host"
+    )]
+    CredentialsInUrl,
+
     #[error("failed to build HTTP client")]
     ClientBuild(#[source] reqwest::Error),
 
@@ -71,6 +76,14 @@ pub enum DeviceError {
     },
 }
 
+/// Turns whatever the user typed into a bare `scheme://host[:port]/` base URL.
+///
+/// Everything after the host is dropped (path, query, fragment) because the only
+/// endpoint this tool talks to is appended by [`current_measures_url`]. URLs that
+/// embed credentials (`http://user:pass@host`) are rejected rather than stored:
+/// the normalized URL is written to the config file in plaintext and printed by
+/// `config show`, `--json`, the TUI status line, and every error message, so a
+/// password in it would end up in shell scrollback and pasted bug reports.
 pub fn normalize_base_url(input: &str) -> Result<Url, DeviceError> {
     let trimmed = input.trim();
     let parse_input = if has_explicit_scheme(trimmed) {
@@ -80,7 +93,7 @@ pub fn normalize_base_url(input: &str) -> Result<Url, DeviceError> {
     };
 
     let mut url = Url::parse(&parse_input).map_err(|source| DeviceError::InvalidUrl {
-        input: input.to_owned(),
+        input: redact_userinfo(input),
         source,
     })?;
 
@@ -93,11 +106,36 @@ pub fn normalize_base_url(input: &str) -> Result<Url, DeviceError> {
         }
     }
 
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(DeviceError::CredentialsInUrl);
+    }
+
     url.set_path("");
     url.set_query(None);
     url.set_fragment(None);
 
     Ok(url)
+}
+
+/// Masks a `user:password@` prefix so a rejected URL can be echoed back safely.
+///
+/// `Url::parse` failed for this string, so we cannot use the parser to find the
+/// userinfo. Everything between the scheme separator and the last `@` of the
+/// authority is replaced with `***`; strings without an `@` are returned as-is.
+fn redact_userinfo(input: &str) -> String {
+    let (prefix, authority_and_rest) = match input.find("//") {
+        Some(index) => input.split_at(index + 2),
+        None => ("", input),
+    };
+    let authority_end = authority_and_rest
+        .find('/')
+        .unwrap_or(authority_and_rest.len());
+    let (authority, rest) = authority_and_rest.split_at(authority_end);
+
+    match authority.rfind('@') {
+        Some(index) => format!("{prefix}***@{}{rest}", &authority[index + 1..]),
+        None => input.to_owned(),
+    }
 }
 
 pub async fn fetch_current_measures(base_url: &Url) -> Result<Value, DeviceError> {
@@ -212,6 +250,37 @@ mod tests {
             .expect("URL should normalize");
 
         assert_eq!(url.as_str(), "http://192.168.1.201/");
+    }
+
+    #[test]
+    fn rejects_urls_that_embed_credentials() {
+        for input in [
+            "http://admin:hunter2@192.168.1.201",
+            "https://admin@airgradient.local",
+            "admin:hunter2@192.168.1.201",
+        ] {
+            let err = normalize_base_url(input).expect_err("credentials should be rejected");
+
+            assert!(matches!(err, DeviceError::CredentialsInUrl), "{input}");
+        }
+    }
+
+    #[test]
+    fn credential_rejection_message_does_not_leak_the_password() {
+        let err = normalize_base_url("http://admin:hunter2@192.168.1.201")
+            .expect_err("credentials should be rejected");
+
+        assert!(!err.to_string().contains("hunter2"));
+    }
+
+    #[test]
+    fn invalid_url_error_masks_embedded_credentials() {
+        let err = normalize_base_url("http://admin:hunter2@:::/measures")
+            .expect_err("URL should be rejected");
+
+        let message = err.to_string();
+        assert!(!message.contains("hunter2"), "{message}");
+        assert!(message.contains("***@"), "{message}");
     }
 
     #[test]
