@@ -3,9 +3,15 @@
 //! Every write goes through [`write_config`], which merges into the existing
 //! JSON object instead of overwriting it — the desktop app stores fields this
 //! CLI does not model, and a plain serialize-and-replace would silently drop
-//! them.
+//! them. The file is replaced atomically ([`write_atomically`]) so an
+//! interrupted write cannot leave the shared file truncated.
 
-use std::{fs, path::Path};
+use std::{
+    fs,
+    io::Write,
+    path::{Path, PathBuf},
+    process,
+};
 
 use serde_json::{Map, Value};
 
@@ -112,10 +118,51 @@ pub fn write_config(path: &Path, config: &Config) -> Result<(), ConfigError> {
         serde_json::to_string_pretty(&Value::Object(object)).map_err(ConfigError::Serialize)?;
     contents.push('\n');
 
-    fs::write(path, contents).map_err(|source| ConfigError::Write {
-        path: path.to_path_buf(),
-        source,
+    write_atomically(path, contents.as_bytes())
+}
+
+/// Replaces `path` with `contents` in a single step.
+///
+/// Writing straight to the config file would truncate it first and only then
+/// start writing, so a crash, a full disk, or a killed process in between
+/// leaves a half-written or empty file. That file no longer parses, which takes
+/// down not just this CLI but the desktop app that shares it — including the
+/// keys this module goes out of its way to preserve.
+///
+/// Instead the new content goes to a sibling temporary file, is flushed to disk
+/// with `sync_all`, and is then moved into place with `rename`, which is atomic
+/// on the same filesystem: a reader sees either the old file or the new one,
+/// never a partial one. The temporary file is removed if any step fails.
+///
+/// Note this makes each write atomic; it does not serialize two processes
+/// writing at once. If the desktop app writes between this CLI's read and its
+/// write, the CLI's version still wins as a whole.
+fn write_atomically(path: &Path, contents: &[u8]) -> Result<(), ConfigError> {
+    let temp_path = temp_path_for(path);
+
+    let write_result = (|| {
+        let mut file = fs::File::create(&temp_path)?;
+        file.write_all(contents)?;
+        file.sync_all()?;
+        fs::rename(&temp_path, path)
+    })();
+
+    write_result.map_err(|source| {
+        let _ = fs::remove_file(&temp_path);
+        ConfigError::Write {
+            path: path.to_path_buf(),
+            source,
+        }
     })
+}
+
+/// A sibling path for the temporary file, in the same directory so the later
+/// `rename` stays on one filesystem. The process id keeps two CLI processes
+/// writing at the same time from clobbering each other's temporary file.
+fn temp_path_for(path: &Path) -> PathBuf {
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(format!(".{}.tmp", process::id()));
+    path.with_file_name(name)
 }
 
 /// The config file as a raw JSON object, or an empty one if it does not exist

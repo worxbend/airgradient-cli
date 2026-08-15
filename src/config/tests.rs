@@ -180,3 +180,18 @@ fn unknown_theme_value_type_warns_and_falls_back_to_default() {
     assert_eq!(display.config.theme, "default");
     assert!(display.warnings.iter().any(|w| w.contains("theme")));
 }
+
+#[test]
+fn write_leaves_no_temporary_file_behind() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let path = temp_dir.path().join("config.json");
+
+    set_refresh_interval(&path, 60).unwrap();
+
+    let leftovers: Vec<_> = fs::read_dir(temp_dir.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .filter(|name| name != "config.json")
+        .collect();
+    assert!(leftovers.is_empty(), "{leftovers:?}");
+}
