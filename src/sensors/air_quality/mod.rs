@@ -156,13 +156,26 @@ pub fn us_aqi_from_pm25(pm25: f64) -> f64 {
     500.0
 }
 
+/// Finds the first number in `value` reachable under any of `keys` and within
+/// `min..=max`, searching nested objects and arrays.
 fn find_bounded_number(value: &Value, keys: &[&str], min: f64, max: f64) -> Option<f64> {
+    // The comparison forms of the wanted keys are built once here rather than
+    // inside the match. They are derived from a `const` table, so recomputing
+    // them for every key of every nested object -- which is what happens when
+    // the derivation lives in the comparison itself -- allocates thousands of
+    // short-lived strings per payload, on every refresh tick.
+    let matchers: Vec<KeyMatcher> = keys.iter().map(|key| KeyMatcher::new(key)).collect();
+
+    find_matching_number(value, &matchers, min, max)
+}
+
+fn find_matching_number(value: &Value, matchers: &[KeyMatcher], min: f64, max: f64) -> Option<f64> {
     match value {
         Value::Object(map) => {
-            for wanted in keys {
+            for matcher in matchers {
                 if let Some(found) = map
                     .iter()
-                    .filter(|(key, _)| key_matches(key, wanted))
+                    .filter(|(key, _)| matcher.matches(key))
                     .filter_map(|(_, value)| value_as_number(value))
                     .find(|value| (min..=max).contains(value))
                 {
@@ -172,13 +185,13 @@ fn find_bounded_number(value: &Value, keys: &[&str], min: f64, max: f64) -> Opti
 
             map.values().find_map(|child| {
                 matches!(child, Value::Object(_) | Value::Array(_))
-                    .then(|| find_bounded_number(child, keys, min, max))
+                    .then(|| find_matching_number(child, matchers, min, max))
                     .flatten()
             })
         }
         Value::Array(items) => items
             .iter()
-            .find_map(|child| find_bounded_number(child, keys, min, max)),
+            .find_map(|child| find_matching_number(child, matchers, min, max)),
         _ => None,
     }
 }
@@ -195,10 +208,30 @@ fn value_as_number(value: &Value) -> Option<f64> {
     }
 }
 
-fn key_matches(actual: &str, expected: &str) -> bool {
-    actual.eq_ignore_ascii_case(expected)
-        || (normalized_key(actual) == normalized_key(expected)
-            && numeric_runs(actual) == numeric_runs(expected))
+/// One wanted key, with the two derived forms a comparison needs already
+/// computed: the letters-and-digits-only lowercase form, and the runs of
+/// digits in order. Both are compared so that `pm02` matches `pm_02` and
+/// `PM 02` but not `pm2` or `pm025`.
+struct KeyMatcher<'a> {
+    expected: &'a str,
+    normalized: String,
+    numeric_runs: Vec<&'a str>,
+}
+
+impl<'a> KeyMatcher<'a> {
+    fn new(expected: &'a str) -> Self {
+        Self {
+            expected,
+            normalized: normalized_key(expected),
+            numeric_runs: numeric_runs(expected),
+        }
+    }
+
+    fn matches(&self, actual: &str) -> bool {
+        actual.eq_ignore_ascii_case(self.expected)
+            || (normalized_key(actual) == self.normalized
+                && numeric_runs(actual) == self.numeric_runs)
+    }
 }
 
 fn normalized_key(key: &str) -> String {
@@ -208,20 +241,25 @@ fn normalized_key(key: &str) -> String {
         .collect()
 }
 
-fn numeric_runs(key: &str) -> Vec<String> {
+/// The runs of consecutive digits in `key`, in order, as slices of `key`
+/// itself so that no allocation per run is needed.
+fn numeric_runs(key: &str) -> Vec<&str> {
     let mut runs = Vec::new();
-    let mut current = String::new();
+    let mut start = None;
 
-    for character in key.chars() {
-        if character.is_ascii_digit() {
-            current.push(character);
-        } else if !current.is_empty() {
-            runs.push(std::mem::take(&mut current));
+    for (index, character) in key.char_indices() {
+        match (character.is_ascii_digit(), start) {
+            (true, None) => start = Some(index),
+            (false, Some(begin)) => {
+                runs.push(&key[begin..index]);
+                start = None;
+            }
+            _ => {}
         }
     }
 
-    if !current.is_empty() {
-        runs.push(current);
+    if let Some(begin) = start {
+        runs.push(&key[begin..]);
     }
 
     runs
