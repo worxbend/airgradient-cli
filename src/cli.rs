@@ -94,6 +94,12 @@ pub enum CliError {
     #[error("`--refresh` is only supported with `--tui`.")]
     RefreshRequiresTui,
 
+    #[error("`--tui` starts the dashboard and cannot be combined with a subcommand.")]
+    SubcommandUnsupportedWithTui,
+
+    #[error("`--json` only applies to one-shot fetch output; `--tui` does not support it.")]
+    JsonUnsupportedForTui,
+
     #[error("`--json` only applies to one-shot fetch output; config commands do not support it.")]
     JsonUnsupportedForConfig,
 
@@ -110,6 +116,19 @@ pub enum CliError {
 
 pub async fn run(cli: Cli) -> Result<(), CliError> {
     if cli.tui {
+        // Checked before launching, because the dashboard takes over the
+        // terminal and never comes back to run a subcommand or print JSON.
+        // `airgradient-cli --tui config path` used to open the dashboard and
+        // silently drop the command, which hangs any script that expected a
+        // path on stdout; the mirror-image mistake, `--refresh` without
+        // `--tui`, was already an error.
+        if cli.command.is_some() {
+            return Err(CliError::SubcommandUnsupportedWithTui);
+        }
+        if cli.json {
+            return Err(CliError::JsonUnsupportedForTui);
+        }
+
         let options = tui::runtime::RuntimeOptions {
             config_path: config_path(&cli)?,
             url_override: cli.url.clone(),

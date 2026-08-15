@@ -799,3 +799,25 @@ fn themes_command_rejects_json_flag() {
 fn path_str(path: &Path) -> &str {
     path.to_str().expect("test path should be utf8")
 }
+
+#[test]
+fn tui_with_a_subcommand_is_rejected_rather_than_ignored() {
+    cli()
+        .args(["--tui", "config", "path"])
+        .assert()
+        .failure()
+        .stdout("")
+        .stderr(predicate::str::contains(
+            "`--tui` starts the dashboard and cannot be combined with a subcommand",
+        ));
+}
+
+#[test]
+fn tui_with_json_is_rejected_rather_than_ignored() {
+    cli()
+        .args(["--tui", "--json"])
+        .assert()
+        .failure()
+        .stdout("")
+        .stderr(predicate::str::contains("`--tui` does not support it"));
+}
