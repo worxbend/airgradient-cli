@@ -14,10 +14,20 @@ the project-specific rules; the general reasoning behind them is in
   is to find the seam, not to compress the code. `src/tui/ui/` and
   `src/tui/runtime/` show the intended shape: a small `mod.rs` that dispatches,
   and siblings that each own one surface.
-- No file in `src/` currently exceeds 403 lines. The largest is
-  `src/tui/theme/palette.rs`, which is a data table — one constant per theme
-  — and reads top to bottom without holding any state in mind. Prefer keeping
-  a table whole over splitting it at an arbitrary midpoint.
+- The limit applies to every file under `src/`, tests included. Two test files
+  had drifted past it and were split by subject (`src/tui/app/tests/`,
+  `src/tui/runtime/tests/input_routing.rs`); a claim about the exact current
+  maximum is deliberately not repeated here, because it goes stale the moment
+  someone adds a function. Check it instead:
+
+  ```sh
+  find src -name '*.rs' | xargs wc -l | sort -rn | head
+  ```
+
+- One exception worth naming: `src/tui/theme/palette.rs` is a data table — one
+  constant per theme — and reads top to bottom without holding any state in
+  mind. Prefer keeping a table whole over splitting it at an arbitrary
+  midpoint.
 - Test doubles get the same treatment as production code: the runtime's fakes
   are split by which seam they stand in for (`terminal_fakes`, `fetch_fakes`)
   rather than piled into the test module's `mod.rs`.
