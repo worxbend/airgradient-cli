@@ -75,11 +75,20 @@ impl Theme {
     /// Look up a built-in theme by id, case-insensitively. Unknown ids fall
     /// back to the default theme rather than erroring, so a stale or
     /// hand-edited config value never blocks the TUI from starting.
+    ///
+    /// Use [`Theme::find`] instead when the id came from something the user
+    /// just typed, where an unrecognized id is a mistake worth reporting
+    /// rather than something to quietly paper over.
     pub fn by_id(id: &str) -> Theme {
+        Theme::find(id).unwrap_or_else(Theme::default_theme)
+    }
+
+    /// Look up a built-in theme by id, case-insensitively, reporting an
+    /// unknown id as `None`.
+    pub fn find(id: &str) -> Option<Theme> {
         ALL.iter()
             .find(|theme| theme.id.eq_ignore_ascii_case(id))
             .copied()
-            .unwrap_or_else(Theme::default_theme)
     }
 
     pub fn index(self) -> usize {

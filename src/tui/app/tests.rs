@@ -582,3 +582,24 @@ fn theme_chosen_inside_the_config_editor_survives_save_and_close() {
     assert_eq!(app.theme.id, chosen.id);
     assert_eq!(config::read_config(&path).unwrap().theme, chosen.id);
 }
+
+#[test]
+fn palette_rejects_an_unknown_theme_without_touching_the_stored_one() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let (mut app, path) = app_with_config(temp_dir.path());
+    let stored = theme::ALL[1];
+    config::set_theme(&path, stored.id).unwrap();
+    app.theme = stored;
+
+    app.open_command_palette();
+    for c in "theme drakula".chars() {
+        app.palette_push_char(c);
+    }
+    app.palette_submit();
+
+    let (message, is_error) = app.palette_message.clone().expect("message should be set");
+    assert!(message.contains("unknown theme: drakula"), "{message}");
+    assert!(is_error);
+    assert_eq!(app.theme.id, stored.id);
+    assert_eq!(config::read_config(&path).unwrap().theme, stored.id);
+}

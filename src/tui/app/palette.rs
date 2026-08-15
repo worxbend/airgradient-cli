@@ -79,10 +79,21 @@ impl TuiApp {
                 PaletteOutcome::Continue
             }
             Ok(PaletteCommand::SetTheme(id)) => {
-                let resolved = Theme::by_id(&id);
-                self.theme = resolved;
-                self.persist_theme(resolved.id);
-                self.palette_message = Some((format!("theme set: {}", resolved.label), false));
+                // Deliberately `find` rather than `by_id`: the latter turns an
+                // unknown id into the default theme, which here would answer a
+                // typo like `:theme drakula` with a green "theme set:
+                // AirGradient" and overwrite whatever theme was stored.
+                match Theme::find(&id) {
+                    Some(resolved) => {
+                        self.theme = resolved;
+                        self.persist_theme(resolved.id);
+                        self.palette_message =
+                            Some((format!("theme set: {}", resolved.label), false));
+                    }
+                    None => {
+                        self.palette_message = Some((format!("unknown theme: {id}"), true));
+                    }
+                }
                 PaletteOutcome::Continue
             }
             Ok(PaletteCommand::OpenConfig) => {
