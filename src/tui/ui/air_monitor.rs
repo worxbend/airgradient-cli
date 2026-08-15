@@ -8,7 +8,7 @@ use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     text::{Line, Span},
-    widgets::{Paragraph, Wrap},
+    widgets::{Padding, Paragraph, Wrap},
 };
 
 use crate::{
@@ -21,6 +21,7 @@ use crate::{
                 CardSpec, render_air_monitor_aqi_card, render_air_monitor_metric_card,
             },
             format::{aqi_metric, configured_url_text, display_metrics, metric_by_key},
+            vertical_gap, widget_block,
         },
     },
 };
@@ -71,7 +72,8 @@ fn render_server_url_line(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
     frame.render_widget(
         Paragraph::new(line)
             .style(theme.panel_style())
-            .alignment(Alignment::Left),
+            .alignment(Alignment::Left)
+            .block(widget_block(theme).padding(Padding::horizontal(1))),
         area,
     );
 }
@@ -95,6 +97,7 @@ fn render_air_monitor_hero_row(
         .split(area);
     let comfort = Layout::default()
         .direction(Direction::Vertical)
+        .spacing(vertical_gap(area))
         .constraints([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)])
         .split(columns[2]);
 

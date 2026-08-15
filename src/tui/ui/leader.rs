@@ -8,10 +8,13 @@ use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Clear, Paragraph},
 };
 
-use crate::tui::app::{LEADER_BINDINGS, TuiApp};
+use crate::tui::{
+    app::{LEADER_BINDINGS, TuiApp},
+    ui::widget_block,
+};
 
 /// Cells of padding between the popup and the screen edge.
 const MARGIN: u16 = 2;
@@ -60,9 +63,7 @@ pub(super) fn render_leader_popup(frame: &mut Frame<'_>, area: Rect, app: &TuiAp
     frame.render_widget(Clear, popup);
     frame.render_widget(
         Paragraph::new(lines).style(theme.panel_style()).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .style(theme.panel_style())
+            widget_block(theme)
                 .border_style(theme.active_border_style())
                 .title(Span::styled(" <space> ", theme.title_style())),
         ),

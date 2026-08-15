@@ -9,7 +9,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Padding, Paragraph, Wrap},
 };
 
 use crate::{
@@ -17,7 +17,10 @@ use crate::{
     tui::{
         app::{ConfigField, TuiApp},
         theme::{self, Theme},
-        ui::hit::{HitMap, HitTarget},
+        ui::{
+            hit::{HitMap, HitTarget},
+            screen_inset, widget_block, widget_gap,
+        },
     },
 };
 
@@ -34,10 +37,10 @@ pub(super) fn render_theme_settings(
     hits: &mut HitMap,
 ) {
     let theme = app.theme;
+    let area = screen_inset(area);
 
-    let outer = Block::default()
-        .borders(Borders::ALL)
-        .style(theme.panel_style())
+    let outer = widget_block(theme)
+        .padding(Padding::horizontal(1))
         .border_style(theme.active_border_style())
         .title(
             " Themes — j/k preview \u{00b7} gg/G ends \u{00b7} Enter apply \u{00b7} Esc cancel ",
@@ -47,7 +50,10 @@ pub(super) fn render_theme_settings(
 
     let sections = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
+        .spacing(widget_gap(inner))
+        // `Fill` rather than `Percentage`: percentages adding up to 100 leave
+        // the solver no room for the gutter between the two panels.
+        .constraints([Constraint::Fill(45), Constraint::Fill(55)])
         .split(inner);
 
     render_theme_list(frame, sections[0], app, hits);
@@ -77,10 +83,8 @@ fn render_theme_list(frame: &mut Frame<'_>, area: Rect, app: &TuiApp, hits: &mut
         })
         .collect();
 
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .style(theme.panel_style())
-        .border_style(theme.border_style())
+    let block = widget_block(theme)
+        .padding(Padding::horizontal(1))
         .title(" Themes ");
     let inner = block.inner(area);
 
@@ -124,9 +128,8 @@ fn record_row_hits(
 /// dashboard uses (statuses, muted/label/value text, selection) so a theme
 /// can be judged without applying it.
 fn render_theme_preview(frame: &mut Frame<'_>, area: Rect, theme: Theme) {
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .style(theme.panel_style())
+    let block = widget_block(theme)
+        .padding(Padding::horizontal(1))
         .border_style(theme.active_border_style())
         .title(format!(" Preview: {} ", theme.label));
     let inner = block.inner(area);
@@ -173,9 +176,9 @@ pub(super) fn render_config_editor(
     hits: &mut HitMap,
 ) {
     let theme = app.theme;
-    let outer = Block::default()
-        .borders(Borders::ALL)
-        .style(theme.panel_style())
+    let area = screen_inset(area);
+    let outer = widget_block(theme)
+        .padding(Padding::horizontal(1))
         .border_style(theme.active_border_style())
         .title(" Config — j/k navigate \u{00b7} Enter edit/toggle \u{00b7} Esc cancel ");
     let inner = outer.inner(area);

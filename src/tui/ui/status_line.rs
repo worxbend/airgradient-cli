@@ -7,9 +7,8 @@ use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
-    symbols,
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::Paragraph,
 };
 
 use crate::{
@@ -22,6 +21,7 @@ use crate::{
                 configured_url_text, display_metrics, fetch_status, format_duration,
                 format_system_time_delta,
             },
+            widget_block,
         },
     },
 };
@@ -63,11 +63,9 @@ fn render_compact_status_line(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
     ]);
 
     frame.render_widget(
-        Paragraph::new(line).style(theme.panel_style()).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .style(theme.panel_style()),
-        ),
+        Paragraph::new(line)
+            .style(theme.panel_style())
+            .block(widget_block(theme)),
         area,
     );
 }
@@ -80,11 +78,7 @@ fn render_showcase_status_line(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) 
         .last_success_at
         .map(format_system_time_delta)
         .unwrap_or_else(|| "not yet".to_string());
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_set(symbols::border::ROUNDED)
-        .border_style(theme.border_style())
-        .style(theme.panel_style());
+    let block = widget_block(theme).style(theme.panel_style());
     let inner = block.inner(area);
     frame.render_widget(block, area);
 

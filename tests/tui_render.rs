@@ -469,6 +469,11 @@ fn renders_minimum_size_with_clipped_lower_metrics_and_intact_controls() {
     assert_region_excludes(&output, "metric grid", 0, 10, 36, 7, "r refresh");
     assert_region_excludes(&output, "metric grid", 0, 10, 36, 7, "q quit");
 
+    // The grid draws as many whole cells as the height allows and stops, so
+    // the two highest-priority metrics are readable rather than every metric
+    // being reduced to a row of empty box lids.
+    assert_region_contains(&output, "metric grid", 0, 10, 36, 7, "CO2");
+
     assert_region_contains(&output, "footer", 0, 17, 36, 3, "r refresh");
     assert_region_contains(&output, "footer", 0, 17, 36, 3, "q quit");
     assert_region_contains(&output, "footer", 0, 17, 36, 3, "Esc quit");
@@ -476,7 +481,6 @@ fn renders_minimum_size_with_clipped_lower_metrics_and_intact_controls() {
     assert_region_excludes(&output, "footer", 0, 17, 36, 3, "CO2");
 
     for clipped_metric in [
-        "CO2",
         "PM2.5",
         "PM1.0",
         "PM10",
@@ -676,10 +680,12 @@ fn theme_rows_are_clickable_where_they_are_drawn() {
 
     // Every recorded zone must land on the row whose label is actually there,
     // which is the property that keeps clicks honest as the layout reflows.
+    // Column 8 is inside the list panel: screen margin, the view's border and
+    // padding, then the list's own border and padding all sit to its left.
     for (index, candidate) in theme::ALL.iter().enumerate() {
         let target = ui::HitTarget::ThemeRow(index);
         let row = (0..40u16)
-            .find(|row| hits.hit(4, *row) == Some(target))
+            .find(|row| hits.hit(8, *row) == Some(target))
             .unwrap_or_else(|| panic!("theme row {index} should be clickable"));
 
         assert!(
@@ -742,6 +748,66 @@ fn wide_dashboard_comfort_cards_report_the_measured_status() {
     assert!(!output.output.contains("Comfortable"), "{}", output.output);
     assert!(output.output.contains("Elevated"), "{}", output.output);
     assert!(output.output.contains("Unhealthy"), "{}", output.output);
+}
+
+#[test]
+fn dashboard_widgets_are_separated_by_a_margin_and_gutters() {
+    let mut app = app(Some(device_url()));
+    app.finish_fetch_success(
+        populated_snapshot(),
+        Duration::from_millis(125),
+        SystemTime::now(),
+    );
+
+    let output = render_at(&app, 100, 30);
+
+    // Nothing is drawn in the first or last column: the whole dashboard is
+    // inset from the terminal edge.
+    for (index, line) in output.lines.iter().enumerate() {
+        let cells: Vec<char> = line.chars().collect();
+        assert_eq!(
+            cells.first(),
+            Some(&' '),
+            "row {index} touches the left edge"
+        );
+        assert_eq!(
+            cells.last(),
+            Some(&' '),
+            "row {index} touches the right edge"
+        );
+    }
+
+    // And the two grid columns are separated rather than sharing a seam.
+    assert!(
+        output.lines.iter().any(|line| line.contains("╮ ╭")),
+        "expected a gutter between the grid columns; full render:\n{}",
+        output.output
+    );
+    assert!(
+        !output.output.contains("╮╭"),
+        "widgets should not share a seam; full render:\n{}",
+        output.output
+    );
+}
+
+#[test]
+fn minimum_terminal_spends_every_column_on_readings() {
+    // Gaps are a luxury: at the documented minimum size the dashboard uses the
+    // full width rather than spending two columns on margins.
+    let mut app = app(Some(device_url()));
+    app.finish_fetch_success(
+        populated_snapshot(),
+        Duration::from_millis(125),
+        SystemTime::now(),
+    );
+
+    let output = render_at(&app, 36, 20);
+
+    assert!(
+        !output.lines.iter().all(|line| line.starts_with(' ')),
+        "the minimum-size dashboard should not be inset; full render:\n{}",
+        output.output
+    );
 }
 
 #[test]

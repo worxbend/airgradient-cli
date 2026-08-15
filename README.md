@@ -257,6 +257,14 @@ dashboard correctly, just without the smooth triangular joins. Metric cards
 also show a thin gauge bar under each reading, filled relative to that
 metric's typical scale and colored by its status.
 
+Every panel — the status bar, each metric card, the error panel, the footer —
+is drawn inside its own rounded border, with a cell of background between
+neighbouring panels and around the edge of the screen so they read as separate
+widgets. A card's border is tinted by that reading's status, so the
+good/elevated/unhealthy signal is visible at a glance. Those gaps are given up
+as the terminal gets smaller: below 60 columns the dashboard uses the full
+width, so the documented 36x20 minimum spends every cell on readings.
+
 If no device URL is configured, `--tui` still opens the dashboard and shows the
 missing-URL state instead of fetching. Set a URL with `config set-url`, or pass a
 one-run URL override with `--url`:

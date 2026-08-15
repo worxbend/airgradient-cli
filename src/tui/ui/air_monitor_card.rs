@@ -122,7 +122,7 @@ fn split_card(inner: Rect, icon_width: u16, min_text_width: u16) -> (Rect, Rect,
         .split(inner);
     let text_rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(4), Constraint::Length(1)])
+        .constraints([Constraint::Min(3), Constraint::Length(1)])
         .split(columns[1]);
 
     (columns[0], text_rows[0], text_rows[1])
@@ -184,22 +184,34 @@ fn gauge_scale(key: &str) -> f64 {
     }
 }
 
+/// A card's frame: a full rounded border tinted by the reading's status.
+///
+/// The border used to be a single thick bar down the left edge. That left the
+/// card open on three sides, so where one card ended and the next began was
+/// carried entirely by the gap between them — and a card at the edge of a row
+/// had no visible extent at all. A closed border states it outright, and
+/// keeping it status-coloured preserves the at-a-glance signal the left bar
+/// carried.
 fn air_monitor_card_block(theme: Theme, style: Style, status: Status) -> Block<'static> {
     Block::default()
-        .borders(Borders::LEFT)
-        .border_set(symbols::border::THICK)
+        .borders(Borders::ALL)
+        .border_set(symbols::border::ROUNDED)
         .border_style(theme.status_style(status))
         .style(style)
 }
 
-/// Insets tall cards by one row top and bottom so the text block does not sit
-/// flush against the row above it. Short cards keep every row they have.
+/// Insets a card's contents by one column on each side.
+///
+/// The border already supplies the vertical inset that this used to add by
+/// hand; what it cannot supply is horizontal breathing room, so text does not
+/// start immediately against the left border. Cards too narrow to give up two
+/// columns keep them.
 fn pad_card_area(area: Rect) -> Rect {
-    let vertical = if area.height >= 6 { 1 } else { 0 };
+    let horizontal = if area.width >= 12 { 1 } else { 0 };
     Rect {
-        x: area.x,
-        y: area.y.saturating_add(vertical),
-        width: area.width,
-        height: area.height.saturating_sub(vertical * 2),
+        x: area.x.saturating_add(horizontal),
+        y: area.y,
+        width: area.width.saturating_sub(horizontal * 2),
+        height: area.height,
     }
 }

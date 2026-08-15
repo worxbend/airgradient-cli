@@ -6,10 +6,14 @@ use ratatui::{
     layout::{Alignment, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Padding, Paragraph, Wrap},
 };
 
-use crate::tui::{app::TuiApp, theme::Theme, ui::ADVANCED_LAYOUT_WIDTH};
+use crate::tui::{
+    app::TuiApp,
+    theme::Theme,
+    ui::{ADVANCED_LAYOUT_WIDTH, widget_block},
+};
 
 /// Width thresholds at which the compact footer earns room for another hint.
 /// Hints are added widest-terminal-last so a narrow terminal keeps the ones
@@ -21,10 +25,12 @@ const FOOTER_VIEW_HINTS_WIDTH: u16 = 90;
 pub(super) fn render_error(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
     let theme = app.theme;
     let message = app.current_error.as_deref().unwrap_or("unknown error");
+    // Padded so the title does not touch the frame's corner, matching the
+    // other titled panels.
     let title = if app.is_fetching {
-        "Retrying After Error"
+        " Retrying After Error "
     } else {
-        "Current Error"
+        " Current Error "
     };
     // While a retry is in flight the error is history, not current state, so
     // it is labeled as the previous failure instead of a live one.
@@ -43,9 +49,9 @@ pub(super) fn render_error(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
     frame.render_widget(
         paragraph
             .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .style(theme.panel_style())
+                widget_block(theme)
+                    .border_style(theme.error_style())
+                    .padding(Padding::horizontal(1))
                     .title(Span::styled(title, theme.error_style())),
             )
             .wrap(Wrap { trim: true }),
@@ -99,7 +105,7 @@ pub(super) fn render_footer(frame: &mut Frame<'_>, area: Rect, theme: Theme) {
     frame.render_widget(
         Paragraph::new(Line::from(spans))
             .style(theme.muted_style())
-            .block(Block::default().borders(Borders::ALL)),
+            .block(widget_block(theme).padding(Padding::horizontal(1))),
         area,
     );
 }
@@ -113,7 +119,8 @@ fn render_showcase_footer(frame: &mut Frame<'_>, area: Rect, theme: Theme) {
     frame.render_widget(
         Paragraph::new(line)
             .style(theme.footer_style())
-            .alignment(Alignment::Left),
+            .alignment(Alignment::Left)
+            .block(widget_block(theme).padding(Padding::horizontal(1))),
         area,
     );
 }
