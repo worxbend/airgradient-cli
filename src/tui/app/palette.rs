@@ -6,6 +6,8 @@
 
 use std::time::Duration;
 
+use url::Url;
+
 use crate::{
     config, device,
     tui::{
@@ -105,7 +107,7 @@ impl TuiApp {
                 PaletteOutcome::Continue
             }
             Ok(PaletteCommand::Save) => {
-                self.palette_message = Some(("config saved".to_string(), false));
+                self.palette_message = Some(self.save_session());
                 PaletteOutcome::Continue
             }
             Ok(PaletteCommand::Quit) => PaletteOutcome::Quit,
@@ -113,6 +115,25 @@ impl TuiApp {
                 self.palette_message = Some((message, true));
                 PaletteOutcome::Continue
             }
+        }
+    }
+
+    /// Writes the session's URL, refresh interval, and theme to the config
+    /// file, returning the message to show and whether it is an error.
+    ///
+    /// Every other palette verb persists as a side effect of the change it
+    /// makes, so `:save` matters mainly when there is nothing to persist to
+    /// yet -- and saying "config saved" when no file is configured would be a
+    /// lie, which is why that case reports instead.
+    fn save_session(&self) -> (String, bool) {
+        let Some(path) = &self.config_path else {
+            return ("no config file to save to".to_string(), true);
+        };
+
+        let url = self.configured_url.as_ref().map(Url::as_str);
+        match config::set_session(path, url, self.refresh_interval.as_secs(), self.theme.id) {
+            Ok(_) => (format!("config saved: {}", path.display()), false),
+            Err(error) => (format!("could not save config: {error}"), true),
         }
     }
 

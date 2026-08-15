@@ -212,6 +212,27 @@ pub fn set_theme(path: &Path, id: &str) -> Result<Config, ConfigError> {
     update_config(path, |config| config.theme = id.to_owned())
 }
 
+/// Stores the three settings a running TUI session can change, in one write.
+///
+/// Used by the palette's `:save`, which persists what the session currently
+/// looks like. `url` is passed already normalized, because the session only
+/// ever holds a URL that came through the device boundary. Fields this CLI
+/// does not model, and the two the TUI never touches, are left as the file
+/// has them.
+pub fn set_session(
+    path: &Path,
+    url: Option<&str>,
+    refresh_interval_secs: u64,
+    theme: &str,
+) -> Result<Config, ConfigError> {
+    validate_refresh_interval(refresh_interval_secs)?;
+    update_config(path, |config| {
+        config.server_url = url.map(ToOwned::to_owned);
+        config.refresh_interval_secs = refresh_interval_secs;
+        config.theme = theme.to_owned();
+    })
+}
+
 /// Read-modify-write for a single field.
 ///
 /// The read is tolerant ([`config_from_object_lossy`]) so that setting one

@@ -28,8 +28,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub use store::{
-    normalized_display_config, read_config, read_display_config, set_refresh_interval, set_theme,
-    set_url, write_config,
+    normalized_display_config, read_config, read_display_config, set_refresh_interval, set_session,
+    set_theme, set_url, write_config,
 };
 
 pub const DEFAULT_REFRESH_INTERVAL_SECS: u64 = 30;

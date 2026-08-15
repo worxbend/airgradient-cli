@@ -603,3 +603,40 @@ fn palette_rejects_an_unknown_theme_without_touching_the_stored_one() {
     assert_eq!(app.theme.id, stored.id);
     assert_eq!(config::read_config(&path).unwrap().theme, stored.id);
 }
+
+#[test]
+fn palette_save_writes_the_live_session_to_the_config_file() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let (mut app, path) = app_with_config(temp_dir.path());
+    app.configured_url = Some(Url::parse("http://192.168.1.77/").unwrap());
+    app.refresh_interval = Duration::from_secs(45);
+    app.theme = theme::ALL[1];
+
+    app.open_command_palette();
+    for c in "save".chars() {
+        app.palette_push_char(c);
+    }
+    app.palette_submit();
+
+    let (message, is_error) = app.palette_message.clone().expect("message should be set");
+    assert!(!is_error, "{message}");
+    let saved = config::read_config(&path).unwrap();
+    assert_eq!(saved.server_url.as_deref(), Some("http://192.168.1.77/"));
+    assert_eq!(saved.refresh_interval_secs, 45);
+    assert_eq!(saved.theme, theme::ALL[1].id);
+}
+
+#[test]
+fn palette_save_reports_when_there_is_no_config_file() {
+    let mut app = app_with_refresh(Duration::from_secs(30));
+
+    app.open_command_palette();
+    for c in "save".chars() {
+        app.palette_push_char(c);
+    }
+    app.palette_submit();
+
+    let (message, is_error) = app.palette_message.clone().expect("message should be set");
+    assert!(is_error, "{message}");
+    assert!(message.contains("no config file"), "{message}");
+}
