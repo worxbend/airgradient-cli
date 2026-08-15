@@ -399,3 +399,29 @@ fn cleanup_order_handles_partial_setup_after_raw_mode_started() {
     );
     assert_eq!(terminal_cleanup_steps(false, false, false), vec![]);
 }
+
+#[tokio::test]
+async fn splash_failure_still_restores_the_terminal() {
+    // The splash runs after `enter`, so a failure there must reach `cleanup`
+    // too — otherwise the user is handed back a terminal still in raw mode on
+    // the alternate screen. Every other failure-path test here goes through
+    // `run_with_adapters`, which never shows the splash, so this is the only
+    // one that covers that window.
+    let mut terminal = HarnessTerminal::with_quit().fail_draw("splash draw failed");
+    let mut fetcher = HarnessFetcher::new([]);
+    let mut app = app(None);
+
+    let error = run_with_adapters_with_refresh_interval(
+        &mut terminal,
+        &mut app,
+        &mut fetcher,
+        Duration::from_secs(30),
+        true,
+    )
+    .await
+    .expect_err("splash draw failure should be returned");
+
+    assert_eq!(terminal_error_message(&error), "splash draw failed");
+    assert!(terminal.cleanup_called);
+    assert!(fetcher.calls.is_empty());
+}

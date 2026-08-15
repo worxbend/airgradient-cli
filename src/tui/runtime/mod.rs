@@ -190,22 +190,30 @@ where
 {
     terminal.enter()?;
 
-    let priming_event: Option<RuntimeEvent> = if show_splash {
-        run_splash(terminal, app).await?
-    } else {
-        None
-    };
-
+    // The splash is inside the same result as the loop, not returned with `?`
+    // ahead of it. Once `enter` succeeds the terminal is in raw mode on the
+    // alternate screen with mouse capture on, so any early return from here to
+    // `cleanup` would hand the user back a terminal in that state.
     let mut clock = SystemClock;
-    let result = run_loop(
-        terminal,
-        app,
-        fetcher,
-        &mut clock,
-        refresh_schedule_interval,
-        priming_event,
-    )
-    .await;
+    let splash_result: Result<Option<RuntimeEvent>, RuntimeError> = if show_splash {
+        run_splash(terminal, app).await
+    } else {
+        Ok(None)
+    };
+    let result = match splash_result {
+        Ok(priming_event) => {
+            run_loop(
+                terminal,
+                app,
+                fetcher,
+                &mut clock,
+                refresh_schedule_interval,
+                priming_event,
+            )
+            .await
+        }
+        Err(error) => Err(error),
+    };
     let cleanup_result = terminal.cleanup();
 
     match (result, cleanup_result) {
