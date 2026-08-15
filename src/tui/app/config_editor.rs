@@ -9,6 +9,7 @@ use std::time::Duration;
 use crate::{
     config::{self, Config, MAX_REFRESH_INTERVAL_SECS, MIN_REFRESH_INTERVAL_SECS},
     device,
+    tui::theme,
 };
 
 use super::{ConfigField, TuiApp, View, clamp_refresh_interval, palette::delete_word_before};
@@ -222,5 +223,6 @@ impl TuiApp {
         }
         self.refresh_interval =
             clamp_refresh_interval(Duration::from_secs(self.config_draft.refresh_interval_secs));
+        self.theme = theme::Theme::by_id(&self.config_draft.theme);
     }
 }

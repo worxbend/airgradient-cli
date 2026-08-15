@@ -66,12 +66,26 @@ impl TuiApp {
         self.theme = theme::ALL[self.settings_cursor];
     }
 
+    /// Accepts the highlighted theme and returns to whichever view opened the
+    /// picker.
+    ///
+    /// Where the choice is *stored* depends on that view. Opened from the
+    /// dashboard, the picker owns the setting and writes it out immediately.
+    /// Opened from the config editor, it does not: that editor collects every
+    /// change in `config_draft` and writes the whole thing on Save & Close, so
+    /// a write here would be overwritten moments later by a draft still holding
+    /// the old theme.
     pub fn confirm_theme_settings(&mut self) {
         let chosen = theme::ALL[self.settings_cursor];
         self.theme = chosen;
         self.theme_preview_origin = None;
         self.view = self.theme_settings_return;
-        self.persist_theme(chosen.id);
+
+        if self.view == View::ConfigEditor {
+            self.config_draft.theme = chosen.id.to_owned();
+        } else {
+            self.persist_theme(chosen.id);
+        }
     }
 
     pub(super) fn persist_theme(&self, id: &str) {

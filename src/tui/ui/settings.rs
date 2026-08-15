@@ -267,7 +267,9 @@ fn config_field_display_value(app: &TuiApp, field: ConfigField, editing: bool) -
             bool_label(app.config_draft.notifications_enabled).to_string()
         }
         ConfigField::StartMinimized => bool_label(app.config_draft.start_minimized).to_string(),
-        ConfigField::Theme => app.theme.label.to_string(),
+        // The draft, not the live theme: the picker previews live, so showing
+        // `app.theme` here would report a theme this form is not going to save.
+        ConfigField::Theme => Theme::by_id(&app.config_draft.theme).label.to_string(),
         ConfigField::SaveAndClose => String::new(),
     }
 }

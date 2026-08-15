@@ -553,3 +553,32 @@ fn every_advertised_leader_binding_resolves_to_an_action() {
         );
     }
 }
+
+#[test]
+fn theme_chosen_inside_the_config_editor_survives_save_and_close() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let (mut app, path) = app_with_config(temp_dir.path());
+    config::set_theme(&path, theme::ALL[0].id).unwrap();
+    let chosen = theme::ALL[1];
+
+    app.open_config_editor();
+    for _ in 0..ConfigField::ALL.len() {
+        if app.config_editor_field() == ConfigField::Theme {
+            break;
+        }
+        app.config_editor_nav_down();
+    }
+    assert_eq!(app.config_editor_field(), ConfigField::Theme);
+    app.config_editor_confirm(); // opens the picker from inside the editor
+    assert_eq!(app.view, View::ThemeSettings);
+    app.select_theme_index(1);
+    app.confirm_theme_settings();
+    assert_eq!(app.view, View::ConfigEditor);
+
+    app.config_editor_nav_last();
+    assert_eq!(app.config_editor_field(), ConfigField::SaveAndClose);
+    app.config_editor_confirm();
+
+    assert_eq!(app.theme.id, chosen.id);
+    assert_eq!(config::read_config(&path).unwrap().theme, chosen.id);
+}
