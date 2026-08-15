@@ -8,11 +8,13 @@
 //!
 //! The test cases themselves live in the child modules, grouped by what they
 //! exercise: [`schedule`] (interval policy), [`loop_flow`] (the happy path
-//! and refresh timing), and [`failure_paths`] (I/O failures, cancellation,
-//! and terminal cleanup).
+//! and refresh timing), [`input_routing`] (keys, leader sequences, and
+//! clicks), and [`failure_paths`] (I/O failures, cancellation, and terminal
+//! cleanup).
 
 mod failure_paths;
 mod fetch_fakes;
+mod input_routing;
 mod loop_flow;
 mod schedule;
 mod terminal_fakes;
