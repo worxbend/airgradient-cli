@@ -1,3 +1,10 @@
+//! Themes: the colours and styles every part of the dashboard draws with.
+//!
+//! A [`Theme`] is a plain data table ([`palette`]) plus the small helpers that
+//! turn it into concrete `Style`s. Lookup by id is deliberately forgiving in
+//! one direction and strict in the other — see [`Theme::by_id`] and
+//! [`Theme::find`].
+
 mod palette;
 
 pub use palette::ALL;

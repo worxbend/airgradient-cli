@@ -1,3 +1,10 @@
+//! The metric rows every renderer draws.
+//!
+//! Owns the order the metrics appear in, their labels and units, the
+//! placeholder for a missing reading, and the trend against the previous
+//! snapshot — so the text, JSON, and TUI outputs cannot disagree about any of
+//! it. It does not decide what a value *means*; that is [`super::thresholds`].
+
 use serde::{Deserialize, Serialize};
 
 use super::air_quality::SensorSnapshot;

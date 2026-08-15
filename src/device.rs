@@ -1,3 +1,12 @@
+//! The network boundary: turning user input into a device URL, and fetching
+//! measurements from it.
+//!
+//! Everything this module does defensively is because the peer is a device on
+//! a local network that the user named and this tool cannot vouch for. Hence a
+//! request timeout, a hard cap on the response body, no redirect following,
+//! and a normalized URL that refuses to carry credentials — see the individual
+//! items for why each one matters.
+
 use std::time::Duration;
 
 use futures_util::StreamExt;

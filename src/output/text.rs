@@ -1,3 +1,8 @@
+//! The human-readable one-shot renderer.
+//!
+//! Colour is a caller's decision, not this module's: `no_color` is passed in
+//! because whether the output is a terminal or a pipe is known further up.
+
 use comfy_table::{Table, presets::ASCII_FULL};
 use owo_colors::{OwoColorize, colors::css::Orange};
 

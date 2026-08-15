@@ -1,3 +1,10 @@
+//! Argument parsing and command dispatch.
+//!
+//! This is where flag combinations are validated, before anything runs: the
+//! options that only make sense for the dashboard, and the ones that only make
+//! sense for one-shot output, are mutually exclusive and rejected here rather
+//! than silently ignored later.
+
 use std::{
     env,
     io::{self, IsTerminal},

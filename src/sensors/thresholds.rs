@@ -1,3 +1,9 @@
+//! Where a reading falls on the good-to-unhealthy scale.
+//!
+//! One classifier per measurement, each with the published range it comes
+//! from recorded next to it. Kept apart from presentation so that revising a
+//! threshold never means touching a renderer.
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

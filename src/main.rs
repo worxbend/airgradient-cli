@@ -1,3 +1,10 @@
+//! The binary entry point: parse arguments, run the command, turn the result
+//! into an exit code.
+//!
+//! Errors are printed here rather than by the command that produced them, so
+//! every failure is reported the same way — and `-v` is what decides whether
+//! the chain of underlying causes is shown as well.
+
 use std::{error::Error, process::ExitCode};
 
 use clap::Parser;

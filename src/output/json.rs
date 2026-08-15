@@ -1,3 +1,9 @@
+//! The `--json` renderer.
+//!
+//! This output is a contract with whatever is parsing it, so the shape is
+//! defined by explicit structs rather than assembled ad hoc: a field that
+//! disappears or gets renamed here breaks somebody's script.
+
 use serde::Serialize;
 use serde_json::Value;
 
