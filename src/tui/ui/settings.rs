@@ -181,28 +181,44 @@ pub(super) fn render_config_editor(
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
-    let mut rows: Vec<Line> = ConfigField::ALL
+    let rows: Vec<Line> = ConfigField::ALL
         .iter()
         .enumerate()
         .map(|(index, field)| config_field_row(app, *field, index == app.config_editor_cursor))
         .collect();
 
-    rows.push(Line::raw(""));
-    if let Some(error) = &app.config_editor_error {
-        rows.push(Line::from(Span::styled(
-            format!("error: {error}"),
-            theme.error_style(),
-        )));
-    }
+    // The field list and the error message are rendered separately, and only
+    // the error message wraps. `record_row_hits` records one click zone per
+    // field, one terminal row apart, so a field that wrapped onto a second
+    // visual line would push every field below it out of step with its own
+    // click zone: clicking "Refresh interval" would select "Server URL", and
+    // clicking "[ Save & Close ]" would open the theme picker. A long value is
+    // clipped at the panel edge instead.
+    let [field_area, error_area] = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(rows.len() as u16), Constraint::Min(0)])
+        .areas(inner);
 
-    frame.render_widget(
-        Paragraph::new(rows)
+    frame.render_widget(Paragraph::new(rows).style(theme.panel_style()), field_area);
+
+    if let Some(error) = &app.config_editor_error {
+        frame.render_widget(
+            Paragraph::new(vec![
+                Line::raw(""),
+                Line::from(Span::styled(format!("error: {error}"), theme.error_style())),
+            ])
             .style(theme.panel_style())
             .wrap(Wrap { trim: true }),
-        inner,
-    );
+            error_area,
+        );
+    }
 
-    record_row_hits(hits, inner, ConfigField::ALL.len(), HitTarget::ConfigRow);
+    record_row_hits(
+        hits,
+        field_area,
+        ConfigField::ALL.len(),
+        HitTarget::ConfigRow,
+    );
 }
 
 fn config_field_row(app: &TuiApp, field: ConfigField, selected: bool) -> Line<'static> {

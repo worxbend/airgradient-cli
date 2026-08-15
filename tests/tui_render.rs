@@ -721,6 +721,42 @@ fn config_rows_are_clickable_where_they_are_drawn() {
 }
 
 #[test]
+fn config_rows_stay_clickable_when_a_long_value_would_wrap() {
+    // A stored URL longer than the panel is wide used to wrap onto a second
+    // visual line, pushing every field below it one row down from its own
+    // click zone — so clicking a row selected the one above it.
+    let mut app = TuiApp::new(
+        Some(
+            Url::parse("http://airgradient-living-room-upstairs-by-the-window.lan:9925/")
+                .expect("test URL should parse"),
+        ),
+        Duration::from_secs(30),
+    );
+    app.open_config_editor();
+
+    let (lines, hits) = render_with_hits(&app, 80, 40);
+
+    for (index, label) in [
+        (0usize, "Server URL"),
+        (1, "Refresh interval"),
+        (2, "Notifications enabled"),
+        (3, "Start minimized"),
+        (4, "Theme"),
+        (5, "[ Save & Close ]"),
+    ] {
+        let row = (0..40u16)
+            .find(|row| hits.hit(4, *row) == Some(ui::HitTarget::ConfigRow(index)))
+            .unwrap_or_else(|| panic!("config row {index} should be clickable"));
+
+        assert!(
+            lines[row as usize].contains(label),
+            "config row {index} click zone sits on {:?}",
+            lines[row as usize]
+        );
+    }
+}
+
+#[test]
 fn the_dashboard_records_no_click_zones() {
     // Nothing on the dashboard is clickable yet, so a stray click there must
     // resolve to nothing rather than to a stale zone from a previous frame.
