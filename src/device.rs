@@ -9,7 +9,6 @@
 
 use std::time::Duration;
 
-use futures_util::StreamExt;
 use reqwest::{Client, StatusCode, redirect};
 use serde_json::Value;
 use thiserror::Error;
@@ -216,11 +215,11 @@ pub async fn fetch_current_measures_with_client(
 /// Reads a response body into memory, refusing to grow past [`MAX_RESPONSE_BYTES`].
 ///
 /// `Response::json`/`Response::bytes` buffer whatever the peer sends, so they
-/// are not usable here. This streams the body chunk by chunk and bails out as
-/// soon as the total would exceed the cap; the advertised `Content-Length`, when
-/// present, lets us refuse before reading anything at all.
+/// are not usable here. This reads the body one chunk at a time and bails out
+/// as soon as the total would exceed the cap; the advertised `Content-Length`,
+/// when present, lets us refuse before reading anything at all.
 async fn read_body_capped(
-    response: reqwest::Response,
+    mut response: reqwest::Response,
     endpoint: &Url,
 ) -> Result<Vec<u8>, DeviceError> {
     let too_large = || DeviceError::ResponseTooLarge {
@@ -236,13 +235,14 @@ async fn read_body_capped(
     }
 
     let mut body = Vec::new();
-    let mut chunks = response.bytes_stream();
-    while let Some(chunk) = chunks.next().await {
-        let chunk = chunk.map_err(|source| DeviceError::Request {
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|source| DeviceError::Request {
             url: endpoint.clone(),
             source,
-        })?;
-
+        })?
+    {
         if body.len() + chunk.len() > MAX_RESPONSE_BYTES {
             return Err(too_large());
         }
