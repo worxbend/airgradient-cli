@@ -17,6 +17,7 @@ use crate::{
         app::TuiApp,
         theme::Theme,
         ui::{
+            WIDGET_GAP,
             air_monitor_card::{
                 CardSpec, render_air_monitor_aqi_card, render_air_monitor_metric_card,
             },
@@ -231,23 +232,20 @@ fn render_card_row(
     metrics: &[Metric],
     cards: &[(&str, CardSpec)],
 ) {
-    let column_count = cards.len() as u32;
-    let mut constraints = Vec::new();
-    for index in 0..cards.len() {
-        if index > 0 {
-            constraints.push(Constraint::Length(1));
-        }
-        constraints.push(Constraint::Ratio(1, column_count));
-    }
-
+    // `Fill` plus `spacing`, not `Ratio` plus interleaved spacer columns:
+    // ratios that already account for the whole width leave the solver no room
+    // for the gutters, and the interleaving made every card's column index
+    // `index * 2`. The compact grid and the settings view express it this way
+    // too.
     let columns = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints(constraints)
+        .spacing(WIDGET_GAP)
+        .constraints(vec![Constraint::Fill(1); cards.len()])
         .split(area);
 
-    for (index, (key, spec)) in cards.iter().enumerate() {
+    for ((key, spec), column) in cards.iter().zip(columns.iter()) {
         if let Some(metric) = metric_by_key(metrics, key) {
-            render_air_monitor_metric_card(frame, columns[index * 2], theme, metric, *spec);
+            render_air_monitor_metric_card(frame, *column, theme, metric, *spec);
         }
     }
 }

@@ -126,13 +126,45 @@ pub enum CliError {
 }
 
 pub async fn run(cli: Cli) -> Result<(), CliError> {
+    validate_flag_combination(&cli)?;
+
+    // Read once, here, rather than separately down each branch: this function
+    // and `main` are the only places that touch the process environment, so
+    // everything below is a function of its arguments.
+    let fetch_settings = fetch_settings()?;
+
     if cli.tui {
-        // Checked before launching, because the dashboard takes over the
-        // terminal and never comes back to run a subcommand or print JSON.
-        // `airgradient-cli --tui config path` used to open the dashboard and
-        // silently drop the command, which hangs any script that expected a
-        // path on stdout; the mirror-image mistake, `--refresh` without
-        // `--tui`, was already an error.
+        let options = tui::runtime::RuntimeOptions {
+            config_path: config_path(&cli)?,
+            url_override: cli.url.clone(),
+            refresh_override_secs: cli.refresh,
+            theme_override: cli.theme.clone(),
+            fetch_settings,
+        };
+
+        return tui::runtime::run(options).await.map_err(CliError::from);
+    }
+
+    match &cli.command {
+        Some(Command::Config { command }) => run_config_command(command, &cli).await,
+        Some(Command::Fetch(fetch)) => {
+            run_fetch(&cli, fetch.json || cli.json, fetch_settings).await
+        }
+        Some(Command::Themes) => run_themes(),
+        None => run_fetch(&cli, cli.json, fetch_settings).await,
+    }
+}
+
+/// Rejects flag combinations that cannot mean anything, before anything runs.
+///
+/// All of them are checked here, in one place, so the rules can be read as a
+/// set rather than found scattered down the branches that happen to trip over
+/// them. The `--tui` ones matter most: the dashboard takes over the terminal
+/// and never comes back to run a subcommand or print JSON, so
+/// `airgradient-cli --tui config path` used to open the dashboard and silently
+/// drop the command, hanging any script that expected a path on stdout.
+fn validate_flag_combination(cli: &Cli) -> Result<(), CliError> {
+    if cli.tui {
         if cli.command.is_some() {
             return Err(CliError::SubcommandUnsupportedWithTui);
         }
@@ -140,34 +172,28 @@ pub async fn run(cli: Cli) -> Result<(), CliError> {
             return Err(CliError::JsonUnsupportedForTui);
         }
 
-        let options = tui::runtime::RuntimeOptions {
-            config_path: config_path(&cli)?,
-            url_override: cli.url.clone(),
-            refresh_override_secs: cli.refresh,
-            theme_override: cli.theme.clone(),
-            fetch_settings: fetch_settings()?,
-        };
-
-        return tui::runtime::run(options).await.map_err(CliError::from);
+        return Ok(());
     }
 
+    // `--refresh` only means something to a loop that refreshes.
     if cli.refresh.is_some() {
         return Err(CliError::RefreshRequiresTui);
     }
 
-    match &cli.command {
-        Some(Command::Config { command }) => run_config_command(command, &cli).await,
-        Some(Command::Fetch(fetch)) => run_fetch(&cli, fetch.json || cli.json).await,
-        Some(Command::Themes) => run_themes(&cli),
-        None => run_fetch(&cli, cli.json).await,
+    // `--json` is the one-shot fetch's output format; the other subcommands
+    // have no JSON form to switch to.
+    if cli.json {
+        match cli.command {
+            Some(Command::Config { .. }) => return Err(CliError::JsonUnsupportedForConfig),
+            Some(Command::Themes) => return Err(CliError::JsonUnsupportedForThemes),
+            Some(Command::Fetch(_)) | None => {}
+        }
     }
+
+    Ok(())
 }
 
-fn run_themes(cli: &Cli) -> Result<(), CliError> {
-    if cli.json {
-        return Err(CliError::JsonUnsupportedForThemes);
-    }
-
+fn run_themes() -> Result<(), CliError> {
     let mut table = comfy_table::Table::new();
     table.set_header(vec!["ID", "Label"]);
     for theme in tui::theme::ALL {
@@ -179,10 +205,6 @@ fn run_themes(cli: &Cli) -> Result<(), CliError> {
 }
 
 async fn run_config_command(command: &ConfigCommand, cli: &Cli) -> Result<(), CliError> {
-    if cli.json {
-        return Err(CliError::JsonUnsupportedForConfig);
-    }
-
     let path = config_path(cli)?;
 
     match command {
@@ -213,11 +235,14 @@ async fn run_config_command(command: &ConfigCommand, cli: &Cli) -> Result<(), Cl
     Ok(())
 }
 
-async fn run_fetch(cli: &Cli, json: bool) -> Result<(), CliError> {
+async fn run_fetch(
+    cli: &Cli,
+    json: bool,
+    fetch_settings: device::FetchSettings,
+) -> Result<(), CliError> {
     let path = config_path(cli)?;
     let config = effective_config(&path, cli)?;
     let base_url = required_server_url(&config)?;
-    let fetch_settings = fetch_settings()?;
     let client = fetch_settings.client()?;
 
     let started = Instant::now();

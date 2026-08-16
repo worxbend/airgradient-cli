@@ -63,8 +63,17 @@ impl TuiApp {
         self.view = View::Dashboard;
     }
 
+    /// The field the cursor is on.
+    ///
+    /// Every writer clamps the cursor, so the fallback is unreachable — but it
+    /// is a fallback rather than an index panic, because "the config editor
+    /// opened on the first field" is a recoverable answer and a crash in a
+    /// full-screen TUI is not.
     pub fn config_editor_field(&self) -> ConfigField {
-        ConfigField::ALL[self.config_editor_cursor]
+        ConfigField::ALL
+            .get(self.config_editor_cursor)
+            .copied()
+            .unwrap_or(ConfigField::ServerUrl)
     }
 
     pub fn config_editor_nav_up(&mut self) {

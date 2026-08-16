@@ -123,6 +123,11 @@ pub(super) fn format_system_time_delta(time: SystemTime) -> String {
 /// Coarse human duration: sub-second values keep milliseconds, everything
 /// else drops to the two largest non-zero units so the status bar stays a
 /// fixed, glanceable width.
+///
+/// Deliberately not `output::text::format_fetch_latency`, which keeps two
+/// decimals because its output is scraped and compared between runs. This one
+/// is read at a glance, so 1.20s and 1.80s both printing as "1s" is the point.
+/// The two agree below a second, where both print whole milliseconds.
 pub(super) fn format_duration(duration: Duration) -> String {
     let seconds = duration.as_secs();
     if seconds == 0 {
