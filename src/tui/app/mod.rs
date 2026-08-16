@@ -9,6 +9,7 @@
 //! best-effort and never blocks the state update the user just made.
 
 mod config_editor;
+mod history_view;
 mod leader;
 mod palette;
 mod theme_settings;
@@ -17,6 +18,7 @@ mod theme_settings;
 mod tests;
 
 use std::{
+    collections::VecDeque,
     fmt,
     path::PathBuf,
     time::{Duration, SystemTime},
@@ -27,10 +29,19 @@ pub use leader::{LEADER_BINDINGS, LeaderAction, LeaderBinding};
 use crate::{
     config::Config,
     device_url::DeviceUrl,
+    history::{self, Reading},
     refresh_interval::RefreshInterval,
-    sensors::{Metrics, SensorSnapshot, metrics},
+    sensors::{Metrics, SensorSnapshot, metrics, series},
     tui::theme::Theme,
 };
+
+/// How many successful readings to keep for the dashboard's trend sparkline.
+///
+/// The graph is a few dozen cells wide at most, so this is the useful ceiling
+/// rather than an arbitrary one: at the default 30-second refresh it is a
+/// little under half an hour of history, which is the span over which a room
+/// visibly reacts to a window opening or a burner being lit.
+const MAX_READING_HISTORY: usize = 48;
 
 /// Which full-screen (or overlay) mode the TUI is currently showing. Gates
 /// both rendering (`ui::draw`) and which keys are live (`runtime::run_loop`).
@@ -40,6 +51,8 @@ pub enum View {
     ThemeSettings,
     ConfigEditor,
     CommandPalette,
+    /// The full-screen reading chart.
+    History,
 }
 
 /// The config-editor's field list, in display/navigation order.
@@ -75,6 +88,10 @@ pub enum PaletteOutcome {
 pub struct TuiApp {
     pub current_snapshot: Option<SensorSnapshot>,
     pub previous_successful_snapshot: Option<SensorSnapshot>,
+    /// Recent successful readings, oldest first, for the chart. Failed
+    /// fetches are not recorded — a gap in the graph would then mean "the
+    /// network was down", which is not what the graph is about.
+    reading_history: VecDeque<Reading>,
     pub last_fetch_duration: Option<Duration>,
     pub last_success_at: Option<SystemTime>,
     pub current_error: Option<String>,
@@ -88,6 +105,9 @@ pub struct TuiApp {
     /// tests that build `TuiApp` directly; set by `runtime::run` for real
     /// sessions.
     pub config_path: Option<PathBuf>,
+    /// Where readings are recorded for the chart. `None` in tests, so building
+    /// a `TuiApp` directly never touches the filesystem.
+    pub history_path: Option<PathBuf>,
     /// Which screen is currently showing.
     pub view: View,
     /// Which `View` to return to when the theme picker (opened either
@@ -124,6 +144,10 @@ pub struct TuiApp {
     /// leader behavior.
     pub leader_pending: bool,
 
+    /// Which metric the history chart is plotting, as an index into the
+    /// metric list `metrics()` returns.
+    pub history_cursor: usize,
+
     /// First key of a pending `g`-prefixed motion (vim's `gg`). Cleared as
     /// soon as the next key resolves it, so `g` followed by anything else is
     /// simply discarded rather than remembered.
@@ -135,6 +159,7 @@ impl TuiApp {
         Self {
             current_snapshot: None,
             previous_successful_snapshot: None,
+            reading_history: VecDeque::new(),
             last_fetch_duration: None,
             last_success_at: None,
             current_error: None,
@@ -144,6 +169,7 @@ impl TuiApp {
 
             theme: Theme::default_theme(),
             config_path: None,
+            history_path: None,
             view: View::Dashboard,
             theme_settings_return: View::Dashboard,
 
@@ -159,6 +185,7 @@ impl TuiApp {
             config_editor_error: None,
 
             splash_frame: None,
+            history_cursor: 0,
             leader_pending: false,
             pending_g: false,
         }
@@ -175,6 +202,7 @@ impl TuiApp {
         success_at: SystemTime,
     ) {
         self.is_fetching = false;
+        self.remember_successful_snapshot(Reading::new(success_at, snapshot.clone()));
         self.previous_successful_snapshot = self.current_snapshot.replace(snapshot);
         self.last_fetch_duration = Some(fetch_duration);
         self.last_success_at = Some(success_at);
@@ -195,6 +223,17 @@ impl TuiApp {
         self.refresh_interval = self.refresh_interval.shorter();
     }
 
+    /// One metric's recent values, oldest first, for the trend sparkline.
+    ///
+    /// A reading the device did not report stays `None` so the graph can leave
+    /// a gap rather than draw a drop to zero that never happened.
+    pub fn metric_history(&self, key: &str) -> Vec<Option<f64>> {
+        series(
+            self.reading_history.iter().map(|reading| &reading.snapshot),
+            key,
+        )
+    }
+
     pub fn trend_baseline(&self) -> Option<&SensorSnapshot> {
         self.previous_successful_snapshot.as_ref()
     }
@@ -206,6 +245,38 @@ impl TuiApp {
     /// frame one rather than popping into existence when data arrives. The UI
     /// layer used to do this substitution itself, on an empty `Vec` returned
     /// from here, which meant "no data yet" was represented twice.
+    /// Keeps a reading for the chart, and records it to disk so the next
+    /// session starts with a shape to draw instead of an empty axis.
+    ///
+    /// The write is best-effort, like every other persistence path in this
+    /// module: a history file that cannot be written must not disturb the
+    /// reading the user can already see on screen.
+    fn remember_successful_snapshot(&mut self, reading: Reading) {
+        if let Some(path) = &self.history_path {
+            let _ = history::append(path, &reading);
+        }
+
+        self.reading_history.push_back(reading);
+        while self.reading_history.len() > MAX_READING_HISTORY {
+            self.reading_history.pop_front();
+        }
+    }
+
+    /// Seeds the in-memory history from what previous sessions recorded.
+    pub fn restore_history(&mut self, readings: impl IntoIterator<Item = Reading>) {
+        self.reading_history = readings.into_iter().collect();
+        let excess = self
+            .reading_history
+            .len()
+            .saturating_sub(MAX_READING_HISTORY);
+        self.reading_history.drain(..excess);
+    }
+
+    /// The recorded readings the chart draws, oldest first.
+    pub fn reading_history(&self) -> impl ExactSizeIterator<Item = &Reading> {
+        self.reading_history.iter()
+    }
+
     pub fn metrics(&self) -> Metrics {
         match &self.current_snapshot {
             Some(snapshot) => metrics(snapshot, self.trend_baseline()),

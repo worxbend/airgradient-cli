@@ -177,3 +177,77 @@ async fn a_click_on_empty_space_changes_nothing() {
     assert_eq!(app.settings_cursor, 0);
     assert_eq!(app.view, View::ThemeSettings);
 }
+
+#[tokio::test]
+async fn the_chart_opens_toggles_and_takes_the_modal_motions() {
+    let mut terminal = HarnessTerminal::with_events([
+        RuntimeEvent::ToggleHistory,
+        // The same motions every other modal view binds, moving between
+        // metrics rather than list rows.
+        RuntimeEvent::NavDown,
+        RuntimeEvent::NavDown,
+        RuntimeEvent::Quit,
+    ]);
+    let mut fetcher = HarnessFetcher::new([]);
+    let mut app = app(None);
+
+    run_with_adapters(&mut terminal, &mut app, &mut fetcher)
+        .await
+        .expect("loop should end cleanly");
+
+    assert_eq!(app.view, View::History);
+    assert_eq!(app.history_metric().key, "pm25");
+}
+
+#[tokio::test]
+async fn escape_closes_the_chart_back_to_the_dashboard() {
+    let mut terminal = HarnessTerminal::with_events([
+        RuntimeEvent::ToggleHistory,
+        RuntimeEvent::Escape,
+        RuntimeEvent::Quit,
+    ]);
+    let mut fetcher = HarnessFetcher::new([]);
+    let mut app = app(None);
+
+    run_with_adapters(&mut terminal, &mut app, &mut fetcher)
+        .await
+        .expect("loop should end cleanly");
+
+    assert_eq!(app.view, View::Dashboard);
+}
+
+#[tokio::test]
+async fn the_leader_sequence_opens_the_chart() {
+    let mut terminal = HarnessTerminal::with_events([
+        RuntimeEvent::ToggleLeader,
+        RuntimeEvent::LeaderKey('h'),
+        RuntimeEvent::Quit,
+    ]);
+    let mut fetcher = HarnessFetcher::new([]);
+    let mut app = app(None);
+
+    run_with_adapters(&mut terminal, &mut app, &mut fetcher)
+        .await
+        .expect("loop should end cleanly");
+
+    assert_eq!(app.view, View::History);
+    assert!(!app.leader_pending, "the sequence should have disarmed");
+}
+
+#[tokio::test]
+async fn clicking_a_chart_metric_selects_it() {
+    let mut terminal = HarnessTerminal::with_events([
+        RuntimeEvent::ToggleHistory,
+        RuntimeEvent::MouseClick(4, 6),
+        RuntimeEvent::Quit,
+    ])
+    .with_hit(HitTarget::HistoryRow(3));
+    let mut fetcher = HarnessFetcher::new([]);
+    let mut app = app(None);
+
+    run_with_adapters(&mut terminal, &mut app, &mut fetcher)
+        .await
+        .expect("loop should end cleanly");
+
+    assert_eq!(app.history_metric().key, "pm1");
+}

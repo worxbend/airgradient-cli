@@ -121,7 +121,11 @@ fn key_event(key: KeyEvent, mode: InputMode) -> RuntimeEvent {
             KeyCode::Char('d') if ctrl => RuntimeEvent::NavHalfPage(1),
             KeyCode::Char('u') if ctrl => RuntimeEvent::NavHalfPage(-1),
             KeyCode::Char('c') if ctrl => RuntimeEvent::Escape,
-            KeyCode::Esc | KeyCode::F(2) | KeyCode::Char('q' | 'c' | 'C') => RuntimeEvent::Escape,
+            // `h` closes as well as `q`/`c`/Esc — it is vim's "back out"
+            // direction, and it is what opened the chart in the first place.
+            KeyCode::Esc | KeyCode::F(2) | KeyCode::Char('q' | 'c' | 'C' | 'h' | 'H') => {
+                RuntimeEvent::Escape
+            }
             KeyCode::Up | KeyCode::Char('k') => RuntimeEvent::NavUp,
             KeyCode::Down | KeyCode::Char('j') => RuntimeEvent::NavDown,
             // `g` is a prefix; the event loop pairs it with the next one.
@@ -145,6 +149,7 @@ fn key_event(key: KeyEvent, mode: InputMode) -> RuntimeEvent {
             KeyCode::Char(':') => RuntimeEvent::OpenPalette,
             KeyCode::Char('t' | 'T') | KeyCode::F(2) => RuntimeEvent::ToggleThemeSettings,
             KeyCode::Char('c' | 'C') => RuntimeEvent::ToggleConfigEditor,
+            KeyCode::Char('h' | 'H') => RuntimeEvent::ToggleHistory,
             _ => RuntimeEvent::Ignored,
         },
     }

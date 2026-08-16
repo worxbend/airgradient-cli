@@ -5,6 +5,7 @@
 
 mod config_editor;
 mod fetch;
+mod history_view;
 mod leader;
 mod palette;
 mod theme_settings;

@@ -131,6 +131,7 @@ AQI 41 - Good
 | 🧾 **JSON for pipelines** | `--json` emits every metric with raw value, formatted value, unit, status, and trend. Pipe it to `jq`, Prometheus, or cron. |
 | 🎨 **20 built-in themes** | Nord, Dracula, Gruvbox, Catppuccin, Tokyo Night… plus a TTY-safe `mono` that leaves your terminal palette alone. |
 | ⌨️ **Vim / AstroNvim keys** | `j`/`k`, `gg`/`G`, `<C-d>`/`<C-u>`, `:` for the command line, and `<Space>` as a which-key leader. |
+| 📈 **History chart** | `h` opens a full-screen line chart of any metric over time. Readings are recorded to disk as they arrive, so the chart has a shape the moment you open it — including across restarts. |
 | 🖱️ **Mouse navigation** | Scroll to move through lists, click to select a row. |
 | 🎯 **Matches your monitor** | Reads the corrected (`…Compensated`) values the AirGradient display and dashboard show, and follows the firmware's own `monitorDisplayCompensatedValues` switch, so the numbers agree with the device on your shelf. |
 | 🔒 **Local-only, tolerant** | LAN only, nothing else. A malformed config warns per field instead of failing, so a bad value never locks you out of the tool that fixes it. |
@@ -179,15 +180,16 @@ the next key does.
 | Key | Action |
 | --- | --- |
 | `<Space>` | Which-key popup (leader) |
-| `<Space>` `r` / `t` / `c` / `:` / `q` | Refresh · themes · config · palette · quit |
+| `<Space>` `r` / `t` / `c` / `h` / `:` / `q` | Refresh · themes · config · history · palette · quit |
 | `r` | Refresh now |
 | `+` / `-` | Lengthen / shorten the refresh interval |
 | `:` | Command palette |
 | `t` / `F2` | Theme picker with live preview |
 | `c` | Config editor |
+| `h` | History chart |
 | `q` / `Esc` / `<C-c>` | Quit |
 
-### Motions (theme picker, config editor)
+### Motions (theme picker, config editor, history chart)
 
 | Key | Action |
 | --- | --- |
@@ -195,7 +197,10 @@ the next key does.
 | `gg` / `G` | Jump to first / last |
 | `<C-d>` / `<C-u>` | Half-page down / up |
 | `Enter` / `l` / `→` | Apply, edit, or toggle |
-| `Esc` / `q` / `<C-c>` | Close without applying |
+| `Esc` / `q` / `h` / `<C-c>` | Close without applying |
+
+In the history chart the same motions move between metrics, so `j`/`k` change
+which series is plotted.
 
 ### Text entry (palette, config fields)
 
@@ -410,6 +415,38 @@ stored URL is malformed or uses an unsupported scheme, it prints the raw stored
 value and writes a warning to stderr.
 
 </details>
+
+---
+
+## 📈 History
+
+Every successful reading is appended to a history file, and the dashboard's
+chart (`h`) draws from it. Because it is on disk rather than only in memory,
+the chart shows a trend the moment you open the dashboard instead of filling in
+over the next quarter of an hour.
+
+| | |
+| --- | --- |
+| **Where** | `$XDG_DATA_HOME/airgradient-cli/history.jsonl`, else `~/.local/share/airgradient-cli/history.jsonl` |
+| **Format** | [JSON Lines](https://jsonlines.org/) — one `{"at_unix_secs":…,"snapshot":{…}}` object per line, oldest first |
+| **Size** | Trimmed to the most recent 2000 readings; a few hundred kilobytes at most |
+| **Written by** | Both the dashboard and one-shot fetches, so a `watch` or cron loop builds history too |
+| **Opting out** | Set `AIRGRADIENT_CLI_NO_HISTORY=1` for a genuinely read-only one-shot fetch |
+
+It is deliberately *not* in the config directory shared with the desktop app:
+this is data, nothing else reads it, and a settings file you might hand-edit
+should not have thousands of readings appended to it.
+
+Because it is one JSON object per line, it is directly usable elsewhere:
+
+```sh
+# The last 20 CO2 readings, as a plain series
+tail -20 ~/.local/share/airgradient-cli/history.jsonl \
+  | jq -r '[.at_unix_secs, .snapshot.co2] | @tsv'
+```
+
+Recording is best-effort: a history file that cannot be written never turns a
+successful reading into a failed command.
 
 ---
 

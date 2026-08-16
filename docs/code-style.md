@@ -153,6 +153,23 @@ app as much as to this CLI, which constrains every write:
   `server_url` alone when the session has no URL, because "save what I have"
   is not "clear what you have".
 
+## Derived Data
+
+The reading history (`src/history.rs`) is a different kind of file from the
+config, and follows different rules:
+
+- **Append, do not rewrite.** One JSON object per line, so recording a reading
+  is a single `write` with nothing to parse first. A JSON array would mean
+  re-serializing the whole history on every refresh.
+- **Tolerate a bad line.** `load` skips lines that do not parse — the last line
+  is the one a crash truncates, and losing the chart over it would be a poor
+  trade. Only a rewrite (the trim) goes through `atomic_file`.
+- **Stay bounded, and check the bound cheaply.** Trimming is triggered by a
+  `stat` against a size threshold, not by counting lines on every append.
+- **Best-effort at the call site.** A history that cannot be written must not
+  turn a successful reading into a failed command; the same rule the config
+  persistence paths in `tui::app` already follow.
+
 ## Testing
 
 - Every behavior change ships with a test; every bug fix ships with the test

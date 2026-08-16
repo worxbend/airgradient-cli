@@ -27,6 +27,8 @@ pub(super) enum RuntimeEvent {
     ToggleThemeSettings,
     /// Opens the config editor if closed, closes it if open (`c`/`C`).
     ToggleConfigEditor,
+    /// Opens the reading chart if closed, closes it if open (`h`/`H`).
+    ToggleHistory,
     /// Closes whichever modal view/field-edit is active; quitting on a bare
     /// `Esc` at the dashboard is still handled by the `Quit` variant above.
     Escape,
@@ -90,7 +92,7 @@ pub(super) fn input_mode(app: &TuiApp) -> InputMode {
         View::Dashboard => InputMode::Normal,
         View::CommandPalette => InputMode::TextEntry,
         View::ConfigEditor if app.config_editor_editing.is_some() => InputMode::TextEntry,
-        View::ConfigEditor | View::ThemeSettings => InputMode::ModalNav,
+        View::ConfigEditor | View::ThemeSettings | View::History => InputMode::ModalNav,
     }
 }
 
@@ -104,6 +106,10 @@ pub(super) fn apply_hit(app: &mut TuiApp, target: HitTarget) -> bool {
         }
         HitTarget::ConfigRow(index) => {
             app.select_config_field_index(index);
+            true
+        }
+        HitTarget::HistoryRow(index) => {
+            app.select_history_metric_index(index);
             true
         }
     }

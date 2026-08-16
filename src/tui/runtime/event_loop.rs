@@ -316,6 +316,7 @@ fn leader_event(action: LeaderAction) -> RuntimeEvent {
         LeaderAction::Refresh => RuntimeEvent::Refresh,
         LeaderAction::OpenThemes => RuntimeEvent::ToggleThemeSettings,
         LeaderAction::OpenConfig => RuntimeEvent::ToggleConfigEditor,
+        LeaderAction::OpenHistory => RuntimeEvent::ToggleHistory,
         LeaderAction::OpenPalette => RuntimeEvent::OpenPalette,
         LeaderAction::LongerInterval => RuntimeEvent::IncreaseRefreshInterval,
         LeaderAction::ShorterInterval => RuntimeEvent::DecreaseRefreshInterval,
@@ -344,6 +345,7 @@ fn apply_view_event(event: RuntimeEvent, app: &mut TuiApp) -> EventOutcome {
         View::ThemeSettings => apply_theme_settings_event(event, app),
         View::ConfigEditor => apply_config_editor_event(event, app),
         View::CommandPalette => apply_command_palette_event(event, app),
+        View::History => apply_history_event(event, app),
         View::Dashboard => EventOutcome::Unchanged,
     }
 }
@@ -377,6 +379,14 @@ fn apply_global_event(
             }
             Some(EventOutcome::Redraw)
         }
+        RuntimeEvent::ToggleHistory => {
+            if app.view == View::History {
+                app.close_history();
+            } else {
+                app.open_history();
+            }
+            Some(EventOutcome::Redraw)
+        }
         RuntimeEvent::ToggleLeader => {
             app.toggle_leader();
             Some(EventOutcome::Redraw)
@@ -393,6 +403,7 @@ fn apply_global_event(
                 }
                 View::ConfigEditor => app.close_config_editor(),
                 View::CommandPalette => app.close_command_palette(),
+                View::History => app.close_history(),
                 View::Dashboard => {}
             }
             Some(EventOutcome::Redraw)
@@ -442,6 +453,21 @@ fn apply_config_editor_event(event: RuntimeEvent, app: &mut TuiApp) -> EventOutc
         RuntimeEvent::PaletteBackspace => app.config_editor_backspace(),
         RuntimeEvent::DeleteWordBefore => app.config_editor_delete_word(),
         RuntimeEvent::ClearLine => app.config_editor_clear_line(),
+        _ => return EventOutcome::Unchanged,
+    }
+
+    EventOutcome::Redraw
+}
+
+/// The chart binds the same motions as the other modal views; here they move
+/// between metrics rather than between rows of a list.
+fn apply_history_event(event: RuntimeEvent, app: &mut TuiApp) -> EventOutcome {
+    match event {
+        RuntimeEvent::NavUp => app.history_previous_metric(),
+        RuntimeEvent::NavDown => app.history_next_metric(),
+        RuntimeEvent::NavFirst | RuntimeEvent::GPrefix => app.history_first_metric(),
+        RuntimeEvent::NavLast => app.history_last_metric(),
+        RuntimeEvent::NavHalfPage(direction) => app.history_half_page(direction),
         _ => return EventOutcome::Unchanged,
     }
 

@@ -9,7 +9,7 @@ use std::{
     env,
     io::{self, IsTerminal},
     path::{Path, PathBuf},
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 use clap::{Args, Parser, Subcommand};
@@ -19,9 +19,13 @@ use crate::{
     config::{self, Config},
     device,
     device_url::{DeviceUrl, DeviceUrlError},
+    history,
     output::{self, OutputMetadata},
     sensors, tui,
 };
+
+/// Set to anything to stop a one-shot fetch recording what it read.
+const NO_HISTORY_ENV: &str = "AIRGRADIENT_CLI_NO_HISTORY";
 
 #[derive(Debug, Parser)]
 #[command(version, about = "Fetch and render AirGradient sensor readings")]
@@ -136,6 +140,7 @@ pub async fn run(cli: Cli) -> Result<(), CliError> {
     if cli.tui {
         let options = tui::runtime::RuntimeOptions {
             config_path: config_path(&cli)?,
+            history_path: history_path(),
             url_override: cli.url.clone(),
             refresh_override_secs: cli.refresh,
             theme_override: cli.theme.clone(),
@@ -249,6 +254,7 @@ async fn run_fetch(
     let payload = device::fetch_current_measures_with_client(&client, &base_url).await?;
     let fetch_duration = started.elapsed();
     let snapshot = sensors::parse_snapshot(&payload);
+    record_reading(&snapshot);
     let metadata = OutputMetadata {
         device_url: Some(base_url.as_str()),
         last_update: None,
@@ -269,6 +275,36 @@ async fn run_fetch(
     }
 
     Ok(())
+}
+
+/// Records a one-shot reading alongside the dashboard's own, so a device polled
+/// from `watch` or a cron job builds the same history the chart draws from.
+///
+/// Best-effort and silent: this is a side benefit of a fetch, not the point of
+/// one, and a full disk must not turn a successful reading into a failed
+/// command. `AIRGRADIENT_CLI_NO_HISTORY` opts out for callers that want a
+/// genuinely read-only fetch.
+fn record_reading(snapshot: &sensors::SensorSnapshot) {
+    if env::var_os(NO_HISTORY_ENV).is_some() {
+        return;
+    }
+
+    if let Some(path) = history_path() {
+        let _ = history::append(
+            &path,
+            &history::Reading::new(SystemTime::now(), snapshot.clone()),
+        );
+    }
+}
+
+/// Where readings are recorded, or `None` when no data directory can be
+/// resolved.
+///
+/// Deliberately not an error: a machine with neither `XDG_DATA_HOME` nor
+/// `HOME` set can still fetch and display readings, and refusing to start the
+/// dashboard over a missing chart would be the wrong trade.
+fn history_path() -> Option<PathBuf> {
+    history::resolve_history_path(None).ok()
 }
 
 fn config_path(cli: &Cli) -> Result<PathBuf, CliError> {

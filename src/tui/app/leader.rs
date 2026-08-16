@@ -30,6 +30,10 @@ pub const LEADER_BINDINGS: &[LeaderBinding] = &[
         label: "Config editor",
     },
     LeaderBinding {
+        key: 'h',
+        label: "History chart",
+    },
+    LeaderBinding {
         key: ':',
         label: "Command palette",
     },
@@ -53,6 +57,7 @@ pub enum LeaderAction {
     Refresh,
     OpenThemes,
     OpenConfig,
+    OpenHistory,
     OpenPalette,
     LongerInterval,
     ShorterInterval,
@@ -81,6 +86,7 @@ impl TuiApp {
             'r' => LeaderAction::Refresh,
             't' => LeaderAction::OpenThemes,
             'c' => LeaderAction::OpenConfig,
+            'h' => LeaderAction::OpenHistory,
             ':' => LeaderAction::OpenPalette,
             '+' | '=' => LeaderAction::LongerInterval,
             '-' | '_' => LeaderAction::ShorterInterval,

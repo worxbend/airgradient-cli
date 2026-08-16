@@ -15,6 +15,8 @@ pub enum HitTarget {
     ThemeRow(usize),
     /// A row in the config editor, indexed into `ConfigField::ALL`.
     ConfigRow(usize),
+    /// A metric in the history chart's list, indexed into the metric order.
+    HistoryRow(usize),
 }
 
 /// The click targets from the most recent frame.

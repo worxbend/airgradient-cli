@@ -1,6 +1,6 @@
 use std::time::{Duration, SystemTime};
 
-use airgradient_cli::{device_url::DeviceUrl, refresh_interval::RefreshInterval};
+use airgradient_cli::{device_url::DeviceUrl, history::Reading, refresh_interval::RefreshInterval};
 
 fn refresh(seconds: u64) -> RefreshInterval {
     RefreshInterval::clamping(Duration::from_secs(seconds))
@@ -900,4 +900,141 @@ fn rendering_into_a_zero_sized_terminal_does_not_panic() {
             .draw(|frame| ui::draw(frame, &app))
             .unwrap_or_else(|error| panic!("{width}x{height} dashboard should render: {error}"));
     }
+}
+
+// -- The reading chart --------------------------------------------------
+
+/// A run of readings ending now, so the chart has a line to draw.
+fn app_with_recorded_history(count: u64) -> TuiApp {
+    let mut app = app(Some(device_url()));
+    let now = SystemTime::now();
+    let readings: Vec<Reading> = (0..count)
+        .map(|index| {
+            let step = index as f64;
+            Reading::new(
+                now - Duration::from_secs((count - index) * 30),
+                SensorSnapshot {
+                    aqi: Some(30.0 + step),
+                    co2: Some(600.0 + step * 5.0),
+                    pm25: Some(6.0 + step / 10.0),
+                    ..SensorSnapshot::default()
+                },
+            )
+        })
+        .collect();
+    app.restore_history(readings);
+    app.current_snapshot = Some(populated_snapshot());
+    app
+}
+
+#[test]
+fn chart_plots_the_selected_metric_with_labelled_axes() {
+    let mut app = app_with_recorded_history(20);
+    app.open_history();
+
+    let rendered = render(&app);
+
+    // Title, metric list, and the plotted metric's own panel.
+    assert!(rendered.output.contains("History"), "{}", rendered.output);
+    assert!(rendered.output.contains("Metric"), "{}", rendered.output);
+    assert!(rendered.output.contains("AQI"), "{}", rendered.output);
+    // The x axis reads as ages ending at "now"; the newest reading is at the
+    // right-hand edge.
+    assert!(rendered.output.contains("now"), "{}", rendered.output);
+    assert!(rendered.output.contains("ago"), "{}", rendered.output);
+    // A braille line was actually drawn.
+    assert!(
+        rendered
+            .output
+            .chars()
+            .any(|character| ('\u{2800}'..='\u{28FF}').contains(&character)),
+        "expected braille plot points\n{}",
+        rendered.output
+    );
+}
+
+#[test]
+fn chart_titles_itself_with_the_metric_and_its_unit() {
+    let mut app = app_with_recorded_history(20);
+    app.open_history();
+    app.history_next_metric();
+
+    let rendered = render(&app);
+
+    assert!(rendered.output.contains("CO2 (ppm)"), "{}", rendered.output);
+}
+
+#[test]
+fn chart_explains_itself_before_there_are_readings_to_plot() {
+    let mut app = app(Some(device_url()));
+    app.open_history();
+
+    let rendered = render(&app);
+
+    assert!(
+        rendered.output.contains("No readings recorded"),
+        "{}",
+        rendered.output
+    );
+    assert!(
+        rendered.output.contains("kept between sessions"),
+        "{}",
+        rendered.output
+    );
+}
+
+#[test]
+fn chart_drops_the_metric_list_on_a_narrow_terminal_but_keeps_the_plot() {
+    let mut app = app_with_recorded_history(20);
+    app.open_history();
+
+    let narrow = render_at(&app, 44, 24);
+
+    // The plot survives; the list is what gives way.
+    assert!(narrow.output.contains("AQI"), "{}", narrow.output);
+    assert!(!narrow.output.contains("Metric "), "{}", narrow.output);
+}
+
+#[test]
+fn chart_renders_at_every_supported_size_without_panicking() {
+    let mut app = app_with_recorded_history(60);
+    app.open_history();
+
+    for (width, height) in [(36, 20), (44, 24), (80, 24), (100, 40), (200, 60)] {
+        let rendered = render_at(&app, width, height);
+        assert_eq!(rendered.lines.len(), usize::from(height));
+    }
+}
+
+#[test]
+fn dashboard_sparkline_shows_the_recorded_range() {
+    let app = app_with_recorded_history(20);
+
+    // The wide showcase layout has the room for it in its AQI hero card.
+    let rendered = render_at(&app, 120, 44);
+
+    assert!(
+        rendered.output.contains("readings"),
+        "expected the sparkline caption\n{}",
+        rendered.output
+    );
+    assert!(
+        rendered.output.contains("30") && rendered.output.contains("49"),
+        "expected the recorded range in the caption\n{}",
+        rendered.output
+    );
+}
+
+#[test]
+fn dashboard_omits_the_sparkline_when_readings_would_be_pushed_off_screen() {
+    let app = app_with_recorded_history(20);
+
+    // A short compact terminal: the metric grid keeps its rows.
+    let rendered = render_at(&app, 80, 24);
+
+    assert!(
+        !rendered.output.contains("readings"),
+        "the graph must give way to the readings\n{}",
+        rendered.output
+    );
 }

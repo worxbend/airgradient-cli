@@ -36,8 +36,15 @@ use thiserror::Error;
 use crate::{
     device::{self, FetchSettings},
     device_url::DeviceUrlError,
+    history,
     tui::app::TuiApp,
 };
+
+/// How much recorded history to replay into a new session.
+///
+/// The chart plots what fits on screen and the in-memory buffer is smaller
+/// still, so reading the whole file would only be work thrown away.
+const MAX_REPLAYED_READINGS: usize = 512;
 
 use effective_config::{EffectiveConfig, runtime_refresh_schedule_interval};
 use event::RuntimeEvent;
@@ -51,6 +58,10 @@ pub use effective_config::TUI_TEST_REFRESH_INTERVAL_MS_ENV;
 #[derive(Debug, Clone)]
 pub struct RuntimeOptions {
     pub config_path: PathBuf,
+    /// Where readings are recorded for the chart. `None` disables recording
+    /// entirely, which is what a session with no resolvable data directory
+    /// gets — the dashboard still works, it just has no history to draw.
+    pub history_path: Option<PathBuf>,
     pub url_override: Option<String>,
     pub refresh_override_secs: Option<u64>,
     pub theme_override: Option<String>,
@@ -125,6 +136,16 @@ pub async fn run(options: RuntimeOptions) -> Result<(), RuntimeError> {
     );
     app.theme = effective_config.theme;
     app.config_path = Some(options.config_path.clone());
+    app.history_path = options.history_path.clone();
+
+    // Previously recorded readings, so the chart opens with a shape rather
+    // than filling in over the next quarter of an hour. Best-effort: an
+    // unreadable history costs the graph, not the dashboard.
+    if let Some(path) = &options.history_path
+        && let Ok(readings) = history::load_recent(path, MAX_REPLAYED_READINGS)
+    {
+        app.restore_history(readings);
+    }
     let refresh_schedule_interval = runtime_refresh_schedule_interval(
         app.refresh_interval.as_duration(),
         env::var(TUI_TEST_REFRESH_INTERVAL_MS_ENV).ok().as_deref(),

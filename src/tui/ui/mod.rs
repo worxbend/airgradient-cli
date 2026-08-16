@@ -13,9 +13,11 @@
 
 mod air_monitor;
 mod air_monitor_card;
+mod chart;
 mod chrome;
 mod dashboard;
 mod format;
+mod history;
 mod hit;
 mod leader;
 mod settings;
@@ -166,6 +168,10 @@ pub fn draw_with_hits(frame: &mut Frame<'_>, app: &TuiApp, hits: &mut HitMap) {
         }
         View::ConfigEditor => {
             settings::render_config_editor(frame, area, app, hits);
+            return;
+        }
+        View::History => {
+            chart::render_history(frame, area, app, hits);
             return;
         }
         View::CommandPalette | View::Dashboard => {}

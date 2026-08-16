@@ -22,7 +22,7 @@ use crate::{
         ui::{
             ADVANCED_LAYOUT_HEIGHT, ADVANCED_LAYOUT_WIDTH, air_monitor,
             format::{aqi_message, metric_value},
-            vertical_gap, widget_block, widget_gap,
+            history, vertical_gap, widget_block, widget_gap,
         },
     },
 };
@@ -73,19 +73,62 @@ pub(super) fn render_dashboard(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) 
     render_compact_dashboard(frame, area, app);
 }
 
+/// Rows the AQI panel needs for its three lines plus its border.
+const AQI_PANEL_HEIGHT: u16 = 7;
+
+/// Rows the panel's text needs when its message wraps onto a second line.
+const AQI_TEXT_ROWS_WRAPPED: u16 = 4;
+
+/// Extra rows the AQI panel takes when it can also show the sparkline.
+const AQI_SPARKLINE_ROWS: u16 = 4;
+
+/// Whether the compact dashboard can afford the sparkline.
+///
+/// Only when every metric row still fits underneath it. A reading you cannot
+/// see is worse than a trend you cannot see, so the graph is the first thing to
+/// give up here — and the full chart (`h`) is a keypress away regardless. The
+/// wide showcase layout has fixed rows and spare room in its AQI card, so it
+/// shows the sparkline unconditionally.
+fn compact_sparkline_rows(area: Rect, metric_count: usize) -> u16 {
+    let columns = if area.width >= TWO_COLUMN_GRID_WIDTH {
+        2
+    } else {
+        1
+    };
+    let full_grid = (metric_count.div_ceil(columns) as u16).saturating_mul(CELL_HEIGHT);
+
+    if area.height >= AQI_PANEL_HEIGHT + AQI_SPARKLINE_ROWS + full_grid {
+        AQI_SPARKLINE_ROWS
+    } else {
+        0
+    }
+}
+
 fn render_compact_dashboard(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
     let metrics = app.metrics();
+    let aqi_history = app.metric_history(metrics.aqi().key);
+    let sparkline_rows = compact_sparkline_rows(area, metrics.len());
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .spacing(vertical_gap(area))
-        .constraints([Constraint::Length(7), Constraint::Min(3)])
+        .constraints([
+            Constraint::Length(AQI_PANEL_HEIGHT + sparkline_rows),
+            Constraint::Min(3),
+        ])
         .split(area);
 
-    render_aqi(frame, chunks[0], metrics.aqi(), app);
+    render_aqi(frame, chunks[0], metrics.aqi(), app, &aqi_history);
     render_metric_grid(frame, chunks[1], app.theme, &metrics);
 }
 
-fn render_aqi(frame: &mut Frame<'_>, area: Rect, metric: &Metric, app: &TuiApp) {
+fn render_aqi(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    metric: &Metric,
+    app: &TuiApp,
+    history: &[Option<f64>],
+) {
     let theme = app.theme;
     let lines = vec![
         Line::from(vec![
@@ -109,16 +152,25 @@ fn render_aqi(frame: &mut Frame<'_>, area: Rect, metric: &Metric, app: &TuiApp) 
         ]),
     ];
 
-    frame.render_widget(
-        Paragraph::new(lines)
-            .block(
-                widget_block(theme)
-                    .padding(Padding::horizontal(1))
-                    .title(Span::styled(" Air Quality ", theme.title_style())),
-            )
-            .wrap(Wrap { trim: true }),
-        area,
-    );
+    let block = widget_block(theme)
+        .padding(Padding::horizontal(1))
+        .title(Span::styled(" Air Quality ", theme.title_style()));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    // The text keeps the rows it needs — including the extra one its message
+    // takes when it wraps — and the sparkline gets only what is spare.
+    let history_rows = history::history_rows_beside_text(inner.height, AQI_TEXT_ROWS_WRAPPED);
+    let [text_area, history_area] = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(AQI_TEXT_ROWS_WRAPPED),
+            Constraint::Length(history_rows),
+        ])
+        .areas(inner);
+
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), text_area);
+    history::render_metric_history(frame, history_area, theme, metric, history);
 }
 
 fn render_metric_grid(frame: &mut Frame<'_>, area: Rect, theme: Theme, metrics: &Metrics) {

@@ -49,7 +49,8 @@ pub(super) fn render_advanced_dashboard(frame: &mut Frame<'_>, area: Rect, app: 
     let metrics = app.metrics();
 
     render_server_url_line(frame, rows[0], app);
-    render_air_monitor_hero_row(frame, rows[2], app, metrics.aqi(), &metrics);
+    let aqi_history = app.metric_history(metrics.aqi().key);
+    render_air_monitor_hero_row(frame, rows[2], app, metrics.aqi(), &metrics, &aqi_history);
     render_air_monitor_gas_row(frame, rows[4], theme, &metrics);
     render_air_monitor_pm_row(frame, rows[6], theme, &metrics);
 }
@@ -86,6 +87,7 @@ fn render_air_monitor_hero_row(
     app: &TuiApp,
     aqi: &Metric,
     metrics: &Metrics,
+    aqi_history: &[Option<f64>],
 ) {
     let theme = app.theme;
     let columns = Layout::default()
@@ -102,7 +104,7 @@ fn render_air_monitor_hero_row(
         .constraints([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)])
         .split(columns[2]);
 
-    render_air_monitor_aqi_card(frame, columns[0], app, aqi);
+    render_air_monitor_aqi_card(frame, columns[0], app, aqi, aqi_history);
 
     if let Some(metric) = metrics.by_key("temperature_c") {
         render_air_monitor_metric_card(

@@ -18,9 +18,16 @@ use crate::{
     tui::{
         app::TuiApp,
         theme::Theme,
-        ui::format::{aqi_message, metric_value, metric_value_with_unit},
+        ui::{
+            format::{aqi_message, metric_value, metric_value_with_unit},
+            history,
+        },
     },
 };
+
+/// Rows the AQI card's text needs when its message wraps onto a second line:
+/// heading, value, two message lines, trend.
+const AQI_CARD_TEXT_ROWS_WRAPPED: u16 = 5;
 
 /// The fixed presentation of a card: everything that does not come from the
 /// metric reading itself.
@@ -38,6 +45,7 @@ pub(super) fn render_air_monitor_aqi_card(
     area: Rect,
     app: &TuiApp,
     metric: &Metric,
+    history: &[Option<f64>],
 ) {
     let theme = app.theme;
     let block = air_monitor_card_block(theme, theme.good_card_style(), metric.status);
@@ -59,6 +67,21 @@ pub(super) fn render_air_monitor_aqi_card(
         Line::from(trend_spans(theme, metric)),
     ];
 
+    // The hero card is the tallest thing on the showcase dashboard, so the
+    // sparkline goes here — but only in rows the text does not need. The
+    // message line wraps on a narrow card, so the text's worst case is a line
+    // more than it has; `Min` then gives it everything the graph did not
+    // reserve.
+    let history_rows =
+        history::history_rows_beside_text(text_area.height, AQI_CARD_TEXT_ROWS_WRAPPED);
+    let [text_area, history_area] = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(AQI_CARD_TEXT_ROWS_WRAPPED),
+            Constraint::Length(history_rows),
+        ])
+        .areas(text_area);
+
     render_card_icon(frame, icon_area, theme, "◒");
     frame.render_widget(
         Paragraph::new(lines)
@@ -66,6 +89,7 @@ pub(super) fn render_air_monitor_aqi_card(
             .wrap(Wrap { trim: true }),
         text_area,
     );
+    history::render_metric_history(frame, history_area, theme, metric, history);
     render_metric_gauge(frame, gauge_area, theme, metric);
 }
 
