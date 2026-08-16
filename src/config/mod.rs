@@ -32,6 +32,9 @@ pub use store::{
     write_config,
 };
 
+#[cfg(test)]
+use store::update_config;
+
 pub use crate::refresh_interval::{
     DEFAULT_SECS as DEFAULT_REFRESH_INTERVAL_SECS, MAX_SECS as MAX_REFRESH_INTERVAL_SECS,
     MIN_SECS as MIN_REFRESH_INTERVAL_SECS, RefreshInterval,
@@ -109,6 +112,10 @@ pub enum ConfigError {
     },
     #[error("failed to serialize config")]
     Serialize(#[source] serde_json::Error),
+    #[error(
+        "config at {path} was changed by another program while this command was running; nothing was written — re-run the command"
+    )]
+    ConcurrentModification { path: PathBuf },
     #[error("failed to write config to {path}")]
     Write {
         path: PathBuf,

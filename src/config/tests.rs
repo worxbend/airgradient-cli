@@ -210,3 +210,77 @@ fn write_leaves_no_temporary_file_behind() {
         .collect();
     assert!(leftovers.is_empty(), "{leftovers:?}");
 }
+
+// -- Concurrent writers -------------------------------------------------
+
+#[test]
+fn a_read_modify_write_refuses_to_overwrite_a_concurrent_change() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let path = temp_dir.path().join("config.json");
+    set_url(&path, "192.168.1.10").unwrap();
+
+    // The window this guards is between `update_config`'s read and its write,
+    // so the stand-in for the desktop app writes from inside the modify step —
+    // which is the only way to land in that window deterministically.
+    let concurrent =
+        r#"{"server_url":"http://192.168.1.99/","desktop_only":"set by the other app"}"#;
+    let result = update_config(&path, |config| {
+        config.theme = "nord".to_string();
+        fs::write(&path, concurrent).unwrap();
+    });
+
+    assert!(
+        matches!(result, Err(ConfigError::ConcurrentModification { .. })),
+        "{result:?}"
+    );
+    // Nothing was written, so the other program's change is still intact.
+    assert_eq!(fs::read_to_string(&path).unwrap(), concurrent);
+}
+
+#[test]
+fn an_uncontended_read_modify_write_still_goes_through() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let path = temp_dir.path().join("config.json");
+    set_url(&path, "192.168.1.10").unwrap();
+
+    set_theme(&path, "nord").expect("an uncontended write should succeed");
+
+    assert_eq!(read_config(&path).unwrap().theme, "nord");
+}
+
+#[test]
+fn saving_a_session_without_a_url_leaves_the_stored_one_alone() {
+    // `:save` in a TUI started without a URL used to write null over whatever
+    // the desktop app had stored. The session has nothing to say about that
+    // field, so it must not speak for it.
+    let temp_dir = tempfile::tempdir().unwrap();
+    let path = temp_dir.path().join("config.json");
+    set_url(&path, "192.168.1.10").unwrap();
+
+    set_session(&path, None, RefreshInterval::from_secs(60).unwrap(), "nord").unwrap();
+
+    let saved = read_config(&path).unwrap();
+    assert_eq!(saved.server_url.as_deref(), Some("http://192.168.1.10/"));
+    assert_eq!(saved.refresh_interval.as_secs(), 60);
+    assert_eq!(saved.theme, "nord");
+}
+
+#[test]
+fn saving_a_session_with_a_url_stores_it() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let path = temp_dir.path().join("config.json");
+    set_url(&path, "192.168.1.10").unwrap();
+
+    set_session(
+        &path,
+        Some("http://192.168.1.55/"),
+        RefreshInterval::from_secs(60).unwrap(),
+        "nord",
+    )
+    .unwrap();
+
+    assert_eq!(
+        read_config(&path).unwrap().server_url.as_deref(),
+        Some("http://192.168.1.55/")
+    );
+}

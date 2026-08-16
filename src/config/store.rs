@@ -54,6 +54,11 @@ pub fn read_display_config(path: &Path) -> Result<DisplayConfig, ConfigError> {
 
 /// Writes `config`, preserving every key already in the file that this CLI
 /// does not model. Creates the parent directory if it does not exist.
+///
+/// This is the blind write: it does not care what the file said a moment ago.
+/// Callers that read, changed one field, and are writing the result back go
+/// through [`update_config`] instead, which checks that nothing else moved in
+/// between.
 pub fn write_config(path: &Path, config: &Config) -> Result<(), ConfigError> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|source| ConfigError::CreateDir {
@@ -93,8 +98,8 @@ pub fn write_config(path: &Path, config: &Config) -> Result<(), ConfigError> {
 /// never a partial one. The temporary file is removed if any step fails.
 ///
 /// Note this makes each write atomic; it does not serialize two processes
-/// writing at once. If the desktop app writes between this CLI's read and its
-/// write, the CLI's version still wins as a whole.
+/// writing at once. Guarding a read-modify-write against a concurrent writer
+/// is a separate problem, handled in [`update_config`].
 fn write_atomically(path: &Path, contents: &[u8]) -> Result<(), ConfigError> {
     let temp_path = temp_path_for(path);
 
@@ -170,13 +175,19 @@ pub fn set_theme(path: &Path, id: &str) -> Result<Config, ConfigError> {
     update_config(path, |config| config.theme = id.to_owned())
 }
 
-/// Stores the three settings a running TUI session can change, in one write.
+/// Stores the settings a running TUI session can change, in one write.
 ///
 /// Used by the palette's `:save`, which persists what the session currently
 /// looks like. `url` is passed already normalized, because the session only
-/// ever holds a URL that came through the device boundary. Fields this CLI
-/// does not model, and the two the TUI never touches, are left as the file
-/// has them.
+/// ever holds a URL that came through [`DeviceUrl`]. Fields this CLI does not
+/// model, and the two the TUI never touches, are left as the file has them.
+///
+/// A session with no URL leaves the stored one alone rather than writing null
+/// over it. `:save` means "keep what I have", and a TUI started without a URL
+/// has nothing to say about that field — but it can be open for hours, so
+/// writing the absence would erase a URL the desktop app set in the meantime.
+/// That is a different thing from clearing the URL, which the config editor's
+/// empty-field path still does explicitly.
 pub fn set_session(
     path: &Path,
     url: Option<&str>,
@@ -184,7 +195,9 @@ pub fn set_session(
     theme: &str,
 ) -> Result<Config, ConfigError> {
     update_config(path, |config| {
-        config.server_url = url.map(ToOwned::to_owned);
+        if let Some(url) = url {
+            config.server_url = Some(url.to_owned());
+        }
         config.refresh_interval = refresh_interval;
         config.theme = theme.to_owned();
     })
@@ -195,10 +208,52 @@ pub fn set_session(
 /// The read is tolerant ([`config_from_object_lossy`]) so that setting one
 /// field still works when another is malformed — otherwise a bad value in the
 /// file would block the very command that repairs it.
-fn update_config(path: &Path, apply: impl FnOnce(&mut Config)) -> Result<Config, ConfigError> {
+///
+/// # Concurrent writers
+///
+/// The file is shared with the AirGradient desktop app, so between the read
+/// above and the write below somebody else may have written it. Blindly
+/// writing anyway is a lost update: their change is gone, silently, and the
+/// user's only clue is a setting that reverted on its own.
+///
+/// So the file is checked before the write and the write is refused if it
+/// moved. This is not a true compare-and-set — `rename` cannot be made
+/// conditional portably — and a writer that lands inside the microseconds
+/// between [`fingerprint`] and the rename still wins. What it does do is
+/// shrink the window from "the whole read-modify-write, including a user
+/// typing a URL into the config editor" to that gap, and turn what is left
+/// from silent data loss into an error the user can act on by re-running the
+/// command.
+pub(super) fn update_config(
+    path: &Path,
+    apply: impl FnOnce(&mut Config),
+) -> Result<Config, ConfigError> {
+    let before = fingerprint(path);
+
     let object = read_config_object(path)?;
     let mut config = config_from_object_lossy(&object);
     apply(&mut config);
+
+    if fingerprint(path) != before {
+        return Err(ConfigError::ConcurrentModification {
+            path: path.to_path_buf(),
+        });
+    }
+
     write_config(path, &config)?;
     Ok(config)
+}
+
+/// What the file looked like, for detecting that somebody else wrote it.
+///
+/// Size and modification time, which is what is cheaply available on every
+/// platform this ships to. A concurrent write that leaves both unchanged —
+/// same byte count, within the filesystem's timestamp granularity — is not
+/// detected; a real edit by the desktop app changes at least one. A missing or
+/// unreadable file fingerprints as `None`, so a file appearing between the two
+/// calls is caught too.
+fn fingerprint(path: &Path) -> Option<(u64, Option<std::time::SystemTime>)> {
+    let metadata = fs::metadata(path).ok()?;
+
+    Some((metadata.len(), metadata.modified().ok()))
 }
