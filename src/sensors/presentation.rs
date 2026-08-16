@@ -8,10 +8,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::air_quality::SensorSnapshot;
-use super::thresholds::{
-    Status, classify_aqi, classify_co2, classify_humidity, classify_nox, classify_particles,
-    classify_pm10, classify_pm25, classify_temperature, classify_tvoc,
-};
+use super::thresholds::{self, Scale, Status};
 
 /// What every renderer shows in place of a reading the device did not report.
 ///
@@ -59,6 +56,10 @@ pub struct Metric {
     pub formatted_value: Option<String>,
     pub status: Status,
     pub trend: Trend,
+    /// The value this metric's gauge reads full at, carried here so a renderer
+    /// never has to look a metric's scale up by its key.
+    #[serde(skip)]
+    pub scale_max: f64,
 }
 
 pub fn metrics(snapshot: &SensorSnapshot, previous: Option<&SensorSnapshot>) -> Vec<Metric> {
@@ -70,7 +71,7 @@ pub fn metrics(snapshot: &SensorSnapshot, previous: Option<&SensorSnapshot>) -> 
             snapshot.aqi,
             previous.and_then(|snapshot| snapshot.aqi),
             0,
-            classify_aqi,
+            thresholds::AQI,
         ),
         metric(
             "co2",
@@ -79,7 +80,7 @@ pub fn metrics(snapshot: &SensorSnapshot, previous: Option<&SensorSnapshot>) -> 
             snapshot.co2,
             previous.and_then(|snapshot| snapshot.co2),
             0,
-            classify_co2,
+            thresholds::CO2,
         ),
         metric(
             "pm25",
@@ -88,7 +89,7 @@ pub fn metrics(snapshot: &SensorSnapshot, previous: Option<&SensorSnapshot>) -> 
             snapshot.pm25,
             previous.and_then(|snapshot| snapshot.pm25),
             1,
-            classify_pm25,
+            thresholds::PM25,
         ),
         metric(
             "pm1",
@@ -97,7 +98,7 @@ pub fn metrics(snapshot: &SensorSnapshot, previous: Option<&SensorSnapshot>) -> 
             snapshot.pm1,
             previous.and_then(|snapshot| snapshot.pm1),
             1,
-            classify_pm25,
+            thresholds::PM1,
         ),
         metric(
             "pm10",
@@ -106,7 +107,7 @@ pub fn metrics(snapshot: &SensorSnapshot, previous: Option<&SensorSnapshot>) -> 
             snapshot.pm10,
             previous.and_then(|snapshot| snapshot.pm10),
             1,
-            classify_pm10,
+            thresholds::PM10,
         ),
         metric(
             "pm03_count",
@@ -115,7 +116,7 @@ pub fn metrics(snapshot: &SensorSnapshot, previous: Option<&SensorSnapshot>) -> 
             snapshot.pm03_count,
             previous.and_then(|snapshot| snapshot.pm03_count),
             0,
-            classify_particles,
+            thresholds::PARTICLE_COUNT,
         ),
         metric(
             "tvoc",
@@ -124,7 +125,7 @@ pub fn metrics(snapshot: &SensorSnapshot, previous: Option<&SensorSnapshot>) -> 
             snapshot.tvoc,
             previous.and_then(|snapshot| snapshot.tvoc),
             0,
-            classify_tvoc,
+            thresholds::TVOC,
         ),
         metric(
             "nox",
@@ -133,7 +134,7 @@ pub fn metrics(snapshot: &SensorSnapshot, previous: Option<&SensorSnapshot>) -> 
             snapshot.nox,
             previous.and_then(|snapshot| snapshot.nox),
             0,
-            classify_nox,
+            thresholds::NOX,
         ),
         metric(
             "temperature_c",
@@ -142,7 +143,7 @@ pub fn metrics(snapshot: &SensorSnapshot, previous: Option<&SensorSnapshot>) -> 
             snapshot.temperature_c,
             previous.and_then(|snapshot| snapshot.temperature_c),
             1,
-            classify_temperature,
+            thresholds::TEMPERATURE,
         ),
         metric(
             "humidity",
@@ -151,7 +152,7 @@ pub fn metrics(snapshot: &SensorSnapshot, previous: Option<&SensorSnapshot>) -> 
             snapshot.humidity,
             previous.and_then(|snapshot| snapshot.humidity),
             1,
-            classify_humidity,
+            thresholds::HUMIDITY,
         ),
     ]
 }
@@ -163,7 +164,7 @@ fn metric(
     value: Option<f64>,
     previous: Option<f64>,
     decimals: usize,
-    classify: fn(Option<f64>) -> Status,
+    scale: Scale,
 ) -> Metric {
     Metric {
         key,
@@ -171,8 +172,9 @@ fn metric(
         unit,
         value,
         formatted_value: value.map(|value| format_value(value, decimals)),
-        status: classify(value),
+        status: scale.classify(value),
         trend: trend(value, previous),
+        scale_max: scale.max(),
     }
 }
 

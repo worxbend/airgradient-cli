@@ -156,7 +156,7 @@ fn render_metric_gauge(frame: &mut Frame<'_>, area: Rect, theme: Theme, metric: 
 
     let ratio = metric
         .value
-        .map(|value| (value / gauge_scale(metric.key)).clamp(0.0, 1.0))
+        .map(|value| (value / metric.scale_max).clamp(0.0, 1.0))
         .unwrap_or(0.0);
 
     frame.render_widget(
@@ -167,21 +167,6 @@ fn render_metric_gauge(frame: &mut Frame<'_>, area: Rect, theme: Theme, metric: 
             .ratio(ratio),
         area,
     );
-}
-
-/// Typical upper bound for each metric's scale, used only to size the
-/// gauge fill — not a health threshold (see `sensors::thresholds` for those).
-fn gauge_scale(key: &str) -> f64 {
-    match key {
-        "aqi" => 500.0,
-        "co2" => 2000.0,
-        "tvoc" => 400.0,
-        "nox" => 100.0,
-        "pm10" => 354.0,
-        "pm25" | "pm1" => 125.4,
-        "pm03_count" => 5000.0,
-        _ => 100.0,
-    }
 }
 
 /// A card's frame: a full rounded border tinted by the reading's status.

@@ -1,8 +1,13 @@
 //! Where a reading falls on the good-to-unhealthy scale.
 //!
-//! One classifier per measurement, each with the published range it comes
-//! from recorded next to it. Kept apart from presentation so that revising a
+//! One [`Scale`] per measurement, each with the published range it comes from
+//! recorded next to it. Kept apart from presentation so that revising a
 //! threshold never means touching a renderer.
+//!
+//! A `Scale` bundles the classifier with the value its gauge fills at, because
+//! the two are the same knowledge. The dashboard used to keep its own table of
+//! gauge maxima, every entry of which was a copy of a number below; revising a
+//! threshold left the fill bar disagreeing with the colour beside it.
 
 use serde::{Deserialize, Serialize};
 
@@ -30,88 +35,174 @@ impl Status {
     }
 }
 
+/// How a reading is judged, and how far its gauge runs.
+///
+/// The two travel together so a renderer cannot pick up one without the other.
+#[derive(Clone, Copy)]
+pub struct Scale {
+    classify: fn(Option<f64>) -> Status,
+    max: f64,
+}
+
+impl Scale {
+    pub fn classify(self, value: Option<f64>) -> Status {
+        (self.classify)(value)
+    }
+
+    /// The value at which this metric's gauge reads full. For most metrics
+    /// that is where the worst status begins — past it, the gauge has nothing
+    /// left to say that the colour is not already saying.
+    pub const fn max(self) -> f64 {
+        self.max
+    }
+}
+
+/// The breakpoints each classifier compares against, named so the gauge maxima
+/// below can be derived from them instead of restating them.
+const AQI_BREAKPOINTS: [(f64, Status); 4] = [
+    (50.0, Status::Good),
+    (100.0, Status::Moderate),
+    (150.0, Status::Elevated),
+    (200.0, Status::Unhealthy),
+];
+const CO2_BREAKPOINTS: [(f64, Status); 4] = [
+    (800.0, Status::Good),
+    (1000.0, Status::Moderate),
+    (1500.0, Status::Elevated),
+    (2000.0, Status::Unhealthy),
+];
+const PM25_BREAKPOINTS: [(f64, Status); 4] = [
+    (9.0, Status::Good),
+    (35.4, Status::Moderate),
+    (55.4, Status::Elevated),
+    (125.4, Status::Unhealthy),
+];
+const PM10_BREAKPOINTS: [(f64, Status); 4] = [
+    (54.0, Status::Good),
+    (154.0, Status::Moderate),
+    (254.0, Status::Elevated),
+    (354.0, Status::Unhealthy),
+];
+const PARTICLE_COUNT_BREAKPOINTS: [(f64, Status); 4] = [
+    (500.0, Status::Good),
+    (1000.0, Status::Moderate),
+    (2000.0, Status::Elevated),
+    (5000.0, Status::Unhealthy),
+];
+const TVOC_BREAKPOINTS: [(f64, Status); 4] = [
+    (100.0, Status::Good),
+    (200.0, Status::Moderate),
+    (300.0, Status::Elevated),
+    (400.0, Status::Unhealthy),
+];
+const NOX_BREAKPOINTS: [(f64, Status); 4] = [
+    (1.0, Status::Good),
+    (20.0, Status::Moderate),
+    (50.0, Status::Elevated),
+    (100.0, Status::Unhealthy),
+];
+
+/// The value at which the worst status begins, i.e. the last breakpoint.
+const fn worst_status_begins_at(breakpoints: &[(f64, Status); 4]) -> f64 {
+    breakpoints[breakpoints.len() - 1].0
+}
+
+/// The AQI gauge is the exception: it runs the full 0-500 index rather than
+/// stopping at the last breakpoint, because the index is *defined* up to 500
+/// (see `air_quality::us_aqi_from_pm25`) and readings above 200 are exactly the
+/// ones a user wants to see the remaining headroom for.
+const AQI_SCALE_MAX: f64 = 500.0;
+
+/// Comfort range rather than a hazard scale: a room thermometer that fills at
+/// 40C is readable, one that fills at the sensor's -40..85 range is not.
+const TEMPERATURE_SCALE_MAX: f64 = 40.0;
+
+pub const AQI: Scale = Scale {
+    classify: classify_aqi,
+    max: AQI_SCALE_MAX,
+};
+pub const CO2: Scale = Scale {
+    classify: classify_co2,
+    max: worst_status_begins_at(&CO2_BREAKPOINTS),
+};
+pub const PM25: Scale = Scale {
+    classify: classify_pm25,
+    max: worst_status_begins_at(&PM25_BREAKPOINTS),
+};
+pub const PM1: Scale = Scale {
+    classify: classify_pm1,
+    max: worst_status_begins_at(&PM25_BREAKPOINTS),
+};
+pub const PM10: Scale = Scale {
+    classify: classify_pm10,
+    max: worst_status_begins_at(&PM10_BREAKPOINTS),
+};
+pub const PARTICLE_COUNT: Scale = Scale {
+    classify: classify_particles,
+    max: worst_status_begins_at(&PARTICLE_COUNT_BREAKPOINTS),
+};
+pub const TVOC: Scale = Scale {
+    classify: classify_tvoc,
+    max: worst_status_begins_at(&TVOC_BREAKPOINTS),
+};
+pub const NOX: Scale = Scale {
+    classify: classify_nox,
+    max: worst_status_begins_at(&NOX_BREAKPOINTS),
+};
+pub const TEMPERATURE: Scale = Scale {
+    classify: classify_temperature,
+    max: TEMPERATURE_SCALE_MAX,
+};
+pub const HUMIDITY: Scale = Scale {
+    classify: classify_humidity,
+    max: MAX_HUMIDITY_PERCENT,
+};
+
+/// Relative humidity is a percentage; its gauge is the whole of it.
+const MAX_HUMIDITY_PERCENT: f64 = 100.0;
+
 pub fn classify_aqi(value: Option<f64>) -> Status {
-    classify(
-        value,
-        &[
-            (50.0, Status::Good),
-            (100.0, Status::Moderate),
-            (150.0, Status::Elevated),
-            (200.0, Status::Unhealthy),
-        ],
-    )
+    classify(value, &AQI_BREAKPOINTS)
 }
 
 pub fn classify_co2(value: Option<f64>) -> Status {
-    classify(
-        value,
-        &[
-            (800.0, Status::Good),
-            (1000.0, Status::Moderate),
-            (1500.0, Status::Elevated),
-            (2000.0, Status::Unhealthy),
-        ],
-    )
+    classify(value, &CO2_BREAKPOINTS)
 }
 
 pub fn classify_pm25(value: Option<f64>) -> Status {
-    classify(
-        value,
-        &[
-            (9.0, Status::Good),
-            (35.4, Status::Moderate),
-            (55.4, Status::Elevated),
-            (125.4, Status::Unhealthy),
-        ],
-    )
+    classify(value, &PM25_BREAKPOINTS)
+}
+
+/// PM1.0 shares the PM2.5 breakpoints, deliberately.
+///
+/// Unlike PM2.5 and PM10, PM1.0 has no published EPA (or WHO) breakpoint table
+/// to classify against — it is not a regulated size fraction. PM1.0 is a strict
+/// subset of the particles PM2.5 measures, so a PM1.0 reading can never exceed
+/// the PM2.5 reading from the same sensor, which makes the PM2.5 scale a
+/// conservative stand-in: it can under-state a PM1.0 reading's severity but
+/// never over-state it.
+///
+/// Kept as its own function rather than pointing the metric table at
+/// [`classify_pm25`] so that the choice is visible where the numbers are, and
+/// so a future published PM1.0 scale is a one-line change here.
+pub fn classify_pm1(value: Option<f64>) -> Status {
+    classify_pm25(value)
 }
 
 pub fn classify_pm10(value: Option<f64>) -> Status {
-    classify(
-        value,
-        &[
-            (54.0, Status::Good),
-            (154.0, Status::Moderate),
-            (254.0, Status::Elevated),
-            (354.0, Status::Unhealthy),
-        ],
-    )
+    classify(value, &PM10_BREAKPOINTS)
 }
 
 pub fn classify_particles(value: Option<f64>) -> Status {
-    classify(
-        value,
-        &[
-            (500.0, Status::Good),
-            (1000.0, Status::Moderate),
-            (2000.0, Status::Elevated),
-            (5000.0, Status::Unhealthy),
-        ],
-    )
+    classify(value, &PARTICLE_COUNT_BREAKPOINTS)
 }
 
 pub fn classify_tvoc(value: Option<f64>) -> Status {
-    classify(
-        value,
-        &[
-            (100.0, Status::Good),
-            (200.0, Status::Moderate),
-            (300.0, Status::Elevated),
-            (400.0, Status::Unhealthy),
-        ],
-    )
+    classify(value, &TVOC_BREAKPOINTS)
 }
 
 pub fn classify_nox(value: Option<f64>) -> Status {
-    classify(
-        value,
-        &[
-            (1.0, Status::Good),
-            (20.0, Status::Moderate),
-            (50.0, Status::Elevated),
-            (100.0, Status::Unhealthy),
-        ],
-    )
+    classify(value, &NOX_BREAKPOINTS)
 }
 
 pub fn classify_temperature(value: Option<f64>) -> Status {
@@ -178,6 +269,46 @@ mod tests {
         assert_eq!(classify_humidity(Some(45.0)), Status::Good);
         assert_eq!(classify_humidity(Some(25.0)), Status::Moderate);
         assert_eq!(classify_humidity(Some(85.0)), Status::Unhealthy);
+    }
+
+    #[test]
+    fn gauge_maxima_track_the_breakpoints_they_are_derived_from() {
+        // The dashboard reads these off the metric; nothing else may restate
+        // them. A metric whose gauge fills before its worst status begins would
+        // show a full bar next to an "Elevated" colour.
+        for (scale, breakpoints) in [
+            (CO2, CO2_BREAKPOINTS),
+            (PM25, PM25_BREAKPOINTS),
+            (PM1, PM25_BREAKPOINTS),
+            (PM10, PM10_BREAKPOINTS),
+            (PARTICLE_COUNT, PARTICLE_COUNT_BREAKPOINTS),
+            (TVOC, TVOC_BREAKPOINTS),
+            (NOX, NOX_BREAKPOINTS),
+        ] {
+            let worst_begins_at = breakpoints[breakpoints.len() - 1].0;
+            assert_eq!(scale.max(), worst_begins_at);
+            assert_eq!(scale.classify(Some(worst_begins_at)), Status::Unhealthy);
+        }
+    }
+
+    #[test]
+    fn aqi_and_comfort_gauges_use_their_full_range_not_a_breakpoint() {
+        // Deliberate exceptions, called out so a future edit does not "fix"
+        // them into the derived rule above.
+        assert_eq!(AQI.max(), 500.0);
+        assert_eq!(TEMPERATURE.max(), 40.0);
+        assert_eq!(HUMIDITY.max(), 100.0);
+    }
+
+    #[test]
+    fn every_scale_classifies_the_same_way_as_its_classifier() {
+        assert_eq!(AQI.classify(Some(42.0)), classify_aqi(Some(42.0)));
+        assert_eq!(PM1.classify(Some(42.0)), classify_pm1(Some(42.0)));
+        assert_eq!(
+            TEMPERATURE.classify(Some(22.0)),
+            classify_temperature(Some(22.0))
+        );
+        assert_eq!(HUMIDITY.classify(None), Status::Unknown);
     }
 
     #[test]
