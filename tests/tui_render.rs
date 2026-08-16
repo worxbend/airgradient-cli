@@ -1,6 +1,10 @@
 use std::time::{Duration, SystemTime};
 
-use airgradient_cli::device_url::DeviceUrl;
+use airgradient_cli::{device_url::DeviceUrl, refresh_interval::RefreshInterval};
+
+fn refresh(seconds: u64) -> RefreshInterval {
+    RefreshInterval::clamping(Duration::from_secs(seconds))
+}
 use airgradient_cli::{
     sensors::SensorSnapshot,
     tui::{app::TuiApp, theme, ui},
@@ -42,7 +46,7 @@ fn render_at(app: &TuiApp, width: u16, height: u16) -> Rendered {
 }
 
 fn app(configured_url: Option<DeviceUrl>) -> TuiApp {
-    TuiApp::new(configured_url, Duration::from_secs(30))
+    TuiApp::new(configured_url, refresh(30))
 }
 
 fn device_url() -> DeviceUrl {
@@ -673,7 +677,7 @@ fn render_with_hits(app: &TuiApp, width: u16, height: u16) -> (Vec<String>, ui::
 
 #[test]
 fn theme_rows_are_clickable_where_they_are_drawn() {
-    let mut app = TuiApp::new(None, Duration::from_secs(30));
+    let mut app = TuiApp::new(None, refresh(30));
     app.open_theme_settings();
 
     let (lines, hits) = render_with_hits(&app, 100, 40);
@@ -699,7 +703,7 @@ fn theme_rows_are_clickable_where_they_are_drawn() {
 
 #[test]
 fn clicking_outside_the_theme_list_hits_nothing() {
-    let mut app = TuiApp::new(None, Duration::from_secs(30));
+    let mut app = TuiApp::new(None, refresh(30));
     app.open_theme_settings();
 
     let (_, hits) = render_with_hits(&app, 100, 40);
@@ -710,7 +714,7 @@ fn clicking_outside_the_theme_list_hits_nothing() {
 
 #[test]
 fn config_rows_are_clickable_where_they_are_drawn() {
-    let mut app = TuiApp::new(None, Duration::from_secs(30));
+    let mut app = TuiApp::new(None, refresh(30));
     app.open_config_editor();
 
     let (lines, hits) = render_with_hits(&app, 100, 40);
@@ -820,7 +824,7 @@ fn config_rows_stay_clickable_when_a_long_value_would_wrap() {
             DeviceUrl::parse("http://airgradient-living-room-upstairs-by-the-window.lan:9925/")
                 .expect("test URL should parse"),
         ),
-        Duration::from_secs(30),
+        refresh(30),
     );
     app.open_config_editor();
 
@@ -850,7 +854,7 @@ fn config_rows_stay_clickable_when_a_long_value_would_wrap() {
 fn the_dashboard_records_no_click_zones() {
     // Nothing on the dashboard is clickable yet, so a stray click there must
     // resolve to nothing rather than to a stale zone from a previous frame.
-    let app = TuiApp::new(None, Duration::from_secs(30));
+    let app = TuiApp::new(None, refresh(30));
 
     let (_, hits) = render_with_hits(&app, 100, 40);
 
@@ -859,7 +863,7 @@ fn the_dashboard_records_no_click_zones() {
 
 #[test]
 fn the_leader_popup_lists_every_binding() {
-    let mut app = TuiApp::new(None, Duration::from_secs(30));
+    let mut app = TuiApp::new(None, refresh(30));
     app.toggle_leader();
 
     let (lines, _) = render_with_hits(&app, 100, 40);
@@ -884,7 +888,7 @@ fn rendering_into_a_zero_sized_terminal_does_not_panic() {
         let mut terminal = Terminal::new(backend).expect("test terminal should be created");
         terminal.backend_mut().resize(width, height);
 
-        let mut app = TuiApp::new(None, Duration::from_secs(30));
+        let mut app = TuiApp::new(None, refresh(30));
         app.splash_frame = Some(3);
 
         terminal

@@ -22,19 +22,15 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use crate::device_url::DeviceUrl;
-
 pub use leader::{LEADER_BINDINGS, LeaderAction, LeaderBinding};
 
 use crate::{
-    config::{Config, MAX_REFRESH_INTERVAL_SECS, MIN_REFRESH_INTERVAL_SECS},
+    config::Config,
+    device_url::DeviceUrl,
+    refresh_interval::RefreshInterval,
     sensors::{Metric, SensorSnapshot, metrics},
     tui::theme::Theme,
 };
-
-const REFRESH_STEP: Duration = Duration::from_secs(5);
-const MIN_REFRESH_INTERVAL: Duration = Duration::from_secs(MIN_REFRESH_INTERVAL_SECS);
-const MAX_REFRESH_INTERVAL: Duration = Duration::from_secs(MAX_REFRESH_INTERVAL_SECS);
 
 /// Which full-screen (or overlay) mode the TUI is currently showing. Gates
 /// both rendering (`ui::draw`) and which keys are live (`runtime::run_loop`).
@@ -83,7 +79,7 @@ pub struct TuiApp {
     pub last_success_at: Option<SystemTime>,
     pub current_error: Option<String>,
     pub configured_url: Option<DeviceUrl>,
-    pub refresh_interval: Duration,
+    pub refresh_interval: RefreshInterval,
     pub is_fetching: bool,
 
     /// Active color theme, applied throughout `ui.rs`.
@@ -135,7 +131,7 @@ pub struct TuiApp {
 }
 
 impl TuiApp {
-    pub fn new(configured_url: Option<DeviceUrl>, refresh_interval: Duration) -> Self {
+    pub fn new(configured_url: Option<DeviceUrl>, refresh_interval: RefreshInterval) -> Self {
         Self {
             current_snapshot: None,
             previous_successful_snapshot: None,
@@ -143,7 +139,7 @@ impl TuiApp {
             last_success_at: None,
             current_error: None,
             configured_url,
-            refresh_interval: clamp_refresh_interval(refresh_interval),
+            refresh_interval,
             is_fetching: false,
 
             theme: Theme::default_theme(),
@@ -192,17 +188,11 @@ impl TuiApp {
     }
 
     pub fn increase_refresh_interval(&mut self) {
-        self.refresh_interval = self
-            .refresh_interval
-            .saturating_add(REFRESH_STEP)
-            .min(MAX_REFRESH_INTERVAL);
+        self.refresh_interval = self.refresh_interval.longer();
     }
 
     pub fn decrease_refresh_interval(&mut self) {
-        self.refresh_interval = self
-            .refresh_interval
-            .saturating_sub(REFRESH_STEP)
-            .max(MIN_REFRESH_INTERVAL);
+        self.refresh_interval = self.refresh_interval.shorter();
     }
 
     pub fn trend_baseline(&self) -> Option<&SensorSnapshot> {
@@ -215,8 +205,4 @@ impl TuiApp {
             .map(|snapshot| metrics(snapshot, self.trend_baseline()))
             .unwrap_or_default()
     }
-}
-
-pub(super) fn clamp_refresh_interval(refresh_interval: Duration) -> Duration {
-    refresh_interval.clamp(MIN_REFRESH_INTERVAL, MAX_REFRESH_INTERVAL)
 }

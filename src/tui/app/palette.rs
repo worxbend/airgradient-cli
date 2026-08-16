@@ -4,11 +4,10 @@
 //! best-effort: a config file that cannot be written must not undo a change
 //! the user can already see on screen.
 
-use std::time::Duration;
-
 use crate::{
     config,
     device_url::DeviceUrl,
+    refresh_interval::RefreshInterval,
     tui::{
         command::{self, PaletteCommand},
         theme::Theme,
@@ -66,12 +65,12 @@ impl TuiApp {
                 PaletteOutcome::Continue
             }
             Ok(PaletteCommand::SetRefresh(seconds)) => {
-                match config::validate_refresh_interval(seconds) {
-                    Ok(()) => {
-                        self.refresh_interval = Duration::from_secs(seconds);
+                match RefreshInterval::from_secs(seconds) {
+                    Ok(interval) => {
+                        self.refresh_interval = interval;
                         self.persist_refresh(seconds);
                         self.palette_message =
-                            Some((format!("refresh interval set: {seconds}s"), false));
+                            Some((format!("refresh interval set: {interval}"), false));
                     }
                     Err(error) => {
                         self.palette_message = Some((error.to_string(), true));
@@ -130,7 +129,7 @@ impl TuiApp {
         };
 
         let url = self.configured_url.as_ref().map(DeviceUrl::as_str);
-        match config::set_session(path, url, self.refresh_interval.as_secs(), self.theme.id) {
+        match config::set_session(path, url, self.refresh_interval, self.theme.id) {
             Ok(_) => (format!("config saved: {}", path.display()), false),
             Err(error) => (format!("could not save config: {error}"), true),
         }

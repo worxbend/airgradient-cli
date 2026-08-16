@@ -176,7 +176,7 @@ where
             // cadence, so the interval is adopted here once for all of them.
             if app.refresh_interval != scheduled_app_interval {
                 scheduled_app_interval = app.refresh_interval;
-                schedule.interval = scheduled_app_interval;
+                schedule.interval = scheduled_app_interval.as_duration();
                 schedule.restart_from(clock.now());
             }
         }

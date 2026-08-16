@@ -6,7 +6,7 @@ use super::*;
 
 #[test]
 fn success_records_current_snapshot_and_fetch_metadata() {
-    let mut app = app_with_refresh(Duration::from_secs(30));
+    let mut app = app_with_refresh(refresh(30));
     let success_at = SystemTime::UNIX_EPOCH + Duration::from_secs(42);
     let current = snapshot(42.0, 612.0);
 
@@ -23,7 +23,7 @@ fn success_records_current_snapshot_and_fetch_metadata() {
 
 #[test]
 fn failure_preserves_successful_snapshots_and_records_error() {
-    let mut app = app_with_refresh(Duration::from_secs(30));
+    let mut app = app_with_refresh(refresh(30));
     let first = snapshot(40.0, 600.0);
     let second = snapshot(45.0, 625.0);
     app.finish_fetch_success(
@@ -49,7 +49,7 @@ fn failure_preserves_successful_snapshots_and_records_error() {
 
 #[test]
 fn trend_baseline_is_available_after_two_successes() {
-    let mut app = app_with_refresh(Duration::from_secs(30));
+    let mut app = app_with_refresh(refresh(30));
     app.finish_fetch_success(
         snapshot(40.0, 650.0),
         Duration::from_millis(50),
@@ -72,27 +72,27 @@ fn trend_baseline_is_available_after_two_successes() {
 
 #[test]
 fn refresh_interval_is_clamped_and_adjusted_within_bounds() {
-    let mut low = app_with_refresh(Duration::from_secs(1));
-    assert_eq!(low.refresh_interval, MIN_REFRESH_INTERVAL);
+    let mut low = app_with_refresh(refresh(1));
+    assert_eq!(low.refresh_interval, RefreshInterval::MIN);
     low.decrease_refresh_interval();
-    assert_eq!(low.refresh_interval, MIN_REFRESH_INTERVAL);
+    assert_eq!(low.refresh_interval, RefreshInterval::MIN);
     low.increase_refresh_interval();
-    assert_eq!(low.refresh_interval, Duration::from_secs(10));
+    assert_eq!(low.refresh_interval, refresh(10));
 
-    let mut high = app_with_refresh(Duration::from_secs(4_000));
-    assert_eq!(high.refresh_interval, MAX_REFRESH_INTERVAL);
+    let mut high = app_with_refresh(refresh(4_000));
+    assert_eq!(high.refresh_interval, RefreshInterval::MAX);
     high.increase_refresh_interval();
-    assert_eq!(high.refresh_interval, MAX_REFRESH_INTERVAL);
+    assert_eq!(high.refresh_interval, RefreshInterval::MAX);
     high.decrease_refresh_interval();
     assert_eq!(
         high.refresh_interval,
-        Duration::from_secs(MAX_REFRESH_INTERVAL_SECS - 5)
+        refresh(MAX_REFRESH_INTERVAL_SECS - 5)
     );
 }
 
 #[test]
 fn begin_fetch_only_sets_pending_when_url_is_configured() {
-    let mut missing_url = TuiApp::new(None, Duration::from_secs(30));
+    let mut missing_url = TuiApp::new(None, refresh(30));
     missing_url.begin_fetch();
     assert!(!missing_url.is_fetching);
 

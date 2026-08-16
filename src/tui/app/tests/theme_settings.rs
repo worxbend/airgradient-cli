@@ -5,7 +5,7 @@ use super::*;
 
 #[test]
 fn theme_settings_preview_reverts_on_close_without_confirm() {
-    let mut app = app_with_refresh(Duration::from_secs(30));
+    let mut app = app_with_refresh(refresh(30));
     let original = app.theme;
 
     app.open_theme_settings();
@@ -37,7 +37,7 @@ fn theme_settings_confirm_applies_and_persists() {
 
 #[test]
 fn theme_motions_jump_to_the_ends_of_the_list() {
-    let mut app = app_with_refresh(Duration::from_secs(30));
+    let mut app = app_with_refresh(refresh(30));
     app.open_theme_settings();
 
     app.theme_cursor_last();
@@ -51,7 +51,7 @@ fn theme_motions_jump_to_the_ends_of_the_list() {
 
 #[test]
 fn theme_half_page_motions_stay_inside_the_list() {
-    let mut app = app_with_refresh(Duration::from_secs(30));
+    let mut app = app_with_refresh(refresh(30));
     app.open_theme_settings();
     app.theme_cursor_first();
 
@@ -72,7 +72,7 @@ fn theme_half_page_motions_stay_inside_the_list() {
 
 #[test]
 fn clicking_a_theme_row_selects_and_previews_it() {
-    let mut app = app_with_refresh(Duration::from_secs(30));
+    let mut app = app_with_refresh(refresh(30));
     app.open_theme_settings();
 
     app.select_theme_index(3);
@@ -83,7 +83,7 @@ fn clicking_a_theme_row_selects_and_previews_it() {
 
 #[test]
 fn selecting_out_of_range_clamps_instead_of_panicking() {
-    let mut app = app_with_refresh(Duration::from_secs(30));
+    let mut app = app_with_refresh(refresh(30));
     app.open_theme_settings();
 
     app.select_theme_index(usize::MAX);

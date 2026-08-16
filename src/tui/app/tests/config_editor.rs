@@ -38,14 +38,14 @@ fn config_editor_save_persists_draft_and_applies_live_state() {
         app.configured_url.as_ref().map(|u| u.to_string()),
         Some("http://192.168.1.50/".to_string())
     );
-    assert_eq!(app.refresh_interval, Duration::from_secs(45));
+    assert_eq!(app.refresh_interval, refresh(45));
 
     let persisted = config::read_config(&path).unwrap();
     assert_eq!(
         persisted.server_url.as_deref(),
         Some("http://192.168.1.50/")
     );
-    assert_eq!(persisted.refresh_interval_secs, 45);
+    assert_eq!(persisted.refresh_interval.as_secs(), 45);
 }
 
 #[test]
@@ -65,14 +65,17 @@ fn config_editor_esc_discards_draft() {
     assert_eq!(app.view, View::Dashboard);
     assert_eq!(app.configured_url, None);
     assert_eq!(
-        config::read_config(&path).unwrap().refresh_interval_secs,
+        config::read_config(&path)
+            .unwrap()
+            .refresh_interval
+            .as_secs(),
         90
     );
 }
 
 #[test]
 fn config_editor_toggles_booleans_immediately() {
-    let mut app = app_with_refresh(Duration::from_secs(30));
+    let mut app = app_with_refresh(refresh(30));
     app.open_config_editor();
     app.config_editor_nav_down();
     app.config_editor_nav_down();
@@ -105,7 +108,7 @@ fn a_malformed_field_does_not_reset_the_settings_next_to_it() {
     )
     .unwrap();
 
-    let mut app = app_with_refresh(Duration::from_secs(30));
+    let mut app = app_with_refresh(refresh(30));
     app.config_path = Some(path.clone());
     app.open_config_editor();
 
@@ -118,7 +121,7 @@ fn a_malformed_field_does_not_reset_the_settings_next_to_it() {
     );
     // Only the unparseable field fell back, and the user is told why.
     assert_eq!(
-        app.config_draft.refresh_interval_secs,
+        app.config_draft.refresh_interval.as_secs(),
         config::DEFAULT_REFRESH_INTERVAL_SECS
     );
     assert!(
@@ -143,7 +146,7 @@ fn a_malformed_field_does_not_reset_the_settings_next_to_it() {
 
 #[test]
 fn a_rejected_value_stays_in_the_buffer_to_be_corrected() {
-    let mut app = app_with_refresh(Duration::from_secs(30));
+    let mut app = app_with_refresh(refresh(30));
     app.open_config_editor();
     app.config_editor_confirm(); // begin editing the server URL
 
@@ -163,7 +166,7 @@ fn a_rejected_value_stays_in_the_buffer_to_be_corrected() {
 
 #[test]
 fn a_rejected_interval_stays_in_the_buffer_and_an_accepted_one_clears_it() {
-    let mut app = app_with_refresh(Duration::from_secs(30));
+    let mut app = app_with_refresh(refresh(30));
     app.open_config_editor();
     app.config_editor_nav_down();
     assert_eq!(app.config_editor_field(), ConfigField::RefreshInterval);
@@ -186,12 +189,12 @@ fn a_rejected_interval_stays_in_the_buffer_and_an_accepted_one_clears_it() {
 
     assert_eq!(app.config_editor_editing, None);
     assert_eq!(app.config_editor_error, None);
-    assert_eq!(app.config_draft.refresh_interval_secs, 45);
+    assert_eq!(app.config_draft.refresh_interval.as_secs(), 45);
 }
 
 #[test]
 fn clearing_the_url_field_is_accepted_rather_than_rejected() {
-    let mut app = app_with_refresh(Duration::from_secs(30));
+    let mut app = app_with_refresh(refresh(30));
     app.open_config_editor();
     app.config_draft.server_url = Some("http://192.168.1.4/".to_string());
 
@@ -208,7 +211,7 @@ fn clearing_the_url_field_is_accepted_rather_than_rejected() {
 
 #[test]
 fn config_editor_motions_jump_to_the_ends_of_the_field_list() {
-    let mut app = app_with_refresh(Duration::from_secs(30));
+    let mut app = app_with_refresh(refresh(30));
     app.open_config_editor();
 
     app.config_editor_nav_last();
@@ -222,7 +225,7 @@ fn config_editor_motions_jump_to_the_ends_of_the_field_list() {
 
 #[test]
 fn clicking_a_config_row_is_ignored_while_a_field_is_being_edited() {
-    let mut app = app_with_refresh(Duration::from_secs(30));
+    let mut app = app_with_refresh(refresh(30));
     app.open_config_editor();
     app.config_editor_confirm(); // start editing the server URL
     assert!(app.config_editor_editing.is_some());

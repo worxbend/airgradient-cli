@@ -32,9 +32,10 @@ pub use store::{
     write_config,
 };
 
-pub const DEFAULT_REFRESH_INTERVAL_SECS: u64 = 30;
-pub const MIN_REFRESH_INTERVAL_SECS: u64 = 5;
-pub const MAX_REFRESH_INTERVAL_SECS: u64 = 3600;
+pub use crate::refresh_interval::{
+    DEFAULT_SECS as DEFAULT_REFRESH_INTERVAL_SECS, MAX_SECS as MAX_REFRESH_INTERVAL_SECS,
+    MIN_SECS as MIN_REFRESH_INTERVAL_SECS, RefreshInterval,
+};
 
 /// Shared with the desktop app — this is its directory, not a CLI-specific
 /// one, which is what lets both read and write the same settings.
@@ -45,8 +46,8 @@ const CONFIG_FILE_NAME: &str = "config.json";
 pub struct Config {
     #[serde(default)]
     pub server_url: Option<String>,
-    #[serde(default = "default_refresh_interval_secs")]
-    pub refresh_interval_secs: u64,
+    #[serde(default, rename = "refresh_interval_secs")]
+    pub refresh_interval: RefreshInterval,
     #[serde(default = "default_notifications_enabled")]
     pub notifications_enabled: bool,
     #[serde(default)]
@@ -70,7 +71,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             server_url: None,
-            refresh_interval_secs: DEFAULT_REFRESH_INTERVAL_SECS,
+            refresh_interval: RefreshInterval::DEFAULT,
             notifications_enabled: true,
             start_minimized: false,
             theme: default_theme(),
@@ -84,10 +85,8 @@ pub enum ConfigError {
         "unable to resolve a default config directory because neither XDG_CONFIG_HOME nor HOME is set"
     )]
     ConfigDirectoryUnavailable,
-    #[error(
-        "refresh interval must be between {MIN_REFRESH_INTERVAL_SECS} and {MAX_REFRESH_INTERVAL_SECS} seconds, got {0}"
-    )]
-    RefreshIntervalOutOfRange(u64),
+    #[error(transparent)]
+    RefreshIntervalOutOfRange(#[from] crate::refresh_interval::OutOfRange),
     #[error("failed to read config from {path}")]
     Read {
         path: PathBuf,
@@ -135,14 +134,6 @@ pub fn resolve_config_path(config_path: Option<&Path>) -> Result<PathBuf, Config
     )
 }
 
-pub fn validate_refresh_interval(seconds: u64) -> Result<(), ConfigError> {
-    if (MIN_REFRESH_INTERVAL_SECS..=MAX_REFRESH_INTERVAL_SECS).contains(&seconds) {
-        Ok(())
-    } else {
-        Err(ConfigError::RefreshIntervalOutOfRange(seconds))
-    }
-}
-
 /// Path resolution with the environment passed in, so the precedence rules
 /// are testable without mutating process-wide env vars.
 fn resolve_config_path_from(
@@ -166,10 +157,6 @@ fn resolve_config_path_from(
     }
 
     Err(ConfigError::ConfigDirectoryUnavailable)
-}
-
-fn default_refresh_interval_secs() -> u64 {
-    DEFAULT_REFRESH_INTERVAL_SECS
 }
 
 fn default_notifications_enabled() -> bool {

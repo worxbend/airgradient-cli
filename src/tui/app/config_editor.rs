@@ -4,15 +4,14 @@
 //! so Esc can discard the whole form. Fields are committed to the draft one
 //! at a time as each edit is confirmed.
 
-use std::time::Duration;
-
 use crate::{
-    config::{self, Config, MAX_REFRESH_INTERVAL_SECS, MIN_REFRESH_INTERVAL_SECS},
+    config::{self, Config},
     device_url::DeviceUrl,
+    refresh_interval::RefreshInterval,
     tui::theme,
 };
 
-use super::{ConfigField, TuiApp, View, clamp_refresh_interval, palette::delete_word_before};
+use super::{ConfigField, TuiApp, View, palette::delete_word_before};
 
 impl TuiApp {
     /// Loads the draft from disk and opens the editor.
@@ -52,7 +51,7 @@ impl TuiApp {
     fn config_from_session(&self) -> Config {
         Config {
             server_url: self.configured_url.as_ref().map(ToString::to_string),
-            refresh_interval_secs: self.refresh_interval.as_secs(),
+            refresh_interval: self.refresh_interval,
             theme: self.theme.id.to_string(),
             ..Config::default()
         }
@@ -166,7 +165,7 @@ impl TuiApp {
             }
             ConfigField::RefreshInterval => {
                 self.config_editor_editing =
-                    Some(self.config_draft.refresh_interval_secs.to_string());
+                    Some(self.config_draft.refresh_interval.as_secs().to_string());
             }
             ConfigField::NotificationsEnabled => {
                 self.config_draft.notifications_enabled = !self.config_draft.notifications_enabled;
@@ -209,17 +208,17 @@ impl TuiApp {
                 }
             }
             ConfigField::RefreshInterval => match buffer.parse::<u64>() {
-                Ok(seconds) if config::validate_refresh_interval(seconds).is_ok() => {
-                    self.config_draft.refresh_interval_secs = seconds;
-                    self.config_editor_error = None;
-                    true
-                }
-                Ok(_) => {
-                    self.config_editor_error = Some(format!(
-                        "refresh interval must be between {MIN_REFRESH_INTERVAL_SECS} and {MAX_REFRESH_INTERVAL_SECS} seconds"
-                    ));
-                    false
-                }
+                Ok(seconds) => match RefreshInterval::from_secs(seconds) {
+                    Ok(interval) => {
+                        self.config_draft.refresh_interval = interval;
+                        self.config_editor_error = None;
+                        true
+                    }
+                    Err(error) => {
+                        self.config_editor_error = Some(error.to_string());
+                        false
+                    }
+                },
                 Err(_) => {
                     self.config_editor_error =
                         Some("refresh interval must be a whole number of seconds".to_string());
@@ -266,8 +265,7 @@ impl TuiApp {
             }
             None => self.configured_url = None,
         }
-        self.refresh_interval =
-            clamp_refresh_interval(Duration::from_secs(self.config_draft.refresh_interval_secs));
+        self.refresh_interval = self.config_draft.refresh_interval;
         self.theme = theme::Theme::by_id(&self.config_draft.theme);
     }
 }

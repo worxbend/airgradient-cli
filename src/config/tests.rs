@@ -10,7 +10,7 @@ fn default_values_match_desktop_contract() {
     let config = Config::default();
 
     assert_eq!(config.server_url, None);
-    assert_eq!(config.refresh_interval_secs, 30);
+    assert_eq!(config.refresh_interval.as_secs(), 30);
     assert!(config.notifications_enabled);
     assert!(!config.start_minimized);
     assert_eq!(config.theme, "default");
@@ -59,18 +59,26 @@ fn path_resolution_falls_back_to_home_config() {
 
 #[test]
 fn refresh_interval_bounds_are_enforced() {
-    assert!(validate_refresh_interval(MIN_REFRESH_INTERVAL_SECS).is_ok());
-    assert!(validate_refresh_interval(DEFAULT_REFRESH_INTERVAL_SECS).is_ok());
-    assert!(validate_refresh_interval(MAX_REFRESH_INTERVAL_SECS).is_ok());
+    assert!(RefreshInterval::from_secs(MIN_REFRESH_INTERVAL_SECS).is_ok());
+    assert!(RefreshInterval::from_secs(DEFAULT_REFRESH_INTERVAL_SECS).is_ok());
+    assert!(RefreshInterval::from_secs(MAX_REFRESH_INTERVAL_SECS).is_ok());
 
+    // The bound is now the type's, and `ConfigError` reports it verbatim
+    // rather than restating the range in a second message.
+    let too_short = set_refresh_interval(
+        &std::env::temp_dir().join("airgradient-cli-nonexistent/config.json"),
+        MIN_REFRESH_INTERVAL_SECS - 1,
+    );
     assert!(matches!(
-        validate_refresh_interval(MIN_REFRESH_INTERVAL_SECS - 1),
-        Err(ConfigError::RefreshIntervalOutOfRange(4))
+        too_short,
+        Err(ConfigError::RefreshIntervalOutOfRange(_))
     ));
-    assert!(matches!(
-        validate_refresh_interval(MAX_REFRESH_INTERVAL_SECS + 1),
-        Err(ConfigError::RefreshIntervalOutOfRange(3601))
-    ));
+    assert!(
+        too_short
+            .unwrap_err()
+            .to_string()
+            .contains("must be between")
+    );
 }
 
 #[test]
@@ -83,10 +91,17 @@ fn read_config_rejects_out_of_bounds_refresh_interval() {
     )
     .unwrap();
 
-    assert!(matches!(
-        read_config(&path),
-        Err(ConfigError::RefreshIntervalOutOfRange(1))
-    ));
+    // The bound is enforced while deserializing, so an out-of-range interval
+    // surfaces as a parse failure — carrying the range in its message, which
+    // is the part the user needs.
+    let error = read_config(&path).expect_err("1s is below the minimum");
+
+    assert!(matches!(error, ConfigError::Parse { .. }), "{error:?}");
+    assert!(
+        std::error::Error::source(&error)
+            .is_some_and(|source| source.to_string().contains("must be between")),
+        "{error:?}"
+    );
 }
 
 #[test]
@@ -103,7 +118,7 @@ fn read_write_json_round_trip() {
     let path = temp_dir.path().join("nested").join("config.json");
     let config = Config {
         server_url: Some("http://192.168.1.201".to_owned()),
-        refresh_interval_secs: 60,
+        refresh_interval: RefreshInterval::from_secs(60).unwrap(),
         notifications_enabled: false,
         start_minimized: true,
         theme: "nord".to_owned(),
@@ -142,8 +157,8 @@ fn set_refresh_interval_persists_valid_value() {
 
     let config = set_refresh_interval(&path, 120).unwrap();
 
-    assert_eq!(config.refresh_interval_secs, 120);
-    assert_eq!(read_config(&path).unwrap().refresh_interval_secs, 120);
+    assert_eq!(config.refresh_interval.as_secs(), 120);
+    assert_eq!(read_config(&path).unwrap().refresh_interval.as_secs(), 120);
 }
 
 #[test]
@@ -166,7 +181,7 @@ fn set_theme_preserves_other_fields() {
     let config = set_theme(&path, "gruvbox").unwrap();
 
     assert_eq!(config.theme, "gruvbox");
-    assert_eq!(config.refresh_interval_secs, 90);
+    assert_eq!(config.refresh_interval.as_secs(), 90);
 }
 
 #[test]

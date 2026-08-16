@@ -281,7 +281,7 @@ fn config_field_display_value(app: &TuiApp, field: ConfigField, editing: bool) -
             .server_url
             .clone()
             .unwrap_or_else(|| "(none)".to_string()),
-        ConfigField::RefreshInterval => format!("{}s", app.config_draft.refresh_interval_secs),
+        ConfigField::RefreshInterval => app.config_draft.refresh_interval.to_string(),
         ConfigField::NotificationsEnabled => {
             bool_label(app.config_draft.notifications_enabled).to_string()
         }

@@ -29,13 +29,13 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::device_url::DeviceUrl;
+use crate::{
+    device_url::DeviceUrl,
+    refresh_interval::{MIN_SECS as MIN_REFRESH_INTERVAL_SECS, RefreshInterval},
+};
 use serde_json::{Value, json};
 
-use crate::{
-    config::{MAX_REFRESH_INTERVAL_SECS, MIN_REFRESH_INTERVAL_SECS},
-    tui::{app::TuiApp, theme},
-};
+use crate::tui::{app::TuiApp, theme};
 
 use super::{
     RuntimeError,
@@ -82,7 +82,7 @@ where
     terminal.enter()?;
 
     let mut clock = FakeClock::new(clock);
-    let refresh_schedule_interval = app.refresh_interval;
+    let refresh_schedule_interval = app.refresh_interval.as_duration();
     let result = run_loop(
         terminal,
         app,
@@ -103,7 +103,13 @@ where
 }
 
 fn app(configured_url: Option<DeviceUrl>) -> TuiApp {
-    TuiApp::new(configured_url, Duration::from_secs(30))
+    TuiApp::new(configured_url, refresh(30))
+}
+
+/// A refresh interval for tests, clamped rather than rejected so a case can
+/// name an out-of-range number and still get a value to hand to the model.
+fn refresh(seconds: u64) -> RefreshInterval {
+    RefreshInterval::clamping(Duration::from_secs(seconds))
 }
 
 fn configured_url() -> DeviceUrl {

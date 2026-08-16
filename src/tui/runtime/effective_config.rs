@@ -10,6 +10,7 @@ use std::time::Duration;
 use crate::{
     config,
     device_url::DeviceUrl,
+    refresh_interval::RefreshInterval,
     tui::{runtime::RuntimeOptions, theme::Theme},
 };
 
@@ -26,7 +27,7 @@ pub const TUI_TEST_REFRESH_INTERVAL_MS_ENV: &str = "AIRGRADIENT_CLI_TUI_TEST_REF
 #[derive(Debug)]
 pub(super) struct EffectiveConfig {
     pub(super) configured_url: Option<DeviceUrl>,
-    pub(super) refresh_interval: Duration,
+    pub(super) refresh_interval: RefreshInterval,
     pub(super) theme: Theme,
     /// Whatever went wrong while resolving, surfaced in the UI's error panel.
     pub(super) current_error: Option<String>,
@@ -63,15 +64,25 @@ impl EffectiveConfig {
             }
         }
 
-        let refresh_secs = options
-            .refresh_override_secs
-            .unwrap_or(config.refresh_interval_secs);
+        // A `--refresh` override out of range is pulled into range rather than
+        // failing the launch, like every other resolution problem here: the
+        // point of this module is that the TUI always starts.
+        let refresh_interval = match options.refresh_override_secs {
+            Some(seconds) => match RefreshInterval::from_secs(seconds) {
+                Ok(interval) => interval,
+                Err(error) => {
+                    current_error = Some(error.to_string());
+                    RefreshInterval::clamping(Duration::from_secs(seconds))
+                }
+            },
+            None => config.refresh_interval,
+        };
 
         let theme_id = options.theme_override.as_deref().unwrap_or(&config.theme);
 
         Self {
             configured_url,
-            refresh_interval: Duration::from_secs(refresh_secs),
+            refresh_interval,
             theme: Theme::by_id(theme_id),
             current_error,
         }

@@ -27,7 +27,7 @@ fn palette_submit_sets_url_and_persists() {
 
 #[test]
 fn palette_submit_rejects_out_of_range_refresh_interval() {
-    let mut app = app_with_refresh(Duration::from_secs(30));
+    let mut app = app_with_refresh(refresh(30));
     app.open_command_palette();
     for c in "refresh 1".chars() {
         app.palette_push_char(c);
@@ -35,7 +35,7 @@ fn palette_submit_rejects_out_of_range_refresh_interval() {
 
     app.palette_submit();
 
-    assert_eq!(app.refresh_interval, Duration::from_secs(30));
+    assert_eq!(app.refresh_interval, refresh(30));
     assert_eq!(
         app.palette_message.as_ref().map(|(_, is_error)| *is_error),
         Some(true)
@@ -44,7 +44,7 @@ fn palette_submit_rejects_out_of_range_refresh_interval() {
 
 #[test]
 fn palette_submit_quit_returns_quit_outcome() {
-    let mut app = app_with_refresh(Duration::from_secs(30));
+    let mut app = app_with_refresh(refresh(30));
     app.open_command_palette();
     app.palette_push_char('q');
 
@@ -53,7 +53,7 @@ fn palette_submit_quit_returns_quit_outcome() {
 
 #[test]
 fn palette_submit_unknown_command_shows_error_and_stays() {
-    let mut app = app_with_refresh(Duration::from_secs(30));
+    let mut app = app_with_refresh(refresh(30));
     app.open_command_palette();
     for c in "bogus".chars() {
         app.palette_push_char(c);
@@ -70,7 +70,7 @@ fn palette_submit_unknown_command_shows_error_and_stays() {
 
 #[test]
 fn ctrl_w_deletes_the_word_before_the_cursor() {
-    let mut app = app_with_refresh(Duration::from_secs(30));
+    let mut app = app_with_refresh(refresh(30));
     app.open_command_palette();
     for c in "url 192.168.1.201".chars() {
         app.palette_push_char(c);
@@ -89,7 +89,7 @@ fn ctrl_w_deletes_the_word_before_the_cursor() {
 
 #[test]
 fn ctrl_u_clears_the_whole_palette_line() {
-    let mut app = app_with_refresh(Duration::from_secs(30));
+    let mut app = app_with_refresh(refresh(30));
     app.open_command_palette();
     for c in "theme nord".chars() {
         app.palette_push_char(c);
@@ -128,7 +128,7 @@ fn palette_save_writes_the_live_session_to_the_config_file() {
     let temp_dir = tempfile::tempdir().unwrap();
     let (mut app, path) = app_with_config(temp_dir.path());
     app.configured_url = Some(DeviceUrl::parse("http://192.168.1.77/").unwrap());
-    app.refresh_interval = Duration::from_secs(45);
+    app.refresh_interval = refresh(45);
     app.theme = theme::ALL[1];
 
     app.open_command_palette();
@@ -141,13 +141,13 @@ fn palette_save_writes_the_live_session_to_the_config_file() {
     assert!(!is_error, "{message}");
     let saved = config::read_config(&path).unwrap();
     assert_eq!(saved.server_url.as_deref(), Some("http://192.168.1.77/"));
-    assert_eq!(saved.refresh_interval_secs, 45);
+    assert_eq!(saved.refresh_interval.as_secs(), 45);
     assert_eq!(saved.theme, theme::ALL[1].id);
 }
 
 #[test]
 fn palette_save_reports_when_there_is_no_config_file() {
-    let mut app = app_with_refresh(Duration::from_secs(30));
+    let mut app = app_with_refresh(refresh(30));
 
     app.open_command_palette();
     for c in "save".chars() {

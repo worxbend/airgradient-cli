@@ -11,8 +11,7 @@ use crate::device_url::DeviceUrl;
 
 use super::{
     Config, DEFAULT_REFRESH_INTERVAL_SECS, DisplayConfig, MAX_REFRESH_INTERVAL_SECS,
-    MIN_REFRESH_INTERVAL_SECS, default_notifications_enabled, default_theme,
-    validate_refresh_interval,
+    MIN_REFRESH_INTERVAL_SECS, RefreshInterval, default_notifications_enabled, default_theme,
 };
 
 /// Parses for display: same fallbacks as [`config_from_object_lossy`], but
@@ -36,10 +35,7 @@ pub(super) fn config_from_object_lossy(object: &Map<String, Value>) -> Config {
 fn parse_config(object: &Map<String, Value>, warnings: &mut Vec<String>) -> Config {
     Config {
         server_url: parse_raw_server_url(object.get("server_url"), warnings),
-        refresh_interval_secs: parse_refresh_interval(
-            object.get("refresh_interval_secs"),
-            warnings,
-        ),
+        refresh_interval: parse_refresh_interval(object.get("refresh_interval_secs"), warnings),
         notifications_enabled: parse_bool_field(
             object.get("notifications_enabled"),
             "notifications_enabled",
@@ -109,27 +105,28 @@ fn parse_raw_server_url(value: Option<&Value>, warnings: &mut Vec<String>) -> Op
 /// An out-of-range interval is treated exactly like a wrong type: the stored
 /// number is not clamped, because a silently clamped value would look like
 /// the config was accepted as written.
-fn parse_refresh_interval(value: Option<&Value>, warnings: &mut Vec<String>) -> u64 {
+fn parse_refresh_interval(value: Option<&Value>, warnings: &mut Vec<String>) -> RefreshInterval {
     match value {
-        None => DEFAULT_REFRESH_INTERVAL_SECS,
+        None => RefreshInterval::DEFAULT,
         Some(Value::Number(number)) => {
-            if let Some(seconds) = number.as_u64()
-                && validate_refresh_interval(seconds).is_ok()
+            if let Some(interval) = number
+                .as_u64()
+                .and_then(|seconds| RefreshInterval::from_secs(seconds).ok())
             {
-                return seconds;
+                return interval;
             }
 
             warnings.push(format!(
                 "invalid refresh_interval_secs: expected integer from {MIN_REFRESH_INTERVAL_SECS} to {MAX_REFRESH_INTERVAL_SECS}, got {number}; using {DEFAULT_REFRESH_INTERVAL_SECS}"
             ));
-            DEFAULT_REFRESH_INTERVAL_SECS
+            RefreshInterval::DEFAULT
         }
         Some(value) => {
             warnings.push(format!(
                 "invalid refresh_interval_secs: expected integer from {MIN_REFRESH_INTERVAL_SECS} to {MAX_REFRESH_INTERVAL_SECS}, got {}; using {DEFAULT_REFRESH_INTERVAL_SECS}",
                 value_type(value)
             ));
-            DEFAULT_REFRESH_INTERVAL_SECS
+            RefreshInterval::DEFAULT
         }
     }
 }

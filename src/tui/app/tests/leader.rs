@@ -5,7 +5,7 @@ use super::*;
 
 #[test]
 fn leader_toggles_and_cancels() {
-    let mut app = app_with_refresh(Duration::from_secs(30));
+    let mut app = app_with_refresh(refresh(30));
     assert!(!app.leader_pending);
 
     app.toggle_leader();
@@ -22,7 +22,7 @@ fn leader_toggles_and_cancels() {
 
 #[test]
 fn leader_resolves_bound_keys_and_dismisses_unbound_ones() {
-    let mut app = app_with_refresh(Duration::from_secs(30));
+    let mut app = app_with_refresh(refresh(30));
 
     app.toggle_leader();
     assert_eq!(app.resolve_leader('t'), LeaderAction::OpenThemes);
@@ -39,7 +39,7 @@ fn leader_resolves_bound_keys_and_dismisses_unbound_ones() {
 #[test]
 fn every_advertised_leader_binding_resolves_to_an_action() {
     // The which-key popup is a promise: anything it lists must actually work.
-    let mut app = app_with_refresh(Duration::from_secs(30));
+    let mut app = app_with_refresh(refresh(30));
 
     for binding in LEADER_BINDINGS {
         assert_ne!(

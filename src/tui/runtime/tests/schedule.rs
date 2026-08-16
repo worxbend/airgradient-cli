@@ -1,29 +1,33 @@
-//! Refresh-interval policy: the app-model clamp, and the rules the
+//! Refresh-interval policy: what the app model carries, and the rules the
 //! diagnostic scheduler override has to obey.
+//!
+//! The bounds themselves are `RefreshInterval`'s and are tested there; what
+//! this file checks is that the runtime never runs on an interval the app
+//! model is not also reporting.
 
 use super::*;
 
 #[test]
-fn production_refresh_clamp_keeps_documented_bounds() {
+fn the_app_model_carries_an_already_bounded_interval() {
+    // `TuiApp` used to clamp on construction, which meant the bound was
+    // enforced in two places under two different policies. It now takes a
+    // `RefreshInterval`, so anything out of range was resolved before it got
+    // here — deliberately, by whoever called `clamping`.
     assert_eq!(
-        TuiApp::new(None, Duration::from_secs(0)).refresh_interval,
-        Duration::from_secs(MIN_REFRESH_INTERVAL_SECS)
+        TuiApp::new(None, refresh(0)).refresh_interval,
+        RefreshInterval::MIN
     );
     assert_eq!(
-        TuiApp::new(None, Duration::from_secs(1)).refresh_interval,
-        Duration::from_secs(MIN_REFRESH_INTERVAL_SECS)
+        TuiApp::new(None, refresh(4)).refresh_interval,
+        RefreshInterval::MIN
     );
     assert_eq!(
-        TuiApp::new(None, Duration::from_secs(4)).refresh_interval,
-        Duration::from_secs(MIN_REFRESH_INTERVAL_SECS)
+        TuiApp::new(None, refresh(3601)).refresh_interval,
+        RefreshInterval::MAX
     );
     assert_eq!(
-        TuiApp::new(None, Duration::from_secs(5)).refresh_interval,
-        Duration::from_secs(MIN_REFRESH_INTERVAL_SECS)
-    );
-    assert_eq!(
-        TuiApp::new(None, Duration::from_secs(3601)).refresh_interval,
-        Duration::from_secs(MAX_REFRESH_INTERVAL_SECS)
+        TuiApp::new(None, refresh(45)).refresh_interval.as_secs(),
+        45
     );
 }
 
@@ -32,11 +36,11 @@ fn assert_runtime_schedule_override(
     override_value: Option<&str>,
     expected_schedule_interval: Duration,
 ) {
-    let app = TuiApp::new(None, Duration::from_secs(production_seconds));
+    let app = TuiApp::new(None, refresh(production_seconds));
     let production_interval = app.refresh_interval;
 
     assert_eq!(
-        runtime_refresh_schedule_interval(production_interval, override_value),
+        runtime_refresh_schedule_interval(production_interval.as_duration(), override_value),
         expected_schedule_interval
     );
     assert_eq!(app.refresh_interval, production_interval);

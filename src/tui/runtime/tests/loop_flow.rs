@@ -52,7 +52,7 @@ async fn splash_priming_event_is_honored_as_first_loop_event() {
     let mut terminal = HarnessTerminal::with_events([RuntimeEvent::Quit]);
     let mut fetcher = HarnessFetcher::new([]);
     let mut app = app(None);
-    let refresh_interval = app.refresh_interval;
+    let refresh_interval = app.refresh_interval.as_duration();
 
     run_with_adapters_with_refresh_interval(
         &mut terminal,
@@ -179,7 +179,7 @@ async fn interval_refresh_starts_after_refresh_deadline() {
         HarnessFetcher::new([Ok(successful_payload()), Ok(later_successful_payload())]);
     let url = configured_url();
     let mut app = app(Some(url.clone()));
-    app.refresh_interval = Duration::from_secs(5);
+    app.refresh_interval = refresh(5);
 
     run_with_harness_clock(&mut terminal, &mut app, &mut fetcher, clock)
         .await
@@ -211,10 +211,10 @@ async fn runtime_refresh_schedule_can_shorten_without_mutating_app_interval() {
     let mut fetcher =
         HarnessFetcher::new([Ok(successful_payload()), Ok(later_successful_payload())]);
     let url = configured_url();
-    let production_interval = Duration::from_secs(MIN_REFRESH_INTERVAL_SECS);
+    let production_interval = RefreshInterval::MIN;
     let mut app = TuiApp::new(Some(url.clone()), production_interval);
     let refresh_schedule_interval =
-        runtime_refresh_schedule_interval(production_interval, Some("250"));
+        runtime_refresh_schedule_interval(production_interval.as_duration(), Some("250"));
 
     terminal.enter().expect("terminal should enter");
     let mut fake_clock = FakeClock::new(clock);
@@ -253,7 +253,7 @@ async fn early_false_polls_do_not_fire_interval_refresh_early() {
     let url = configured_url();
     let mut fetcher = HarnessFetcher::new([Ok(successful_payload())]);
     let mut app = app(Some(url.clone()));
-    app.refresh_interval = Duration::from_secs(5);
+    app.refresh_interval = refresh(5);
 
     run_with_harness_clock(&mut terminal, &mut app, &mut fetcher, clock)
         .await
@@ -279,7 +279,7 @@ async fn delayed_false_poll_handles_at_most_one_interval_deadline() {
     let mut fetcher =
         HarnessFetcher::new([Ok(successful_payload()), Ok(later_successful_payload())]);
     let mut app = app(Some(url.clone()));
-    app.refresh_interval = Duration::from_secs(5);
+    app.refresh_interval = refresh(5);
 
     run_with_harness_clock(&mut terminal, &mut app, &mut fetcher, clock)
         .await
@@ -309,7 +309,7 @@ async fn manual_refresh_resets_interval_from_event_read_time() {
     let mut fetcher =
         HarnessFetcher::new([Ok(successful_payload()), Ok(later_successful_payload())]);
     let mut app = app(Some(url.clone()));
-    app.refresh_interval = Duration::from_secs(5);
+    app.refresh_interval = refresh(5);
 
     run_with_harness_clock(&mut terminal, &mut app, &mut fetcher, clock)
         .await
@@ -370,7 +370,7 @@ async fn refresh_interval_key_events_adjust_app_interval() {
         .await
         .expect("runtime should quit cleanly");
 
-    assert_eq!(app.refresh_interval, Duration::from_secs(35));
+    assert_eq!(app.refresh_interval, refresh(35));
     assert!(fetcher.calls.is_empty());
     assert_eq!(
         terminal
@@ -406,16 +406,13 @@ async fn palette_refresh_command_changes_the_polling_cadence() {
     let mut fetcher =
         HarnessFetcher::new([Ok(successful_payload()), Ok(later_successful_payload())]);
     let url = configured_url();
-    let mut app = TuiApp::new(
-        Some(url.clone()),
-        Duration::from_secs(MAX_REFRESH_INTERVAL_SECS),
-    );
+    let mut app = TuiApp::new(Some(url.clone()), RefreshInterval::MAX);
 
     run_with_harness_clock(&mut terminal, &mut app, &mut fetcher, clock)
         .await
         .expect("runtime should quit cleanly");
 
-    assert_eq!(app.refresh_interval, Duration::from_secs(5));
+    assert_eq!(app.refresh_interval, refresh(5));
     assert_eq!(fetcher.calls, [url.clone(), url]);
 }
 

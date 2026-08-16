@@ -18,9 +18,8 @@ use serde_json::{Map, Value};
 use crate::device_url::DeviceUrl;
 
 use super::{
-    Config, ConfigError, DisplayConfig,
+    Config, ConfigError, DisplayConfig, RefreshInterval,
     lossy::{config_from_object_lossy, display_config_from_object},
-    validate_refresh_interval,
 };
 
 /// Reads the config strictly: any malformed field is an error.
@@ -43,8 +42,6 @@ pub fn read_config(path: &Path) -> Result<Config, ConfigError> {
             source,
         })?;
 
-    validate_refresh_interval(config.refresh_interval_secs)?;
-
     Ok(config)
 }
 
@@ -58,8 +55,6 @@ pub fn read_display_config(path: &Path) -> Result<DisplayConfig, ConfigError> {
 /// Writes `config`, preserving every key already in the file that this CLI
 /// does not model. Creates the parent directory if it does not exist.
 pub fn write_config(path: &Path, config: &Config) -> Result<(), ConfigError> {
-    validate_refresh_interval(config.refresh_interval_secs)?;
-
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|source| ConfigError::CreateDir {
             path: parent.to_path_buf(),
@@ -164,8 +159,8 @@ pub fn set_url(path: &Path, url: &str) -> Result<Config, ConfigError> {
 }
 
 pub fn set_refresh_interval(path: &Path, seconds: u64) -> Result<Config, ConfigError> {
-    validate_refresh_interval(seconds)?;
-    update_config(path, |config| config.refresh_interval_secs = seconds)
+    let refresh_interval = RefreshInterval::from_secs(seconds)?;
+    update_config(path, |config| config.refresh_interval = refresh_interval)
 }
 
 /// Stores a theme id without validating it. Ids are not validated here on
@@ -185,13 +180,12 @@ pub fn set_theme(path: &Path, id: &str) -> Result<Config, ConfigError> {
 pub fn set_session(
     path: &Path,
     url: Option<&str>,
-    refresh_interval_secs: u64,
+    refresh_interval: RefreshInterval,
     theme: &str,
 ) -> Result<Config, ConfigError> {
-    validate_refresh_interval(refresh_interval_secs)?;
     update_config(path, |config| {
         config.server_url = url.map(ToOwned::to_owned);
-        config.refresh_interval_secs = refresh_interval_secs;
+        config.refresh_interval = refresh_interval;
         config.theme = theme.to_owned();
     })
 }

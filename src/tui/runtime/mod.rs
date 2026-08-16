@@ -126,7 +126,7 @@ pub async fn run(options: RuntimeOptions) -> Result<(), RuntimeError> {
     app.theme = effective_config.theme;
     app.config_path = Some(options.config_path.clone());
     let refresh_schedule_interval = runtime_refresh_schedule_interval(
-        app.refresh_interval,
+        app.refresh_interval.as_duration(),
         env::var(TUI_TEST_REFRESH_INTERVAL_MS_ENV).ok().as_deref(),
     );
 
@@ -167,7 +167,7 @@ where
     T: TerminalRuntime,
     F: MeasureFetchWorker,
 {
-    let refresh_schedule_interval = app.refresh_interval;
+    let refresh_schedule_interval = app.refresh_interval.as_duration();
     run_with_adapters_with_refresh_interval(
         terminal,
         app,

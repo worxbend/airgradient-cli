@@ -46,7 +46,7 @@ pub(super) fn render_status_line(frame: &mut Frame<'_>, area: Rect, app: &TuiApp
 /// content: app name, device URL, refresh interval, fetch status.
 fn render_compact_status_line(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
     let theme = app.theme;
-    let refresh = format_duration(app.refresh_interval);
+    let refresh = format_duration(app.refresh_interval.as_duration());
     let status = fetch_status(app);
 
     let line = Line::from(vec![
