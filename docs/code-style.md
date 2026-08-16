@@ -170,6 +170,31 @@ config, and follows different rules:
   turn a successful reading into a failed command; the same rule the config
   persistence paths in `tui::app` already follow.
 
+## Presentation
+
+- **One colour scale, one owner.** Every status colour comes from
+  `Theme::status_color`. A surface that needs green/yellow/orange/red asks for
+  it; it never picks its own, or the card border and the gauge beside it drift
+  apart.
+- **Glyphs never carry meaning alone.** Every icon sits next to its own label.
+  Nerd Font codepoints live in the Private Use Area and draw as empty boxes in
+  an unpatched terminal, so each one is paired with a plain-Unicode stand-in
+  (`sensors::Icons`) and the theme picks between them — `mono` is the TTY-safe
+  theme, so it is also the plain-icon theme. A render test asserts `mono` emits
+  no PUA codepoints at all; it caught the powerline separator, which had been
+  slipping through since before the icons existed.
+- **Animate only what is happening.** `TuiApp::is_animating` gates the
+  animation clock, and the runtime advances it only when that holds — on the
+  spare moment when an input poll times out. An idle dashboard is never
+  repainted. Anything animated reads `animation_frame` rather than a wall
+  clock, which is also what keeps rendering a pure function of state and the
+  render tests deterministic.
+- **Widgets from crates, decisions from us.** `tui-slider`, `tui-spinner`, and
+  `ratatui-toaster` draw; what to say, which band a value is in, and when an
+  alert stops showing are ours. `ui::toast` builds its engine per frame from
+  app state rather than holding one between frames, so no widget owns state the
+  model should.
+
 ## Testing
 
 - Every behavior change ships with a test; every bug fix ships with the test

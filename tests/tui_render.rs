@@ -1038,3 +1038,98 @@ fn dashboard_omits_the_sparkline_when_readings_would_be_pushed_off_screen() {
         rendered.output
     );
 }
+
+// -- Icons, gauges, and animation ---------------------------------------
+
+#[test]
+fn each_reading_carries_its_own_icon() {
+    let mut app = app(Some(device_url()));
+    app.current_snapshot = Some(populated_snapshot());
+
+    let rendered = render_at(&app, 120, 44);
+
+    // Distinct glyphs, not one shared bullet: the temperature and humidity
+    // cards must not look like the same reading twice.
+    let thermometer = "\u{f050f}";
+    let humidity = "\u{f058e}";
+    assert!(rendered.output.contains(thermometer), "{}", rendered.output);
+    assert!(rendered.output.contains(humidity), "{}", rendered.output);
+}
+
+#[test]
+fn the_tty_safe_theme_swaps_nerd_glyphs_for_plain_ones() {
+    // A terminal without a patched font draws Private Use Area codepoints as
+    // empty boxes, so the theme that exists for plain TTYs must not use them.
+    let mut app = app(Some(device_url()));
+    app.current_snapshot = Some(populated_snapshot());
+    app.theme = theme::Theme::by_id("mono");
+
+    let rendered = render_at(&app, 120, 44);
+
+    assert!(
+        !rendered
+            .output
+            .chars()
+            .any(|character| ('\u{e000}'..='\u{f8ff}').contains(&character)
+                || ('\u{f0000}'..='\u{fffff}').contains(&character)),
+        "the mono theme drew a Private Use Area glyph\n{}",
+        rendered.output
+    );
+}
+
+#[test]
+fn the_hero_gauge_shows_its_bands_ticks_and_scale() {
+    let mut app = app(Some(device_url()));
+    app.current_snapshot = Some(populated_snapshot());
+
+    let rendered = render_at(&app, 120, 44);
+
+    // Bar, tick row, and the scale the ticks sit at.
+    assert!(rendered.output.contains('█'), "{}", rendered.output);
+    assert!(rendered.output.contains('░'), "{}", rendered.output);
+    assert!(rendered.output.contains('▲'), "{}", rendered.output);
+    assert!(
+        rendered.lines.iter().any(|line| line.contains("500")),
+        "expected the AQI scale's upper bound\n{}",
+        rendered.output
+    );
+}
+
+#[test]
+fn an_idle_dashboard_is_a_still_picture() {
+    // The animation gate: nothing running means nothing to repaint, which is
+    // what keeps this cheap to leave open all day.
+    let mut app = app(Some(device_url()));
+    app.current_snapshot = Some(populated_snapshot());
+
+    assert!(!app.is_animating());
+
+    app.begin_fetch();
+    assert!(app.is_animating(), "a fetch in flight should animate");
+}
+
+#[test]
+fn the_wordmark_is_a_gradient_rather_than_one_flat_colour() {
+    let app = app(Some(device_url()));
+
+    let backend = TestBackend::new(100, 40);
+    let mut terminal = Terminal::new(backend).expect("test terminal");
+    terminal
+        .draw(|frame| ui::draw(frame, &app))
+        .expect("dashboard should render");
+
+    let buffer = terminal.backend().buffer();
+    // Find "AirGradient" in the status line and collect its cells' colours.
+    let mut colours = Vec::new();
+    for column in 0..100 {
+        let cell = &buffer[(column, 1)];
+        if "AirGradient".contains(cell.symbol()) && cell.symbol() != " " {
+            colours.push(cell.fg);
+        }
+    }
+
+    assert!(
+        colours.len() > 3 && colours.windows(2).any(|pair| pair[0] != pair[1]),
+        "expected the wordmark to be coloured along a ramp, got {colours:?}"
+    );
+}

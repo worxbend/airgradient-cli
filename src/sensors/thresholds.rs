@@ -9,6 +9,8 @@
 //! gauge maxima, every entry of which was a copy of a number below; revising a
 //! threshold left the fill bar disagreeing with the colour beside it.
 
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,10 +65,19 @@ impl Status {
 /// How a reading is judged, and how far its gauge runs.
 ///
 /// The two travel together so a renderer cannot pick up one without the other.
+///
+/// Equality and `Debug` compare the *scale*, not the function pointer inside
+/// it: two scales with the same bounds and boundaries are the same scale as
+/// far as anything here is concerned, and a raw pointer in a test failure's
+/// output tells nobody anything.
 #[derive(Clone, Copy)]
 pub struct Scale {
     classify: fn(Option<f64>) -> Status,
     max: f64,
+    /// The values at which this metric changes band, ascending. Empty for the
+    /// two comfort scales, whose bands are ranges around a middle rather than
+    /// a climb — a gauge draws those as one continuous run.
+    boundaries: &'static [f64],
 }
 
 impl Scale {
@@ -80,7 +91,60 @@ impl Scale {
     pub const fn max(self) -> f64 {
         self.max
     }
+
+    /// Where this metric changes band, for a gauge that marks them.
+    pub const fn boundaries(self) -> &'static [f64] {
+        self.boundaries
+    }
 }
+
+/// The default exists only so `Metric` can derive `Deserialize` with the scale
+/// skipped; a deserialized metric is a rendering input, not a classifier.
+impl Default for Scale {
+    fn default() -> Self {
+        AQI
+    }
+}
+
+impl PartialEq for Scale {
+    fn eq(&self, other: &Self) -> bool {
+        self.max == other.max && self.boundaries == other.boundaries
+    }
+}
+
+impl fmt::Debug for Scale {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Scale")
+            .field("max", &self.max)
+            .field("boundaries", &self.boundaries)
+            .finish()
+    }
+}
+
+/// The values out of a breakpoint table, so a gauge marks exactly the points
+/// the classifier switches at rather than a second list that could drift.
+const fn boundaries_of(breakpoints: &[(f64, Status); 4]) -> [f64; 4] {
+    [
+        breakpoints[0].0,
+        breakpoints[1].0,
+        breakpoints[2].0,
+        breakpoints[3].0,
+    ]
+}
+
+const AQI_BOUNDARIES: [f64; 4] = boundaries_of(&AQI_BREAKPOINTS);
+const CO2_BOUNDARIES: [f64; 4] = boundaries_of(&CO2_BREAKPOINTS);
+const PM25_BOUNDARIES: [f64; 4] = boundaries_of(&PM25_BREAKPOINTS);
+const PM10_BOUNDARIES: [f64; 4] = boundaries_of(&PM10_BREAKPOINTS);
+const PARTICLE_COUNT_BOUNDARIES: [f64; 4] = boundaries_of(&PARTICLE_COUNT_BREAKPOINTS);
+const TVOC_BOUNDARIES: [f64; 4] = boundaries_of(&TVOC_BREAKPOINTS);
+const NOX_BOUNDARIES: [f64; 4] = boundaries_of(&NOX_BREAKPOINTS);
+
+/// Temperature and humidity are comfort ranges, not a climb from good to bad:
+/// both ends are uncomfortable and the middle is fine. A banded gauge would
+/// have to run green-in-the-middle, so it is given no boundaries and drawn as
+/// one continuous scale instead.
+const COMFORT_BOUNDARIES: [f64; 0] = [];
 
 /// The breakpoints each classifier compares against, named so the gauge maxima
 /// below can be derived from them instead of restating them.
@@ -145,42 +209,52 @@ const TEMPERATURE_SCALE_MAX: f64 = 40.0;
 pub const AQI: Scale = Scale {
     classify: classify_aqi,
     max: AQI_SCALE_MAX,
+    boundaries: &AQI_BOUNDARIES,
 };
 pub const CO2: Scale = Scale {
     classify: classify_co2,
     max: worst_status_begins_at(&CO2_BREAKPOINTS),
+    boundaries: &CO2_BOUNDARIES,
 };
 pub const PM25: Scale = Scale {
     classify: classify_pm25,
     max: worst_status_begins_at(&PM25_BREAKPOINTS),
+    boundaries: &PM25_BOUNDARIES,
 };
 pub const PM1: Scale = Scale {
     classify: classify_pm1,
     max: worst_status_begins_at(&PM25_BREAKPOINTS),
+    boundaries: &PM25_BOUNDARIES,
 };
 pub const PM10: Scale = Scale {
     classify: classify_pm10,
     max: worst_status_begins_at(&PM10_BREAKPOINTS),
+    boundaries: &PM10_BOUNDARIES,
 };
 pub const PARTICLE_COUNT: Scale = Scale {
     classify: classify_particles,
     max: worst_status_begins_at(&PARTICLE_COUNT_BREAKPOINTS),
+    boundaries: &PARTICLE_COUNT_BOUNDARIES,
 };
 pub const TVOC: Scale = Scale {
     classify: classify_tvoc,
     max: worst_status_begins_at(&TVOC_BREAKPOINTS),
+    boundaries: &TVOC_BOUNDARIES,
 };
 pub const NOX: Scale = Scale {
     classify: classify_nox,
     max: worst_status_begins_at(&NOX_BREAKPOINTS),
+    boundaries: &NOX_BOUNDARIES,
 };
 pub const TEMPERATURE: Scale = Scale {
     classify: classify_temperature,
     max: TEMPERATURE_SCALE_MAX,
+    boundaries: &COMFORT_BOUNDARIES,
 };
 pub const HUMIDITY: Scale = Scale {
     classify: classify_humidity,
     max: MAX_HUMIDITY_PERCENT,
+    boundaries: &COMFORT_BOUNDARIES,
 };
 
 /// Relative humidity is a percentage; its gauge is the whole of it.

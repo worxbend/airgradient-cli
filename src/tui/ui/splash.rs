@@ -3,21 +3,18 @@
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::Style,
     text::{Line, Span},
     widgets::{Block, Borders, Gauge, Paragraph},
 };
 
-use crate::tui::theme::{self, Theme};
+use crate::tui::{
+    theme::{self, Theme},
+    ui::gradient,
+};
 
 const WORDMARK: &str = "AirGradient";
 const TAGLINE: &str = "Air quality, at a glance";
-
-/// How fast the shimmer travels across the wordmark, and how far the phase
-/// shifts per letter. Tuned so one highlight sweep spans the whole word over
-/// roughly the splash's frame budget.
-const SHIMMER_SPEED_PER_FRAME: f64 = 0.35;
-const SHIMMER_PHASE_PER_LETTER: f64 = 0.9;
 
 /// Startup splash: a per-letter shimmer wordmark (blending `fg` toward
 /// `accent` on a traveling phase), a tagline, and a fill gauge over the
@@ -83,22 +80,8 @@ fn centered_splash_box(area: Rect) -> Rect {
 }
 
 fn shimmer_wordmark(theme: Theme, frame_no: u64) -> Vec<Span<'static>> {
-    let phase = frame_no as f64 * SHIMMER_SPEED_PER_FRAME;
-
-    WORDMARK
-        .chars()
-        .enumerate()
-        .map(|(index, letter)| {
-            let offset = phase + index as f64 * SHIMMER_PHASE_PER_LETTER;
-            let blend = (0.5 + 0.5 * offset.sin()).clamp(0.0, 1.0) as f32;
-            Span::styled(
-                letter.to_string(),
-                Style::default()
-                    .fg(shimmer(theme.fg, theme.accent, blend))
-                    .add_modifier(Modifier::BOLD),
-            )
-        })
-        .collect()
+    // Shared with the dashboard's wordmark, so the two shimmer alike.
+    gradient::gradient_spans(WORDMARK, theme.fg, theme.accent, frame_no, true)
 }
 
 fn center_horizontally(area: Rect, width: u16) -> Rect {
@@ -109,20 +92,4 @@ fn center_horizontally(area: Rect, width: u16) -> Rect {
         width,
         height: area.height,
     }
-}
-
-/// Blends `base` toward `accent` by `t`. Only RGB themes can be interpolated;
-/// named/indexed terminal colors have no channel values to mix, so those
-/// themes keep a static wordmark rather than flickering between palette slots.
-fn shimmer(base: Color, accent: Color, t: f32) -> Color {
-    let (Color::Rgb(br, bg, bb), Color::Rgb(ar, ag, ab)) = (base, accent) else {
-        return base;
-    };
-    let mix = |from: u8, to: u8| -> u8 {
-        let from = f32::from(from);
-        let to = f32::from(to);
-        (from + (to - from) * t).round().clamp(0.0, 255.0) as u8
-    };
-
-    Color::Rgb(mix(br, ar), mix(bg, ag), mix(bb, ab))
 }

@@ -21,7 +21,7 @@ use crate::{
         theme::Theme,
         ui::{
             format::{aqi_message, metric_value, metric_value_with_unit},
-            history,
+            gauge, history,
         },
     },
 };
@@ -35,7 +35,6 @@ const AQI_CARD_TEXT_ROWS_WRAPPED: u16 = 5;
 #[derive(Clone, Copy)]
 pub(super) struct CardSpec {
     pub(super) title: &'static str,
-    pub(super) icon: &'static str,
     /// Sub-label under the value. Empty falls back to the metric's status.
     pub(super) detail: &'static str,
     pub(super) style: Style,
@@ -53,7 +52,7 @@ pub(super) fn render_air_monitor_aqi_card(
     let inner = pad_card_area(block.inner(area));
     frame.render_widget(block, area);
 
-    let (icon_area, text_area, gauge_area) = split_card(inner, 11, 24);
+    let (icon_area, text_area, gauge_area) = split_card(inner, 11, 24, gauge::FULL_HEIGHT);
     let lines = vec![
         Line::from(Span::styled("Air Quality Index", theme.value_style())),
         Line::from(vec![
@@ -83,7 +82,13 @@ pub(super) fn render_air_monitor_aqi_card(
         ])
         .areas(text_area);
 
-    render_card_icon(frame, icon_area, theme, "◒");
+    render_card_icon(
+        frame,
+        icon_area,
+        theme,
+        theme.icon(metric.icon),
+        metric.status,
+    );
     frame.render_widget(
         Paragraph::new(lines)
             .style(theme.good_card_style())
@@ -91,7 +96,9 @@ pub(super) fn render_air_monitor_aqi_card(
         text_area,
     );
     history::render_metric_history(frame, history_area, theme, metric, history);
-    render_metric_gauge(frame, gauge_area, theme, metric);
+    // The hero card gets the full banded gauge — bar, ticks, and scale — which
+    // is the one place on the dashboard with the rows to spare for it.
+    gauge::render_band_gauge(frame, gauge_area, theme, metric);
 }
 
 pub(super) fn render_air_monitor_metric_card(
@@ -105,7 +112,7 @@ pub(super) fn render_air_monitor_metric_card(
     let inner = pad_card_area(block.inner(area));
     frame.render_widget(block, area);
 
-    let (icon_area, text_area, gauge_area) = split_card(inner, 7, 16);
+    let (icon_area, text_area, gauge_area) = split_card(inner, 7, 16, 1);
     let detail = if spec.detail.is_empty() {
         metric.status.label()
     } else {
@@ -125,7 +132,13 @@ pub(super) fn render_air_monitor_metric_card(
         Line::from(trend_spans(theme, metric)),
     ];
 
-    render_card_icon(frame, icon_area, theme, spec.icon);
+    render_card_icon(
+        frame,
+        icon_area,
+        theme,
+        theme.icon(metric.icon),
+        metric.status,
+    );
     frame.render_widget(
         Paragraph::new(lines)
             .style(spec.style)
@@ -137,7 +150,12 @@ pub(super) fn render_air_monitor_metric_card(
 
 /// Splits a card's inner area into its icon column, text block, and the
 /// single-row gauge pinned to the bottom of the text column.
-fn split_card(inner: Rect, icon_width: u16, min_text_width: u16) -> (Rect, Rect, Rect) {
+fn split_card(
+    inner: Rect,
+    icon_width: u16,
+    min_text_width: u16,
+    gauge_height: u16,
+) -> (Rect, Rect, Rect) {
     let columns = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
@@ -145,19 +163,24 @@ fn split_card(inner: Rect, icon_width: u16, min_text_width: u16) -> (Rect, Rect,
             Constraint::Min(min_text_width),
         ])
         .split(inner);
+    // The gauge takes the rows it asked for only if the text still gets three;
+    // a card too short for both keeps the reading and drops to a bare bar.
+    let gauge_height = gauge_height.min(columns[1].height.saturating_sub(3)).max(1);
     let text_rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(3), Constraint::Length(1)])
+        .constraints([Constraint::Min(3), Constraint::Length(gauge_height)])
         .split(columns[1]);
 
     (columns[0], text_rows[0], text_rows[1])
 }
 
-fn render_card_icon(frame: &mut Frame<'_>, area: Rect, theme: Theme, icon: &str) {
+/// The reading's own glyph, coloured by its status so the icon carries the
+/// green/yellow/orange/red signal as well as the border and the bar do.
+fn render_card_icon(frame: &mut Frame<'_>, area: Rect, theme: Theme, icon: &str, status: Status) {
     frame.render_widget(
         Paragraph::new(Span::styled(
             icon.to_string(),
-            theme.value_style().add_modifier(Modifier::BOLD),
+            theme.status_style(status).add_modifier(Modifier::BOLD),
         ))
         .alignment(Alignment::Center),
         area,
@@ -188,7 +211,7 @@ fn render_metric_gauge(frame: &mut Frame<'_>, area: Rect, theme: Theme, metric: 
 
     // A metric the device did not report reads as empty rather than as zero:
     // the bar is absent, not at the floor.
-    let value = metric.value.unwrap_or(0.0).clamp(0.0, metric.scale_max);
+    let value = metric.value.unwrap_or(0.0).clamp(0.0, metric.scale.max());
 
     // How far along its scale the reading sits, kept from the gauge this
     // replaced. The slider draws its label in its own rows, and this one has
@@ -202,7 +225,7 @@ fn render_metric_gauge(frame: &mut Frame<'_>, area: Rect, theme: Theme, metric: 
     frame.render_widget(
         Paragraph::new(Span::styled(
             match metric.value {
-                Some(_) => format!("{:>3.0}%", (value / metric.scale_max) * 100.0),
+                Some(_) => format!("{:>3.0}%", (value / metric.scale.max()) * 100.0),
                 None => format!("{MISSING_VALUE:>4}"),
             },
             theme.muted_style(),
@@ -211,7 +234,7 @@ fn render_metric_gauge(frame: &mut Frame<'_>, area: Rect, theme: Theme, metric: 
     );
 
     frame.render_widget(
-        Slider::new(value, 0.0, metric.scale_max)
+        Slider::new(value, 0.0, metric.scale.max())
             .show_handle(false)
             .show_value(false)
             .filled_symbol(slider_symbols::FILLED_THICK_LINE)

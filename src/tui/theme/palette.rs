@@ -33,6 +33,7 @@ pub(super) const DEFAULT: Theme = Theme {
     info: rgb!(0x49, 0xDE, 0xFF),
     highlight_bg: rgb!(0x5C, 0xE1, 0xE6),
     highlight_fg: rgb!(0x05, 0x08, 0x0E),
+    nerd_icons: true,
 };
 
 pub(super) const CLAUDE: Theme = Theme {
@@ -51,6 +52,7 @@ pub(super) const CLAUDE: Theme = Theme {
     info: rgb!(0x7B, 0xA9, 0xC7),
     highlight_bg: rgb!(0xD9, 0x77, 0x57),
     highlight_fg: rgb!(0x1B, 0x19, 0x16),
+    nerd_icons: true,
 };
 
 pub(super) const CODEX: Theme = Theme {
@@ -69,6 +71,7 @@ pub(super) const CODEX: Theme = Theme {
     info: rgb!(0x8A, 0xB4, 0xFF),
     highlight_bg: rgb!(0x37, 0xE0, 0xB0),
     highlight_fg: rgb!(0x0A, 0x14, 0x12),
+    nerd_icons: true,
 };
 
 pub(super) const BTOP: Theme = Theme {
@@ -87,6 +90,7 @@ pub(super) const BTOP: Theme = Theme {
     info: rgb!(0x50, 0xC0, 0xE0),
     highlight_bg: rgb!(0x6A, 0xE0, 0x5A),
     highlight_fg: rgb!(0x0A, 0x14, 0x0A),
+    nerd_icons: true,
 };
 
 pub(super) const NORD: Theme = Theme {
@@ -105,6 +109,7 @@ pub(super) const NORD: Theme = Theme {
     info: rgb!(0x81, 0xA1, 0xC1),
     highlight_bg: rgb!(0x88, 0xC0, 0xD0),
     highlight_fg: rgb!(0x2E, 0x34, 0x40),
+    nerd_icons: true,
 };
 
 pub(super) const DRACULA: Theme = Theme {
@@ -123,6 +128,7 @@ pub(super) const DRACULA: Theme = Theme {
     info: rgb!(0x8B, 0xE9, 0xFD),
     highlight_bg: rgb!(0xBD, 0x93, 0xF9),
     highlight_fg: rgb!(0x1E, 0x1F, 0x29),
+    nerd_icons: true,
 };
 
 pub(super) const GRUVBOX: Theme = Theme {
@@ -141,6 +147,7 @@ pub(super) const GRUVBOX: Theme = Theme {
     info: rgb!(0x83, 0xA5, 0x98),
     highlight_bg: rgb!(0xFE, 0x80, 0x19),
     highlight_fg: rgb!(0x28, 0x28, 0x28),
+    nerd_icons: true,
 };
 
 pub(super) const SOLARIZED_DARK: Theme = Theme {
@@ -159,6 +166,7 @@ pub(super) const SOLARIZED_DARK: Theme = Theme {
     info: rgb!(0x2A, 0xA1, 0x98),
     highlight_bg: rgb!(0x26, 0x8B, 0xD2),
     highlight_fg: rgb!(0x00, 0x2B, 0x36),
+    nerd_icons: true,
 };
 
 pub(super) const MONOKAI: Theme = Theme {
@@ -177,6 +185,7 @@ pub(super) const MONOKAI: Theme = Theme {
     info: rgb!(0x66, 0xD9, 0xEF),
     highlight_bg: rgb!(0xA6, 0xE2, 0x2E),
     highlight_fg: rgb!(0x27, 0x28, 0x22),
+    nerd_icons: true,
 };
 
 pub(super) const ONE_DARK: Theme = Theme {
@@ -195,6 +204,7 @@ pub(super) const ONE_DARK: Theme = Theme {
     info: rgb!(0x56, 0xB6, 0xC2),
     highlight_bg: rgb!(0x61, 0xAF, 0xEF),
     highlight_fg: rgb!(0x28, 0x2C, 0x34),
+    nerd_icons: true,
 };
 
 pub(super) const TOKYO_NIGHT: Theme = Theme {
@@ -213,6 +223,7 @@ pub(super) const TOKYO_NIGHT: Theme = Theme {
     info: rgb!(0x7D, 0xCF, 0xFF),
     highlight_bg: rgb!(0x7A, 0xA2, 0xF7),
     highlight_fg: rgb!(0x1A, 0x1B, 0x26),
+    nerd_icons: true,
 };
 
 pub(super) const CATPPUCCIN_MOCHA: Theme = Theme {
@@ -231,6 +242,7 @@ pub(super) const CATPPUCCIN_MOCHA: Theme = Theme {
     info: rgb!(0x89, 0xDC, 0xEB),
     highlight_bg: rgb!(0xCB, 0xA6, 0xF7),
     highlight_fg: rgb!(0x1E, 0x1E, 0x2E),
+    nerd_icons: true,
 };
 
 pub(super) const ROSE_PINE: Theme = Theme {
@@ -249,6 +261,7 @@ pub(super) const ROSE_PINE: Theme = Theme {
     info: rgb!(0x9C, 0xCF, 0xD8),
     highlight_bg: rgb!(0xC4, 0xA7, 0xE7),
     highlight_fg: rgb!(0x19, 0x17, 0x24),
+    nerd_icons: true,
 };
 
 pub(super) const MONO: Theme = Theme {
@@ -269,6 +282,7 @@ pub(super) const MONO: Theme = Theme {
     info: Color::Cyan,
     highlight_bg: Color::White,
     highlight_fg: Color::Black,
+    nerd_icons: false,
 };
 
 pub(super) const AYU_DARK: Theme = Theme {
@@ -287,6 +301,7 @@ pub(super) const AYU_DARK: Theme = Theme {
     info: rgb!(0x59, 0xC2, 0xFF),
     highlight_bg: rgb!(0xFF, 0xB4, 0x54),
     highlight_fg: rgb!(0x0A, 0x0E, 0x14),
+    nerd_icons: true,
 };
 
 pub(super) const EVERFOREST_DARK: Theme = Theme {
@@ -305,6 +320,7 @@ pub(super) const EVERFOREST_DARK: Theme = Theme {
     info: rgb!(0x7F, 0xBB, 0xB3),
     highlight_bg: rgb!(0xA7, 0xC0, 0x80),
     highlight_fg: rgb!(0x2D, 0x35, 0x3B),
+    nerd_icons: true,
 };
 
 pub(super) const KANAGAWA: Theme = Theme {
@@ -323,6 +339,7 @@ pub(super) const KANAGAWA: Theme = Theme {
     info: rgb!(0x7F, 0xB4, 0xCA),
     highlight_bg: rgb!(0x7E, 0x9C, 0xD8),
     highlight_fg: rgb!(0x1F, 0x1F, 0x28),
+    nerd_icons: true,
 };
 
 pub(super) const SYNTHWAVE_84: Theme = Theme {
@@ -341,6 +358,7 @@ pub(super) const SYNTHWAVE_84: Theme = Theme {
     info: rgb!(0x36, 0xF9, 0xF6),
     highlight_bg: rgb!(0xFF, 0x7E, 0xDB),
     highlight_fg: rgb!(0x26, 0x23, 0x35),
+    nerd_icons: true,
 };
 
 pub(super) const GITHUB_DARK: Theme = Theme {
@@ -359,6 +377,7 @@ pub(super) const GITHUB_DARK: Theme = Theme {
     info: rgb!(0x79, 0xC0, 0xFF),
     highlight_bg: rgb!(0x58, 0xA6, 0xFF),
     highlight_fg: rgb!(0x0D, 0x11, 0x17),
+    nerd_icons: true,
 };
 
 pub(super) const NIGHTFOX: Theme = Theme {
@@ -377,6 +396,7 @@ pub(super) const NIGHTFOX: Theme = Theme {
     info: rgb!(0x63, 0xCD, 0xCF),
     highlight_bg: rgb!(0x71, 0x9C, 0xD6),
     highlight_fg: rgb!(0x19, 0x23, 0x30),
+    nerd_icons: true,
 };
 
 pub const ALL: &[Theme] = &[

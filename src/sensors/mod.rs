@@ -9,5 +9,5 @@ pub mod presentation;
 pub mod thresholds;
 
 pub use air_quality::{SensorSnapshot, parse_snapshot, us_aqi_from_pm25};
-pub use presentation::{MISSING_VALUE, Metric, Metrics, Trend, metrics, series};
-pub use thresholds::Status;
+pub use presentation::{Icons, MISSING_VALUE, Metric, Metrics, Trend, metrics, series};
+pub use thresholds::{Scale, Status};

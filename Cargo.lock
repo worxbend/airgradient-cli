@@ -34,6 +34,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tui-slider",
+ "tui-spinner",
  "url",
  "wiremock",
 ]
@@ -2724,6 +2725,15 @@ dependencies = [
  "crossterm 0.29.0",
  "ratatui",
  "unicode-width",
+]
+
+[[package]]
+name = "tui-spinner"
+version = "0.4.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec367a9b67a7c5bb920100ba3142cc61de20cc759120d926b468e067114a26d7"
+dependencies = [
+ "ratatui",
 ]
 
 [[package]]

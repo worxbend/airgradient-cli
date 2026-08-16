@@ -188,6 +188,14 @@ where
             } else if self.terminal.poll_event(poll_timeout).await? {
                 Some(self.terminal.read_event(input_mode(self.app)).await?)
             } else {
+                // The poll timed out with nothing to report, which is the only
+                // moment the loop has spare: advance any running animation
+                // then, so a spinner turns without a keypress and an idle
+                // dashboard is still never repainted.
+                if self.app.is_animating() {
+                    self.app.advance_animation();
+                    self.draw()?;
+                }
                 None
             };
 

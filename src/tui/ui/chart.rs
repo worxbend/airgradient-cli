@@ -20,7 +20,7 @@ use ratatui::{
 
 use crate::{
     history::Reading,
-    sensors::{MISSING_VALUE, Metric},
+    sensors::{MISSING_VALUE, Metric, Status},
     tui::{
         app::TuiApp,
         theme::Theme,
@@ -108,7 +108,7 @@ fn render_metric_list(frame: &mut Frame<'_>, area: Rect, app: &TuiApp, hits: &mu
             };
 
             Line::from(vec![
-                Span::styled("●", theme.status_style(metric.status)),
+                Span::styled(theme.icon(metric.icon), theme.status_style(metric.status)),
                 Span::raw(" "),
                 Span::styled(format!("{:<METRIC_LABEL_WIDTH$}", metric.label), row_style),
                 Span::styled(
@@ -174,17 +174,25 @@ fn render_plot(frame: &mut Frame<'_>, area: Rect, app: &TuiApp, metric: &Metric)
         return;
     };
 
-    // `Dataset` borrows its points, so they have to outlive the chart — hence
-    // building the vector above rather than inline.
-    let dataset = Dataset::default()
-        .name(metric.label)
-        .marker(symbols::Marker::Braille)
-        .graph_type(GraphType::Line)
-        .style(theme.status_style(metric.status))
-        .data(&points);
+    // Band the line by value the way btop and bottom colour their meters: the
+    // points are split into one dataset per status band, so a run that climbs
+    // out of "Good" changes colour where it crosses rather than being one flat
+    // colour chosen from the latest reading. Splitting keeps a shared point at
+    // each boundary so the segments join instead of showing a gap.
+    let bands = split_into_bands(&points, metric);
+    let datasets: Vec<Dataset<'_>> = bands
+        .iter()
+        .map(|(status, band_points)| {
+            Dataset::default()
+                .marker(symbols::Marker::Braille)
+                .graph_type(GraphType::Line)
+                .style(theme.status_style(*status))
+                .data(band_points)
+        })
+        .collect();
 
     frame.render_widget(
-        Chart::new(vec![dataset])
+        Chart::new(datasets)
             .style(theme.panel_style())
             .x_axis(
                 Axis::default()
@@ -203,6 +211,34 @@ fn render_plot(frame: &mut Frame<'_>, area: Rect, app: &TuiApp, metric: &Metric)
             .legend_position(None),
         inner,
     );
+}
+
+/// Splits a run of points into consecutive segments of one status band each.
+///
+/// Each segment repeats the point that ends the previous one, so the coloured
+/// lines meet rather than leaving a one-point hole where the band changes.
+fn split_into_bands(points: &[(f64, f64)], metric: &Metric) -> Vec<(Status, Vec<(f64, f64)>)> {
+    let mut bands: Vec<(Status, Vec<(f64, f64)>)> = Vec::new();
+
+    for &point in points {
+        let status = metric.scale.classify(Some(point.1));
+
+        match bands.last_mut() {
+            Some((current, segment)) if *current == status => segment.push(point),
+            Some((_, previous)) => {
+                // Start the new band at the previous point so the two segments
+                // share an edge.
+                let joint = previous.last().copied();
+                let mut segment = Vec::new();
+                segment.extend(joint);
+                segment.push(point);
+                bands.push((status, segment));
+            }
+            None => bands.push((status, vec![point])),
+        }
+    }
+
+    bands
 }
 
 /// "AQI — last 2h 15m" / "CO2 (ppm) — last 40m".
@@ -396,6 +432,46 @@ mod tests {
         assert!(bounds.x_max > bounds.x_min);
     }
 
+    fn co2(ppm: f64) -> Metric {
+        let snapshot = crate::sensors::SensorSnapshot {
+            co2: Some(ppm),
+            ..crate::sensors::SensorSnapshot::default()
+        };
+        crate::sensors::metrics(&snapshot, None)
+            .by_key("co2")
+            .expect("co2 is a metric")
+            .clone()
+    }
+
+    #[test]
+    fn a_line_that_stays_in_one_band_is_one_segment() {
+        let metric = co2(700.0);
+        let bands = split_into_bands(&[(-60.0, 600.0), (-30.0, 700.0), (0.0, 750.0)], &metric);
+
+        assert_eq!(bands.len(), 1);
+        assert_eq!(bands[0].0, Status::Good);
+        assert_eq!(bands[0].1.len(), 3);
+    }
+
+    #[test]
+    fn crossing_a_band_splits_the_line_and_the_halves_still_touch() {
+        // 700 is Good, 1200 is Elevated.
+        let metric = co2(1200.0);
+        let bands = split_into_bands(&[(-60.0, 700.0), (0.0, 1200.0)], &metric);
+
+        assert_eq!(bands.len(), 2);
+        assert_eq!(bands[0].0, Status::Good);
+        assert_eq!(bands[1].0, Status::Elevated);
+        // The second segment starts where the first ended, so the coloured
+        // lines join instead of leaving a gap.
+        assert_eq!(bands[0].1.last(), bands[1].1.first());
+    }
+
+    #[test]
+    fn no_points_means_no_bands_rather_than_an_empty_segment() {
+        assert!(split_into_bands(&[], &co2(700.0)).is_empty());
+    }
+
     #[test]
     fn zero_readings_have_no_bounds() {
         assert!(PlotBounds::of(&[]).is_none());
@@ -411,7 +487,11 @@ mod tests {
             formatted_value: Some("612".to_string()),
             status: crate::sensors::Status::Good,
             trend: crate::sensors::Trend::Stable,
-            scale_max: 2000.0,
+            scale: crate::sensors::thresholds::CO2,
+            icon: crate::sensors::Icons {
+                nerd: "",
+                plain: "",
+            },
         };
         let fractional = Metric {
             formatted_value: Some("7.4".to_string()),

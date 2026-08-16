@@ -17,6 +17,8 @@ mod chart;
 mod chrome;
 mod dashboard;
 mod format;
+mod gauge;
+mod gradient;
 mod history;
 mod hit;
 mod leader;

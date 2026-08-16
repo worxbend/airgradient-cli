@@ -17,6 +17,31 @@ use super::thresholds::{self, Scale, Status};
 /// same absent value.
 pub const MISSING_VALUE: &str = "--";
 
+/// A metric's two glyphs: the Nerd Font one, and a plain-Unicode stand-in.
+///
+/// Nerd Font icons live in the Private Use Area, so a terminal without a
+/// patched font draws them as an empty box. Every surface that shows an icon
+/// also shows the metric's label, so the glyph never carries meaning on its
+/// own — but a row of tofu still looks broken, which is what the fallback is
+/// for. Which one is used is the theme's call: see `Theme::nerd_icons`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Icons {
+    /// Nerd Font v3 glyph (Material Design Icons range).
+    pub nerd: &'static str,
+    /// Plain-Unicode stand-in, safe in any terminal.
+    pub plain: &'static str,
+}
+
+impl Icons {
+    pub const fn pick(self, nerd_fonts_available: bool) -> &'static str {
+        if nerd_fonts_available {
+            self.nerd
+        } else {
+            self.plain
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Trend {
@@ -56,10 +81,12 @@ pub struct Metric {
     pub formatted_value: Option<String>,
     pub status: Status,
     pub trend: Trend,
-    /// The value this metric's gauge reads full at, carried here so a renderer
-    /// never has to look a metric's scale up by its key.
+    /// The glyphs standing for this reading; pick one with [`Icons::pick`].
+    pub icon: Icons,
+    /// How this reading is judged and how far its gauge runs, carried here so
+    /// a renderer never has to look a metric's scale up by its key.
     #[serde(skip)]
-    pub scale_max: f64,
+    pub scale: Scale,
 }
 
 /// The metric rows for one reading, with the AQI row reachable by name.
@@ -124,6 +151,9 @@ struct MetricSpec {
     /// counts, index values) are whole numbers; masses and temperatures are
     /// not.
     decimals: usize,
+    /// Nerd Font glyph for this reading, and the plain-Unicode stand-in for
+    /// terminals without a patched font. See [`Metric::icon`].
+    icons: Icons,
     scale: Scale,
     read: fn(&SensorSnapshot) -> Option<f64>,
 }
@@ -134,6 +164,10 @@ struct MetricSpec {
 const SPECS: &[MetricSpec] = &[
     MetricSpec {
         key: "aqi",
+        icons: Icons {
+            nerd: "\u{f0599}",
+            plain: "◒",
+        },
         label: "AQI",
         unit: "",
         decimals: 0,
@@ -142,6 +176,10 @@ const SPECS: &[MetricSpec] = &[
     },
     MetricSpec {
         key: "co2",
+        icons: Icons {
+            nerd: "\u{f07e4}",
+            plain: "•••",
+        },
         label: "CO2",
         unit: "ppm",
         decimals: 0,
@@ -150,6 +188,10 @@ const SPECS: &[MetricSpec] = &[
     },
     MetricSpec {
         key: "pm25",
+        icons: Icons {
+            nerd: "\u{f0d77}",
+            plain: "✣",
+        },
         label: "PM2.5",
         unit: "ug/m3",
         decimals: 1,
@@ -158,6 +200,10 @@ const SPECS: &[MetricSpec] = &[
     },
     MetricSpec {
         key: "pm1",
+        icons: Icons {
+            nerd: "\u{f0d77}",
+            plain: "✣",
+        },
         label: "PM1.0",
         unit: "ug/m3",
         decimals: 1,
@@ -166,6 +212,10 @@ const SPECS: &[MetricSpec] = &[
     },
     MetricSpec {
         key: "pm10",
+        icons: Icons {
+            nerd: "\u{f0d77}",
+            plain: "✣",
+        },
         label: "PM10",
         unit: "ug/m3",
         decimals: 1,
@@ -174,6 +224,10 @@ const SPECS: &[MetricSpec] = &[
     },
     MetricSpec {
         key: "pm03_count",
+        icons: Icons {
+            nerd: "\u{f0d77}",
+            plain: "✣",
+        },
         label: "PM0.3 count",
         unit: "count/dL",
         decimals: 0,
@@ -182,6 +236,10 @@ const SPECS: &[MetricSpec] = &[
     },
     MetricSpec {
         key: "tvoc",
+        icons: Icons {
+            nerd: "\u{f0093}",
+            plain: "⚗",
+        },
         label: "TVOC",
         unit: "index",
         decimals: 0,
@@ -190,6 +248,10 @@ const SPECS: &[MetricSpec] = &[
     },
     MetricSpec {
         key: "nox",
+        icons: Icons {
+            nerd: "\u{f0e9a}",
+            plain: "≋",
+        },
         label: "NOx",
         unit: "index",
         decimals: 0,
@@ -198,6 +260,10 @@ const SPECS: &[MetricSpec] = &[
     },
     MetricSpec {
         key: "temperature_c",
+        icons: Icons {
+            nerd: "\u{f050f}",
+            plain: "♨",
+        },
         label: "Temperature",
         unit: "C",
         decimals: 1,
@@ -206,6 +272,10 @@ const SPECS: &[MetricSpec] = &[
     },
     MetricSpec {
         key: "humidity",
+        icons: Icons {
+            nerd: "\u{f058e}",
+            plain: "♢",
+        },
         label: "Humidity",
         unit: "%",
         decimals: 1,
@@ -266,7 +336,8 @@ fn metric(
         formatted_value: value.map(|value| format_value(value, spec.decimals)),
         status: spec.scale.classify(value),
         trend: trend(value, previous),
-        scale_max: spec.scale.max(),
+        icon: spec.icons,
+        scale: spec.scale,
     }
 }
 

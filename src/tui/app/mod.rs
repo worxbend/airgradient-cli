@@ -136,6 +136,11 @@ pub struct TuiApp {
     pub config_editor_editing: Option<String>,
     pub config_editor_error: Option<String>,
 
+    /// Ticks forward while something on screen is animating, and stands still
+    /// otherwise. Spinners and gradients read it; see [`TuiApp::is_animating`]
+    /// for why it is not simply a wall clock.
+    pub animation_frame: u64,
+
     /// `Some(frame_no)` while the startup splash animation is showing;
     /// checked first thing by `ui::draw`. Only ever set by the production
     /// runtime path — stays `None` in unit/render tests.
@@ -190,12 +195,29 @@ impl TuiApp {
             config_editor_editing: None,
             config_editor_error: None,
 
+            animation_frame: 0,
             splash_frame: None,
             history_cursor: 0,
             air_alerts: alerts::AlertQueue::new(),
             leader_pending: false,
             pending_g: false,
         }
+    }
+
+    /// Whether anything on screen needs a steady repaint.
+    ///
+    /// This gates every animation, because the alternative — repainting ten
+    /// times a second forever — is the wrong trade for a tool left open all
+    /// day on a laptop. A dashboard with nothing happening is a still picture
+    /// and costs nothing to leave running.
+    pub fn is_animating(&self) -> bool {
+        self.is_fetching || self.current_alert().is_some()
+    }
+
+    /// Advances the animation clock by one frame. Called by the runtime while
+    /// [`TuiApp::is_animating`] holds.
+    pub fn advance_animation(&mut self) {
+        self.animation_frame = self.animation_frame.wrapping_add(1);
     }
 
     pub fn begin_fetch(&mut self) {

@@ -239,6 +239,8 @@ fn render_metric_cell(frame: &mut Frame<'_>, area: Rect, theme: Theme, metric: &
     };
     let lines = vec![
         Line::from(vec![
+            Span::styled(theme.icon(metric.icon), theme.status_style(metric.status)),
+            Span::raw(" "),
             Span::styled(metric.label, theme.label_style()),
             Span::raw("  "),
             Span::styled(metric.status.label(), theme.status_style(metric.status)),

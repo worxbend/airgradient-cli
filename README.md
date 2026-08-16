@@ -129,6 +129,9 @@ AQI 41 - Good
 | 📟 **One-shot readings** | Run it bare, get an AQI headline plus the full metric table. Non-zero exit when the device is unreachable — drops straight into scripts. |
 | 📊 **Live TUI dashboard** | `-t` opens an auto-refreshing Ratatui dashboard with gauges, trend arrows, and status colors mirroring the device's own LED. |
 | 🧾 **JSON for pipelines** | `--json` emits every metric with raw value, formatted value, unit, status, and trend. Pipe it to `jq`, Prometheus, or cron. |
+| 🎯 **Banded gauges** | Every card carries a bar coloured green→yellow→orange→red *along its whole length*, with tick marks at the band boundaries — so you can see how much headroom is left, not just where you are. |
+| 🔣 **Nerd Font icons** | A distinct glyph per reading type. Terminals without a patched font are covered: the TTY-safe `mono` theme swaps in plain-Unicode stand-ins. |
+| ✨ **Animated, only when it matters** | A braille spinner while a fetch is in flight, a gradient wordmark, a shimmering splash — and a completely still screen when nothing is happening, so an idle dashboard costs no redraws. |
 | 🎨 **20 built-in themes** | Nord, Dracula, Gruvbox, Catppuccin, Tokyo Night… plus a TTY-safe `mono` that leaves your terminal palette alone. |
 | ⌨️ **Vim / AstroNvim keys** | `j`/`k`, `gg`/`G`, `<C-d>`/`<C-u>`, `:` for the command line, and `<Space>` as a which-key leader. |
 | 📈 **History chart** | `h` opens a full-screen line chart of any metric over time. Readings are recorded to disk as they arrive, so the chart has a shape the moment you open it — including across restarts. |
@@ -415,6 +418,65 @@ stored URL is malformed or uses an unsupported scheme, it prints the raw stored
 value and writes a warning to stderr.
 
 </details>
+
+---
+
+## 🎨 Look and Feel
+
+**Colour follows the reading.** Every status maps to one colour scale —
+green (Good) → yellow (Moderate) → orange (Elevated) → red (Unhealthy) →
+magenta (Very unhealthy) — and it is used consistently: the card border, its
+icon, the gauge, the chart line, and the LED-style dot in the top bar all take
+it from the same place, mirroring the AirGradient device's own LED.
+
+**Gauges are banded, not filled.** The bar is not one colour up to a point; each
+cell is coloured by the band *that position on the scale* falls in, with the
+reading shown as the solid portion:
+
+```text
+ ██████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+ ▲        ▲       ▲                   ▲
+ 0       100     200                500
+```
+
+You can read how far the current value is from the next band without knowing
+any of the numbers. Where a card has the rows, it gets the ticks and scale too;
+where it does not, it falls back to a bar alone.
+
+**Icons need a Nerd Font.** Reading-type glyphs come from
+[Nerd Fonts](https://www.nerdfonts.com/) (Material Design range). If your
+terminal font is not patched they render as empty boxes — switch to the
+`mono` theme, which uses plain-Unicode stand-ins throughout, including for the
+powerline separator in the status bar. Every icon sits next to its own label, so
+no meaning is ever carried by the glyph alone.
+
+**Animation is gated.** Spinners and gradients advance only while something is
+happening — a fetch in flight, an alert showing, the startup splash. A
+dashboard sitting idle is a still picture and is never repainted, which is what
+makes it reasonable to leave open all day on battery.
+
+---
+
+## 🚨 Alerts
+
+When a reading crosses into a concerning band, a toast says so:
+
+```text
+                                    ▌ CO2 is Unhealthy — 1800 ppm  ▐
+```
+
+The rules are deliberately quiet, because an alert that fires often is one
+nobody reads:
+
+| | |
+| --- | --- |
+| **Fires on the crossing** | Entering "Elevated" alerts; sitting there does not. Getting *worse* while already concerning alerts again. |
+| **"Moderate" is below the line** | It is the band an ordinary room sits in for much of the day. |
+| **Never on the first reading** | With nothing to compare against, every concerning metric would alert at once, on every launch. |
+| **A dead sensor is not bad air** | A metric going `Unknown` — or coming back — is ignored in both directions. |
+| **Recovery is announced too** | "Did opening the window help?" is the next question, and answering it is what makes the first alert worth acting on. |
+
+Several metrics turning at once queue up worst-first, six seconds each.
 
 ---
 

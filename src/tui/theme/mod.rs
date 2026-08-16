@@ -54,6 +54,14 @@ pub struct Theme {
     /// Inverse/header background, e.g. status-line segments.
     pub highlight_bg: Color,
     pub highlight_fg: Color,
+    /// Whether this theme assumes a Nerd Font-patched terminal font.
+    ///
+    /// Tied to the theme rather than to a separate setting because the choice
+    /// is the same one: `mono` exists for a plain TTY, and a plain TTY is
+    /// exactly where Private Use Area glyphs draw as empty boxes. Picking the
+    /// TTY-safe theme therefore picks the TTY-safe icons too, with nothing
+    /// further to configure.
+    pub nerd_icons: bool,
 }
 
 /// Blend `tint` into `base` by `t` (0.0 = `base`, 1.0 = `tint`). Only defined
@@ -191,6 +199,18 @@ impl Theme {
             Status::Unknown => self.muted_style(),
             _ => Style::default().fg(self.status_color(status)),
         }
+    }
+
+    /// The glyph to draw for a reading, honouring this theme's font
+    /// assumption.
+    pub fn icon(&self, icons: crate::sensors::Icons) -> &'static str {
+        icons.pick(self.nerd_icons)
+    }
+
+    /// The spinner's colour: the accent, which is the theme's "something is
+    /// happening" colour everywhere else too.
+    pub fn accent_style_for_spinner(&self) -> Style {
+        Style::default().fg(self.accent)
     }
 
     pub fn trend_style(&self, trend: Trend) -> Style {

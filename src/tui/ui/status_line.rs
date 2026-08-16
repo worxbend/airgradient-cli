@@ -10,9 +10,10 @@ use ratatui::{
     text::{Line, Span},
     widgets::Paragraph,
 };
+use tui_spinner::{FluxSpinner, Spin};
 
 use crate::{
-    sensors::Status,
+    sensors::{Icons, Status},
     tui::{
         app::TuiApp,
         ui::{
@@ -20,15 +21,25 @@ use crate::{
             format::{
                 configured_url_text, fetch_status, format_duration, format_system_time_delta,
             },
-            widget_block,
+            gradient, widget_block,
         },
     },
 };
 
-/// Powerline right-pointing solid triangle. Renders as a smooth segment
-/// join in a Nerd-Font/powerline-patched terminal font; degrades to a plain
-/// glyph box in other fonts, which still reads fine as a separator.
-const POWERLINE_SEPARATOR: &str = "\u{e0b0}";
+/// The join between the AQI dot and the rest of the bar.
+///
+/// The powerline triangle is a Private Use Area codepoint, so it only exists
+/// in a patched font — in a plain TTY it draws as an empty box. The stand-in
+/// is a geometric-shapes triangle, which is in ordinary fonts and reads the
+/// same way. Which is used follows the theme, exactly as the metric icons do.
+const POWERLINE_SEPARATOR: Icons = Icons {
+    nerd: "\u{e0b0}",
+    plain: "\u{25b6}",
+};
+
+/// Columns the showcase bar's dot, separator, and home glyph take, before the
+/// cell reserved for the spinner.
+const SHOWCASE_LEAD_WIDTH: u16 = 11;
 
 pub(super) fn render_status_line(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
     if area.width >= ADVANCED_LAYOUT_WIDTH {
@@ -46,25 +57,71 @@ pub(super) fn render_status_line(frame: &mut Frame<'_>, area: Rect, app: &TuiApp
 fn render_compact_status_line(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
     let theme = app.theme;
     let refresh = format_duration(app.refresh_interval.as_duration());
-    let status = fetch_status(app);
+    let block = widget_block(theme);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
 
-    let line = Line::from(vec![
+    // The spinner is a widget of its own, so the bar reserves a cell for it
+    // rather than trying to thread an animated glyph through a `Line`. The
+    // cell is only taken while a fetch is in flight; the rest of the time the
+    // text simply has it.
+    let [text_area, spinner_area] = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Min(0),
+            Constraint::Length(if app.is_fetching { 2 } else { 0 }),
+        ])
+        .areas(inner);
+
+    let mut line = vec![
         aqi_indicator_dot(app),
         aqi_indicator_separator(app),
         Span::raw(" "),
-        Span::styled("AirGradient", theme.title_style()),
+    ];
+    line.extend(wordmark(app));
+    line.extend([
         Span::raw("  "),
         Span::styled(configured_url_text(app), theme.muted_style()),
         Span::raw("  |  refresh "),
         Span::styled(refresh, theme.value_style()),
         Span::raw("  |  "),
-        status,
+        fetch_status(app),
     ]);
 
     frame.render_widget(
-        Paragraph::new(line)
-            .style(theme.panel_style())
-            .block(widget_block(theme)),
+        Paragraph::new(Line::from(line)).style(theme.panel_style()),
+        text_area,
+    );
+    render_fetch_spinner(frame, spinner_area, app);
+}
+
+/// The app name, coloured along a gradient from the theme's accent to its
+/// alternate accent — travelling while something is happening, still when the
+/// dashboard is idle.
+fn wordmark(app: &TuiApp) -> Vec<Span<'static>> {
+    gradient::gradient_spans(
+        "AirGradient",
+        app.theme.accent,
+        app.theme.accent_alt,
+        app.animation_frame,
+        true,
+    )
+}
+
+/// A braille spinner while a request is in flight.
+///
+/// Turned by `TuiApp::animation_frame`, which only advances while something is
+/// animating — so this costs repaints during a fetch and nothing at all
+/// between them.
+pub(super) fn render_fetch_spinner(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
+    if !app.is_fetching || area.width == 0 || area.height == 0 {
+        return;
+    }
+
+    frame.render_widget(
+        FluxSpinner::new(app.animation_frame)
+            .spin(Spin::Clockwise)
+            .style(app.theme.accent_style_for_spinner()),
         area,
     );
 }
@@ -90,6 +147,17 @@ fn render_showcase_status_line(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) 
         ])
         .split(inner);
 
+    // The refresh glyph's cell is handed to the spinner while a fetch is in
+    // flight, so the bar's width does not change as one starts and finishes.
+    let [lead_area, spinner_area, updated_area] = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Length(SHOWCASE_LEAD_WIDTH),
+            Constraint::Length(1),
+            Constraint::Min(0),
+        ])
+        .areas(chunks[0]);
+
     frame.render_widget(
         Paragraph::new(Line::from(vec![
             aqi_indicator_dot(app),
@@ -97,13 +165,28 @@ fn render_showcase_status_line(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) 
             Span::raw("   "),
             Span::styled("⌂", theme.value_style()),
             Span::raw("   "),
-            Span::styled("↻", theme.value_style()),
+        ]))
+        .alignment(Alignment::Left),
+        lead_area,
+    );
+
+    if app.is_fetching {
+        render_fetch_spinner(frame, spinner_area, app);
+    } else {
+        frame.render_widget(
+            Paragraph::new(Span::styled("↻", theme.value_style())),
+            spinner_area,
+        );
+    }
+
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
             Span::raw("   "),
             Span::styled("Last updated: ", theme.label_style()),
             Span::styled(updated, theme.value_style()),
         ]))
         .alignment(Alignment::Left),
-        chunks[0],
+        updated_area,
     );
     frame.render_widget(
         Paragraph::new(Span::styled("Air Monitor", theme.value_style()))
@@ -133,7 +216,7 @@ fn aqi_indicator_dot(app: &TuiApp) -> Span<'static> {
 
 fn aqi_indicator_separator(app: &TuiApp) -> Span<'static> {
     Span::styled(
-        POWERLINE_SEPARATOR,
+        app.theme.icon(POWERLINE_SEPARATOR),
         Style::default().fg(app.theme.status_color(aqi_status(app))),
     )
 }
