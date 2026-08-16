@@ -15,13 +15,13 @@ use ratatui::{
 };
 
 use crate::{
-    sensors::Metric,
+    sensors::{Metric, Metrics},
     tui::{
         app::TuiApp,
         theme::Theme,
         ui::{
             ADVANCED_LAYOUT_HEIGHT, ADVANCED_LAYOUT_WIDTH, air_monitor,
-            format::{aqi_message, aqi_metric, display_metrics, metric_value},
+            format::{aqi_message, metric_value},
             vertical_gap, widget_block, widget_gap,
         },
     },
@@ -74,14 +74,14 @@ pub(super) fn render_dashboard(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) 
 }
 
 fn render_compact_dashboard(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
-    let metrics = display_metrics(app);
+    let metrics = app.metrics();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .spacing(vertical_gap(area))
         .constraints([Constraint::Length(7), Constraint::Min(3)])
         .split(area);
 
-    render_aqi(frame, chunks[0], aqi_metric(&metrics), app);
+    render_aqi(frame, chunks[0], metrics.aqi(), app);
     render_metric_grid(frame, chunks[1], app.theme, &metrics);
 }
 
@@ -121,7 +121,7 @@ fn render_aqi(frame: &mut Frame<'_>, area: Rect, metric: &Metric, app: &TuiApp) 
     );
 }
 
-fn render_metric_grid(frame: &mut Frame<'_>, area: Rect, theme: Theme, metrics: &[Metric]) {
+fn render_metric_grid(frame: &mut Frame<'_>, area: Rect, theme: Theme, metrics: &Metrics) {
     // The minimum 36x20 dashboard keeps the surrounding panels and controls
     // coherent; lower-priority metric rows may be clipped by this area.
     let column_count = if area.width >= TWO_COLUMN_GRID_WIDTH {

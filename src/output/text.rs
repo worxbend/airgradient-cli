@@ -7,7 +7,7 @@ use comfy_table::{Table, presets::ASCII_FULL};
 use owo_colors::{OwoColorize, colors::css::Orange};
 
 use crate::output::OutputMetadata;
-use crate::sensors::{MISSING_VALUE, Metric, SensorSnapshot, Status, metrics};
+use crate::sensors::{MISSING_VALUE, Metric, Metrics, SensorSnapshot, Status, metrics};
 
 pub fn render(
     snapshot: &SensorSnapshot,
@@ -16,15 +16,11 @@ pub fn render(
     no_color: bool,
 ) -> String {
     let metrics = metrics(snapshot, previous);
-    let aqi = metrics
-        .iter()
-        .find(|metric| metric.key == "aqi")
-        .expect("presentation metrics always include AQI");
 
     let mut output = String::new();
     output.push_str(&render_header(metadata));
     output.push('\n');
-    output.push_str(&render_aqi_line(aqi, no_color));
+    output.push_str(&render_aqi_line(metrics.aqi(), no_color));
     output.push_str("\n\n");
     output.push_str(&render_metric_table(&metrics, no_color));
     output.push('\n');
@@ -60,13 +56,13 @@ fn render_aqi_line(metric: &Metric, no_color: bool) -> String {
     colorize_status(&line, metric.status, no_color)
 }
 
-fn render_metric_table(metrics: &[Metric], no_color: bool) -> String {
+fn render_metric_table(metrics: &Metrics, no_color: bool) -> String {
     let mut table = Table::new();
     table
         .load_preset(ASCII_FULL)
         .set_header(["Metric", "Value", "Unit", "Status", "Trend"]);
 
-    for metric in metrics {
+    for metric in metrics.iter() {
         table.add_row([
             metric.label.to_string(),
             metric

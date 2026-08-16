@@ -62,17 +62,65 @@ pub struct Metric {
     pub scale_max: f64,
 }
 
-pub fn metrics(snapshot: &SensorSnapshot, previous: Option<&SensorSnapshot>) -> Vec<Metric> {
-    vec![
-        metric(
-            "aqi",
-            "AQI",
-            "",
-            snapshot.aqi,
-            previous.and_then(|snapshot| snapshot.aqi),
-            0,
-            thresholds::AQI,
-        ),
+/// The metric rows for one reading, with the AQI row reachable by name.
+///
+/// Every renderer leads with AQI and so had to go looking for it, each with its
+/// own `find(|m| m.key == "aqi").expect(...)`. The expectation was sound — the
+/// list below always starts with one — but it was asserted at the call sites
+/// rather than guaranteed where the list is built. Holding the AQI row
+/// separately makes it a fact of the type: [`Metrics::aqi`] cannot fail, so
+/// there is nothing left for a caller to assert or to get wrong.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Metrics {
+    aqi: Metric,
+    others: Vec<Metric>,
+}
+
+impl Metrics {
+    /// The AQI row, which always exists.
+    pub fn aqi(&self) -> &Metric {
+        &self.aqi
+    }
+
+    /// Every row, in display order — AQI first.
+    pub fn iter(&self) -> impl Iterator<Item = &Metric> {
+        std::iter::once(&self.aqi).chain(self.others.iter())
+    }
+
+    pub fn by_key(&self, key: &str) -> Option<&Metric> {
+        self.iter().find(|metric| metric.key == key)
+    }
+
+    pub fn len(&self) -> usize {
+        self.others.len() + 1
+    }
+
+    pub fn is_empty(&self) -> bool {
+        false
+    }
+}
+
+impl<'a> IntoIterator for &'a Metrics {
+    type Item = &'a Metric;
+    type IntoIter = Box<dyn Iterator<Item = &'a Metric> + 'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        Box::new(self.iter())
+    }
+}
+
+pub fn metrics(snapshot: &SensorSnapshot, previous: Option<&SensorSnapshot>) -> Metrics {
+    let aqi = metric(
+        "aqi",
+        "AQI",
+        "",
+        snapshot.aqi,
+        previous.and_then(|snapshot| snapshot.aqi),
+        0,
+        thresholds::AQI,
+    );
+
+    let others = vec![
         metric(
             "co2",
             "CO2",
@@ -154,7 +202,9 @@ pub fn metrics(snapshot: &SensorSnapshot, previous: Option<&SensorSnapshot>) -> 
             1,
             thresholds::HUMIDITY,
         ),
-    ]
+    ];
+
+    Metrics { aqi, others }
 }
 
 fn metric(
@@ -233,11 +283,21 @@ mod tests {
         let metrics = metrics(&snapshot, None);
 
         assert_eq!(metrics.len(), 10);
-        assert_eq!(metrics[0].label, "AQI");
-        assert_eq!(metrics[0].formatted_value.as_deref(), Some("42"));
-        assert_eq!(metrics[2].label, "PM2.5");
-        assert_eq!(metrics[2].unit, "ug/m3");
-        assert_eq!(metrics[3].formatted_value, None);
+        assert_eq!(metrics.aqi().label, "AQI");
+        assert_eq!(metrics.aqi().formatted_value.as_deref(), Some("42"));
+
+        let pm25 = metrics.by_key("pm25").expect("pm25 is one of the rows");
+        assert_eq!(pm25.label, "PM2.5");
+        assert_eq!(pm25.unit, "ug/m3");
+        assert_eq!(
+            metrics
+                .by_key("pm1")
+                .and_then(|m| m.formatted_value.clone()),
+            None
+        );
+
+        // AQI leads the list, which is what `aqi()` promises callers.
+        assert_eq!(metrics.iter().next().map(|m| m.key), Some("aqi"));
     }
 
     #[test]
@@ -259,9 +319,10 @@ mod tests {
 
         let metrics = metrics(&current, Some(&previous));
 
-        assert_eq!(metrics[0].trend, Trend::Stable);
-        assert_eq!(metrics[1].trend, Trend::Down);
-        assert_eq!(metrics[2].trend, Trend::Up);
-        assert_eq!(metrics[9].trend, Trend::Unknown);
+        let trend_of = |key: &str| metrics.by_key(key).map(|metric| metric.trend);
+        assert_eq!(metrics.aqi().trend, Trend::Stable);
+        assert_eq!(trend_of("co2"), Some(Trend::Down));
+        assert_eq!(trend_of("pm25"), Some(Trend::Up));
+        assert_eq!(trend_of("humidity"), Some(Trend::Unknown));
     }
 }

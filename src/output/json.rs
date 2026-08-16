@@ -42,7 +42,7 @@ pub fn render_value(
         fetch_duration_ms: metadata.fetch_duration.map(|duration| duration.as_millis()),
         snapshot,
         metrics: metrics(snapshot, previous)
-            .into_iter()
+            .iter()
             .map(JsonMetric::from)
             .collect(),
     };
@@ -58,14 +58,14 @@ pub fn render_pretty(
     serde_json::to_string_pretty(&render_value(snapshot, previous, metadata))
 }
 
-impl From<Metric> for JsonMetric {
-    fn from(metric: Metric) -> Self {
+impl From<&Metric> for JsonMetric {
+    fn from(metric: &Metric) -> Self {
         Self {
             key: metric.key,
             label: metric.label,
             unit: metric.unit,
             value: metric.value,
-            formatted_value: metric.formatted_value,
+            formatted_value: metric.formatted_value.clone(),
             status: metric.status,
             status_label: metric.status.label(),
             trend: metric.trend,

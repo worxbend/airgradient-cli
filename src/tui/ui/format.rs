@@ -9,31 +9,9 @@ use std::time::{Duration, SystemTime};
 use ratatui::text::Span;
 
 use crate::{
-    sensors::{MISSING_VALUE, Metric, SensorSnapshot, metrics},
+    sensors::{MISSING_VALUE, Metric},
     tui::app::TuiApp,
 };
-
-/// The metrics to render, falling back to an all-missing snapshot before the
-/// first successful fetch so the dashboard has a stable shape from frame one
-/// rather than popping into existence when data arrives.
-pub(super) fn display_metrics(app: &TuiApp) -> Vec<Metric> {
-    let app_metrics = app.metrics();
-    if app_metrics.is_empty() {
-        metrics(&SensorSnapshot::default(), None)
-    } else {
-        app_metrics
-    }
-}
-
-pub(super) fn metric_by_key<'a>(metrics: &'a [Metric], key: &str) -> Option<&'a Metric> {
-    metrics.iter().find(|metric| metric.key == key)
-}
-
-/// The AQI metric, which `sensors::metrics` always emits (missing readings
-/// surface as an `Unknown` status rather than an absent entry).
-pub(super) fn aqi_metric(metrics: &[Metric]) -> &Metric {
-    metric_by_key(metrics, "aqi").expect("presentation metrics always include AQI")
-}
 
 pub(super) fn metric_value(metric: &Metric) -> &str {
     metric.formatted_value.as_deref().unwrap_or(MISSING_VALUE)

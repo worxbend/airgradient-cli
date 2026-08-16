@@ -18,8 +18,7 @@ use crate::{
         ui::{
             ADVANCED_LAYOUT_WIDTH,
             format::{
-                configured_url_text, display_metrics, fetch_status, format_duration,
-                format_system_time_delta,
+                configured_url_text, fetch_status, format_duration, format_system_time_delta,
             },
             widget_block,
         },
@@ -140,8 +139,5 @@ fn aqi_indicator_separator(app: &TuiApp) -> Span<'static> {
 }
 
 fn aqi_status(app: &TuiApp) -> Status {
-    display_metrics(app)
-        .iter()
-        .find(|metric| metric.key == "aqi")
-        .map_or(Status::Unknown, |metric| metric.status)
+    app.metrics().aqi().status
 }

@@ -66,8 +66,11 @@ fn trend_baseline_is_available_after_two_successes() {
         Some(40.0)
     );
     let metrics = app.metrics();
-    assert_eq!(metrics[0].trend, Trend::Up);
-    assert_eq!(metrics[1].trend, Trend::Down);
+    assert_eq!(metrics.aqi().trend, Trend::Up);
+    assert_eq!(
+        metrics.by_key("co2").map(|metric| metric.trend),
+        Some(Trend::Down)
+    );
 }
 
 #[test]

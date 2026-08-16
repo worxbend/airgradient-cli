@@ -12,7 +12,7 @@ use ratatui::{
 };
 
 use crate::{
-    sensors::Metric,
+    sensors::{Metric, Metrics},
     tui::{
         app::TuiApp,
         theme::Theme,
@@ -21,7 +21,7 @@ use crate::{
             air_monitor_card::{
                 CardSpec, render_air_monitor_aqi_card, render_air_monitor_metric_card,
             },
-            format::{aqi_metric, configured_url_text, display_metrics, metric_by_key},
+            format::configured_url_text,
             vertical_gap, widget_block,
         },
     },
@@ -46,10 +46,10 @@ pub(super) fn render_advanced_dashboard(frame: &mut Frame<'_>, area: Rect, app: 
         ])
         .split(area);
 
-    let metrics = display_metrics(app);
+    let metrics = app.metrics();
 
     render_server_url_line(frame, rows[0], app);
-    render_air_monitor_hero_row(frame, rows[2], app, aqi_metric(&metrics), &metrics);
+    render_air_monitor_hero_row(frame, rows[2], app, metrics.aqi(), &metrics);
     render_air_monitor_gas_row(frame, rows[4], theme, &metrics);
     render_air_monitor_pm_row(frame, rows[6], theme, &metrics);
 }
@@ -85,7 +85,7 @@ fn render_air_monitor_hero_row(
     area: Rect,
     app: &TuiApp,
     aqi: &Metric,
-    metrics: &[Metric],
+    metrics: &Metrics,
 ) {
     let theme = app.theme;
     let columns = Layout::default()
@@ -104,7 +104,7 @@ fn render_air_monitor_hero_row(
 
     render_air_monitor_aqi_card(frame, columns[0], app, aqi);
 
-    if let Some(metric) = metric_by_key(metrics, "temperature_c") {
+    if let Some(metric) = metrics.by_key("temperature_c") {
         render_air_monitor_metric_card(
             frame,
             comfort[0],
@@ -121,7 +121,7 @@ fn render_air_monitor_hero_row(
         );
     }
 
-    if let Some(metric) = metric_by_key(metrics, "humidity") {
+    if let Some(metric) = metrics.by_key("humidity") {
         render_air_monitor_metric_card(
             frame,
             comfort[1],
@@ -137,7 +137,7 @@ fn render_air_monitor_hero_row(
     }
 }
 
-fn render_air_monitor_gas_row(frame: &mut Frame<'_>, area: Rect, theme: Theme, metrics: &[Metric]) {
+fn render_air_monitor_gas_row(frame: &mut Frame<'_>, area: Rect, theme: Theme, metrics: &Metrics) {
     render_card_row(
         frame,
         area,
@@ -175,7 +175,7 @@ fn render_air_monitor_gas_row(frame: &mut Frame<'_>, area: Rect, theme: Theme, m
     );
 }
 
-fn render_air_monitor_pm_row(frame: &mut Frame<'_>, area: Rect, theme: Theme, metrics: &[Metric]) {
+fn render_air_monitor_pm_row(frame: &mut Frame<'_>, area: Rect, theme: Theme, metrics: &Metrics) {
     render_card_row(
         frame,
         area,
@@ -229,7 +229,7 @@ fn render_card_row(
     frame: &mut Frame<'_>,
     area: Rect,
     theme: Theme,
-    metrics: &[Metric],
+    metrics: &Metrics,
     cards: &[(&str, CardSpec)],
 ) {
     // `Fill` plus `spacing`, not `Ratio` plus interleaved spacer columns:
@@ -244,7 +244,7 @@ fn render_card_row(
         .split(area);
 
     for ((key, spec), column) in cards.iter().zip(columns.iter()) {
-        if let Some(metric) = metric_by_key(metrics, key) {
+        if let Some(metric) = metrics.by_key(key) {
             render_air_monitor_metric_card(frame, *column, theme, metric, *spec);
         }
     }

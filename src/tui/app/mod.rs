@@ -28,7 +28,7 @@ use crate::{
     config::Config,
     device_url::DeviceUrl,
     refresh_interval::RefreshInterval,
-    sensors::{Metric, SensorSnapshot, metrics},
+    sensors::{Metrics, SensorSnapshot, metrics},
     tui::theme::Theme,
 };
 
@@ -199,10 +199,17 @@ impl TuiApp {
         self.previous_successful_snapshot.as_ref()
     }
 
-    pub fn metrics(&self) -> Vec<Metric> {
-        self.current_snapshot
-            .as_ref()
-            .map(|snapshot| metrics(snapshot, self.trend_baseline()))
-            .unwrap_or_default()
+    /// The metric rows to draw.
+    ///
+    /// Before the first successful fetch there is no snapshot, so an
+    /// all-missing one stands in: the dashboard then has the same shape from
+    /// frame one rather than popping into existence when data arrives. The UI
+    /// layer used to do this substitution itself, on an empty `Vec` returned
+    /// from here, which meant "no data yet" was represented twice.
+    pub fn metrics(&self) -> Metrics {
+        match &self.current_snapshot {
+            Some(snapshot) => metrics(snapshot, self.trend_baseline()),
+            None => metrics(&SensorSnapshot::default(), None),
+        }
     }
 }
