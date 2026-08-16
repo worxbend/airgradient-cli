@@ -10,10 +10,12 @@
 //! both the modules that use one and the module that stores one, so that
 //! neither depends on the other.
 
+mod atomic_file;
 pub mod cli;
 pub mod config;
 pub mod device;
 pub mod device_url;
+pub mod history;
 pub mod output;
 pub mod refresh_interval;
 pub mod sensors;
