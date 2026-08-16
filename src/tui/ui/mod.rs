@@ -23,6 +23,7 @@ mod leader;
 mod settings;
 mod splash;
 mod status_line;
+mod toast;
 
 pub use hit::{HitMap, HitTarget};
 
@@ -161,17 +162,23 @@ pub fn draw_with_hits(frame: &mut Frame<'_>, app: &TuiApp, hits: &mut HitMap) {
         return;
     }
 
+    // The alert reaches every screen, because the point of it is that it finds
+    // you while you are looking at something else — including the theme picker
+    // or the chart.
     match app.view {
         View::ThemeSettings => {
             settings::render_theme_settings(frame, area, app, hits);
+            toast::render_alert(frame, area, app);
             return;
         }
         View::ConfigEditor => {
             settings::render_config_editor(frame, area, app, hits);
+            toast::render_alert(frame, area, app);
             return;
         }
         View::History => {
             chart::render_history(frame, area, app, hits);
+            toast::render_alert(frame, area, app);
             return;
         }
         View::CommandPalette | View::Dashboard => {}
@@ -188,6 +195,8 @@ pub fn draw_with_hits(frame: &mut Frame<'_>, app: &TuiApp, hits: &mut HitMap) {
     if app.leader_pending {
         leader::render_leader_popup(frame, area, app);
     }
+
+    toast::render_alert(frame, area, app);
 }
 
 /// Splits the dashboard screen into its five vertical bands and fills them.

@@ -3,6 +3,7 @@
 //! The shared constructors live here so every child module builds its `TuiApp`
 //! the same way.
 
+mod alerts;
 mod config_editor;
 mod fetch;
 mod history_view;
@@ -15,6 +16,7 @@ use crate::{
     config,
     device_url::DeviceUrl,
     refresh_interval::{MAX_SECS as MAX_REFRESH_INTERVAL_SECS, RefreshInterval},
+    sensors::Status,
     sensors::Trend,
     tui::theme,
 };

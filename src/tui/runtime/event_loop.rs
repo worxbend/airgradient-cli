@@ -4,7 +4,7 @@
 //! terminal with a short timeout, applies any finished fetch, and redraws
 //! only when something actually changed.
 
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use crate::tui::{
     app::{LeaderAction, PaletteOutcome, TuiApp, View},
@@ -164,6 +164,13 @@ where
                 .apply_ready_results(self.app, self.fetcher)
                 .await?
             {
+                self.draw()?;
+            }
+
+            // An alert is the one thing on screen that goes away on its own, so
+            // it needs the loop to notice rather than waiting for the next
+            // keypress or fetch to trigger a repaint.
+            if self.app.expire_due_alerts(SystemTime::now()) {
                 self.draw()?;
             }
 

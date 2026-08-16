@@ -10,11 +10,12 @@ use ratatui::{
     style::{Modifier, Style},
     symbols,
     text::{Line, Span},
-    widgets::{Block, Borders, LineGauge, Paragraph, Wrap},
+    widgets::{Block, Borders, Paragraph, Wrap},
 };
+use tui_slider::{Slider, symbols as slider_symbols};
 
 use crate::{
-    sensors::{Metric, Status},
+    sensors::{MISSING_VALUE, Metric, Status},
     tui::{
         app::TuiApp,
         theme::Theme,
@@ -170,28 +171,60 @@ fn trend_spans(theme: Theme, metric: &Metric) -> Vec<Span<'static>> {
     ]
 }
 
-/// Thin fill bar showing the metric's value against its typical scale,
-/// colored by the metric's status — laid out via the card's own `Layout`
-/// split so it resizes with the terminal like the rest of the dashboard.
+/// Fill bar showing the metric's value against its scale, coloured by the
+/// reading's status — laid out via the card's own `Layout` split so it resizes
+/// with the terminal like the rest of the dashboard.
+///
+/// A [`Slider`] with its handle turned off, rather than ratatui's `LineGauge`.
+/// The two draw much the same bar, but the slider takes the value and its range
+/// directly (`0..scale_max`) instead of a pre-computed ratio, so the scale that
+/// `sensors::thresholds` owns is what reaches the widget rather than a fraction
+/// this module derived from it. The handle is off because there is nothing to
+/// drag: this shows a reading, it does not set one.
 fn render_metric_gauge(frame: &mut Frame<'_>, area: Rect, theme: Theme, metric: &Metric) {
     if area.height == 0 || area.width == 0 {
         return;
     }
 
-    let ratio = metric
-        .value
-        .map(|value| (value / metric.scale_max).clamp(0.0, 1.0))
-        .unwrap_or(0.0);
+    // A metric the device did not report reads as empty rather than as zero:
+    // the bar is absent, not at the floor.
+    let value = metric.value.unwrap_or(0.0).clamp(0.0, metric.scale_max);
+
+    // How far along its scale the reading sits, kept from the gauge this
+    // replaced. The slider draws its label in its own rows, and this one has
+    // exactly one, so the share is rendered here instead — which also keeps it
+    // in the theme's own styles rather than the widget's colours.
+    let [share_area, bar_area] = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Length(GAUGE_SHARE_WIDTH), Constraint::Min(4)])
+        .areas(area);
 
     frame.render_widget(
-        LineGauge::default()
-            .filled_style(theme.status_style(metric.status))
-            .unfilled_style(theme.muted_style())
-            .line_set(symbols::line::THICK)
-            .ratio(ratio),
-        area,
+        Paragraph::new(Span::styled(
+            match metric.value {
+                Some(_) => format!("{:>3.0}%", (value / metric.scale_max) * 100.0),
+                None => format!("{MISSING_VALUE:>4}"),
+            },
+            theme.muted_style(),
+        )),
+        share_area,
+    );
+
+    frame.render_widget(
+        Slider::new(value, 0.0, metric.scale_max)
+            .show_handle(false)
+            .show_value(false)
+            .filled_symbol(slider_symbols::FILLED_THICK_LINE)
+            .empty_symbol(slider_symbols::FILLED_THICK_LINE)
+            .filled_color(theme.status_color(metric.status))
+            .empty_color(theme.muted),
+        bar_area,
     );
 }
+
+/// Columns for the gauge's "NN%" share, plus the space separating it from the
+/// bar.
+const GAUGE_SHARE_WIDTH: u16 = 5;
 
 /// A card's frame: a full rounded border tinted by the reading's status.
 ///

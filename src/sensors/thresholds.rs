@@ -23,6 +23,31 @@ pub enum Status {
 }
 
 impl Status {
+    /// Where this sits on the good-to-unhealthy scale, for comparing two
+    /// readings of the same metric.
+    ///
+    /// `Unknown` ranks below `Good` rather than alongside it: a sensor that
+    /// stopped reporting is not a reading that improved, and nothing should
+    /// alert on the transition either way.
+    pub const fn rank(self) -> u8 {
+        match self {
+            Self::Unknown => 0,
+            Self::Good => 1,
+            Self::Moderate => 2,
+            Self::Elevated => 3,
+            Self::Unhealthy => 4,
+            Self::VeryUnhealthy => 5,
+        }
+    }
+
+    /// Whether a reading in this band is worth telling the user about
+    /// unprompted. `Moderate` is deliberately below the line — it is the band
+    /// an ordinary room sits in for much of the day, and an alert that fires
+    /// every day is one nobody reads.
+    pub const fn is_concerning(self) -> bool {
+        self.rank() >= Self::Elevated.rank()
+    }
+
     pub const fn label(self) -> &'static str {
         match self {
             Self::Unknown => "Unknown",
@@ -250,6 +275,25 @@ fn classify(value: Option<f64>, breakpoints: &[(f64, Status)]) -> Status {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn concerning_starts_at_elevated_and_unknown_is_never_concerning() {
+        assert!(!Status::Unknown.is_concerning());
+        assert!(!Status::Good.is_concerning());
+        assert!(!Status::Moderate.is_concerning());
+        assert!(Status::Elevated.is_concerning());
+        assert!(Status::Unhealthy.is_concerning());
+        assert!(Status::VeryUnhealthy.is_concerning());
+    }
+
+    #[test]
+    fn rank_orders_the_scale_with_unknown_at_the_bottom() {
+        assert!(Status::Unknown.rank() < Status::Good.rank());
+        assert!(Status::Good.rank() < Status::Moderate.rank());
+        assert!(Status::Moderate.rank() < Status::Elevated.rank());
+        assert!(Status::Elevated.rank() < Status::Unhealthy.rank());
+        assert!(Status::Unhealthy.rank() < Status::VeryUnhealthy.rank());
+    }
 
     #[test]
     fn classifies_aqi_boundaries() {

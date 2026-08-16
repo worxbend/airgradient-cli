@@ -8,6 +8,7 @@
 //! Nothing here does I/O on the render path — persisting a change is
 //! best-effort and never blocks the state update the user just made.
 
+mod alerts;
 mod config_editor;
 mod history_view;
 mod leader;
@@ -24,6 +25,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+pub use alerts::{AirAlert, AlertKind};
 pub use leader::{LEADER_BINDINGS, LeaderAction, LeaderBinding};
 
 use crate::{
@@ -148,6 +150,10 @@ pub struct TuiApp {
     /// metric list `metrics()` returns.
     pub history_cursor: usize,
 
+    /// Air-quality alerts waiting to be shown, worst first. The front one is
+    /// what the toast is currently showing.
+    air_alerts: alerts::AlertQueue,
+
     /// First key of a pending `g`-prefixed motion (vim's `gg`). Cleared as
     /// soon as the next key resolves it, so `g` followed by anything else is
     /// simply discarded rather than remembered.
@@ -186,6 +192,7 @@ impl TuiApp {
 
             splash_frame: None,
             history_cursor: 0,
+            air_alerts: alerts::AlertQueue::new(),
             leader_pending: false,
             pending_g: false,
         }
@@ -202,6 +209,9 @@ impl TuiApp {
         success_at: SystemTime,
     ) {
         self.is_fetching = false;
+        // Before `current_snapshot` is replaced, so the comparison is against
+        // the reading this one succeeds.
+        self.raise_air_alerts(&snapshot, success_at);
         self.remember_successful_snapshot(Reading::new(success_at, snapshot.clone()));
         self.previous_successful_snapshot = self.current_snapshot.replace(snapshot);
         self.last_fetch_duration = Some(fetch_duration);
