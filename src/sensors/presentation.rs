@@ -109,122 +109,164 @@ impl<'a> IntoIterator for &'a Metrics {
     }
 }
 
-pub fn metrics(snapshot: &SensorSnapshot, previous: Option<&SensorSnapshot>) -> Metrics {
-    let aqi = metric(
-        "aqi",
-        "AQI",
-        "",
-        snapshot.aqi,
-        previous.and_then(|snapshot| snapshot.aqi),
-        0,
-        thresholds::AQI,
-    );
-
-    let others = vec![
-        metric(
-            "co2",
-            "CO2",
-            "ppm",
-            snapshot.co2,
-            previous.and_then(|snapshot| snapshot.co2),
-            0,
-            thresholds::CO2,
-        ),
-        metric(
-            "pm25",
-            "PM2.5",
-            "ug/m3",
-            snapshot.pm25,
-            previous.and_then(|snapshot| snapshot.pm25),
-            1,
-            thresholds::PM25,
-        ),
-        metric(
-            "pm1",
-            "PM1.0",
-            "ug/m3",
-            snapshot.pm1,
-            previous.and_then(|snapshot| snapshot.pm1),
-            1,
-            thresholds::PM1,
-        ),
-        metric(
-            "pm10",
-            "PM10",
-            "ug/m3",
-            snapshot.pm10,
-            previous.and_then(|snapshot| snapshot.pm10),
-            1,
-            thresholds::PM10,
-        ),
-        metric(
-            "pm03_count",
-            "PM0.3 count",
-            "count/dL",
-            snapshot.pm03_count,
-            previous.and_then(|snapshot| snapshot.pm03_count),
-            0,
-            thresholds::PARTICLE_COUNT,
-        ),
-        metric(
-            "tvoc",
-            "TVOC",
-            "index",
-            snapshot.tvoc,
-            previous.and_then(|snapshot| snapshot.tvoc),
-            0,
-            thresholds::TVOC,
-        ),
-        metric(
-            "nox",
-            "NOx",
-            "index",
-            snapshot.nox,
-            previous.and_then(|snapshot| snapshot.nox),
-            0,
-            thresholds::NOX,
-        ),
-        metric(
-            "temperature_c",
-            "Temperature",
-            "C",
-            snapshot.temperature_c,
-            previous.and_then(|snapshot| snapshot.temperature_c),
-            1,
-            thresholds::TEMPERATURE,
-        ),
-        metric(
-            "humidity",
-            "Humidity",
-            "%",
-            snapshot.humidity,
-            previous.and_then(|snapshot| snapshot.humidity),
-            1,
-            thresholds::HUMIDITY,
-        ),
-    ];
-
-    Metrics { aqi, others }
-}
-
-fn metric(
+/// One metric's fixed definition: everything about it that does not depend on
+/// a particular reading.
+///
+/// The `read` field is what makes this a table rather than ten hand-written
+/// blocks — it is the only place that knows which [`SensorSnapshot`] field a
+/// metric key refers to, so [`metrics`] and [`series`] cannot disagree about
+/// it.
+struct MetricSpec {
     key: &'static str,
     label: &'static str,
     unit: &'static str,
-    value: Option<f64>,
-    previous: Option<f64>,
+    /// Decimal places to format a reading to. Counts (CO2 ppm, particle
+    /// counts, index values) are whole numbers; masses and temperatures are
+    /// not.
     decimals: usize,
     scale: Scale,
+    read: fn(&SensorSnapshot) -> Option<f64>,
+}
+
+/// Every metric this tool reports, in the order every renderer shows them.
+///
+/// AQI is first, which [`Metrics`] relies on.
+const SPECS: &[MetricSpec] = &[
+    MetricSpec {
+        key: "aqi",
+        label: "AQI",
+        unit: "",
+        decimals: 0,
+        scale: thresholds::AQI,
+        read: |snapshot| snapshot.aqi,
+    },
+    MetricSpec {
+        key: "co2",
+        label: "CO2",
+        unit: "ppm",
+        decimals: 0,
+        scale: thresholds::CO2,
+        read: |snapshot| snapshot.co2,
+    },
+    MetricSpec {
+        key: "pm25",
+        label: "PM2.5",
+        unit: "ug/m3",
+        decimals: 1,
+        scale: thresholds::PM25,
+        read: |snapshot| snapshot.pm25,
+    },
+    MetricSpec {
+        key: "pm1",
+        label: "PM1.0",
+        unit: "ug/m3",
+        decimals: 1,
+        scale: thresholds::PM1,
+        read: |snapshot| snapshot.pm1,
+    },
+    MetricSpec {
+        key: "pm10",
+        label: "PM10",
+        unit: "ug/m3",
+        decimals: 1,
+        scale: thresholds::PM10,
+        read: |snapshot| snapshot.pm10,
+    },
+    MetricSpec {
+        key: "pm03_count",
+        label: "PM0.3 count",
+        unit: "count/dL",
+        decimals: 0,
+        scale: thresholds::PARTICLE_COUNT,
+        read: |snapshot| snapshot.pm03_count,
+    },
+    MetricSpec {
+        key: "tvoc",
+        label: "TVOC",
+        unit: "index",
+        decimals: 0,
+        scale: thresholds::TVOC,
+        read: |snapshot| snapshot.tvoc,
+    },
+    MetricSpec {
+        key: "nox",
+        label: "NOx",
+        unit: "index",
+        decimals: 0,
+        scale: thresholds::NOX,
+        read: |snapshot| snapshot.nox,
+    },
+    MetricSpec {
+        key: "temperature_c",
+        label: "Temperature",
+        unit: "C",
+        decimals: 1,
+        scale: thresholds::TEMPERATURE,
+        read: |snapshot| snapshot.temperature_c,
+    },
+    MetricSpec {
+        key: "humidity",
+        label: "Humidity",
+        unit: "%",
+        decimals: 1,
+        scale: thresholds::HUMIDITY,
+        read: |snapshot| snapshot.humidity,
+    },
+];
+
+pub fn metrics(snapshot: &SensorSnapshot, previous: Option<&SensorSnapshot>) -> Metrics {
+    let mut rows = SPECS
+        .iter()
+        .map(|spec| metric(spec, snapshot, previous))
+        .collect::<Vec<_>>();
+    // `SPECS` starts with AQI, so this cannot fail; draining from the front
+    // rather than indexing keeps that the table's business and not this
+    // function's.
+    let aqi = rows.remove(0);
+
+    Metrics { aqi, others: rows }
+}
+
+/// One metric's value across a run of readings, oldest first.
+///
+/// A reading the device did not report stays `None` rather than becoming a
+/// zero, so a graph can leave a gap where a sensor dropped out instead of
+/// drawing a plunge to the floor that never happened.
+///
+/// An unknown key yields an empty series rather than panicking: callers pass
+/// keys from the same table, so this is unreachable, and a missing graph is a
+/// better failure than a crashed dashboard.
+pub fn series<'a>(
+    snapshots: impl IntoIterator<Item = &'a SensorSnapshot>,
+    key: &str,
+) -> Vec<Option<f64>> {
+    let Some(spec) = SPECS.iter().find(|spec| spec.key == key) else {
+        return Vec::new();
+    };
+
+    snapshots
+        .into_iter()
+        .map(|snapshot| (spec.read)(snapshot))
+        .collect()
+}
+
+fn metric(
+    spec: &MetricSpec,
+    snapshot: &SensorSnapshot,
+    previous: Option<&SensorSnapshot>,
 ) -> Metric {
+    let value = (spec.read)(snapshot);
+    let previous = previous.and_then(spec.read);
+
     Metric {
-        key,
-        label,
-        unit,
+        key: spec.key,
+        label: spec.label,
+        unit: spec.unit,
         value,
-        formatted_value: value.map(|value| format_value(value, decimals)),
-        status: scale.classify(value),
+        formatted_value: value.map(|value| format_value(value, spec.decimals)),
+        status: spec.scale.classify(value),
         trend: trend(value, previous),
-        scale_max: scale.max(),
+        scale_max: spec.scale.max(),
     }
 }
 
