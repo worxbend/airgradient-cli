@@ -122,7 +122,12 @@ pub enum ConfigError {
         #[source]
         source: std::io::Error,
     },
-    #[error("failed to normalize server URL")]
+    /// Transparent rather than wrapped: `DeviceUrlError`'s messages already
+    /// name the field and say what to do ("device URL must not embed
+    /// credentials; remove the `user:password@` part before the host"), so a
+    /// "failed to normalize server URL" wrapper around them only pushed the
+    /// useful half behind `-v`.
+    #[error(transparent)]
     UrlNormalization(#[from] crate::device_url::DeviceUrlError),
 }
 
