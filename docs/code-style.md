@@ -59,11 +59,43 @@ src/<area>/tests.rs    or tests/ for a multi-file suite
 - Non-obvious constants get a doc comment explaining the number's origin —
   a bare `112` in a layout is a mystery six months later.
 
+## Types That Cannot Be Wrong
+
+Prefer a type that makes an invalid value unrepresentable over a check every
+caller has to remember. Two of these carry the domain rules:
+
+- `DeviceUrl` — an http/https address with no credentials and no path. Built
+  only by `DeviceUrl::parse`, so holding one is proof it was validated.
+- `RefreshInterval` — 5..=3600 seconds. Two constructors, and choosing between
+  them is the decision: `from_secs` rejects (use it for anything a person
+  typed), `clamping` pulls into range (use it only for the program's own
+  values, like the `+`/`-` keys walking off the end).
+
+Both sit at the crate root, below every module that uses them. That is the
+point: `config` stores a device address and `device` fetches from one, and
+before the type existed `config` had to import `device` to borrow its
+validation — which put the HTTP client underneath the config file reader. A
+rule shared by two modules belongs beneath both, not inside one of them.
+
+The test to apply: if you are about to write the same validation at a fifth
+call site, or to write `.expect()` about a guarantee something else made, the
+guarantee wants to be a type. `Metrics::aqi` is the same idea in the small — it
+returns `&Metric` rather than `Option`, so three renderers stopped asserting
+that an AQI row exists.
+
+Keep the persistence shape separate from the domain shape when they genuinely
+differ. `Config::server_url` is still a `String`, because the file may hold a
+value the domain rejects and `config show` has to display exactly that so the
+user can see what needs fixing.
+
 ## Errors
 
 - Errors carry context: the path, the value, the expected range. Compare
-  `ConfigError::RefreshIntervalOutOfRange`, which names the bounds *and* what
-  it got.
+  `refresh_interval::OutOfRange`, which names the bounds *and* what it got.
+- Wrap an error only to add context the reader does not already have. A
+  wrapper like "failed to normalize server URL" around "device URL must not
+  embed credentials" buries the actionable half behind `-v`; that one is
+  `#[error(transparent)]` now.
 - Never let a cleanup failure hide the failure that caused it — see
   `RuntimeError::Cleanup` / `RuntimeError::Secondary`.
 - Tolerate bad input where the user needs the tool to fix it. A broken config
@@ -78,7 +110,15 @@ src/<area>/tests.rs    or tests/ for a multi-file suite
   event loop that way.
 - Do not repeat a multi-step sequence at more than one call site. The
   "request a fetch and drain results" block appeared four times in the loop
-  before it became `start_refresh_if_configured`.
+  before it became `LoopContext::start_refresh_if_configured`.
+- Treat a repeated `#[allow(clippy::too_many_arguments)]` as a missing type.
+  Three functions in the event loop threaded the same six values through their
+  signatures; they are `LoopContext`'s fields now, and the loop's steps are
+  methods.
+- Dispatch on the thing that changes. `apply_view_event` used to match on the
+  event with a nested `match app.view` inside eleven arms, so adding a view
+  meant editing all eleven and missing one failed silently. It matches on the
+  view now, with one handler per view listing only the events that view binds.
 
 ## Shared Values
 
@@ -93,6 +133,25 @@ for scraped CLI output) and `ui::format::format_duration` (coarse, for a
 status bar) are deliberately separate — but they must not both be called
 `format_duration`, because then grepping the name cannot tell you which one a
 call site meant.
+
+## The Shared Config File
+
+`~/.config/airgradient-desktop/config.json` belongs to the AirGradient desktop
+app as much as to this CLI, which constrains every write:
+
+- **Merge, never replace.** `write_config` writes into the existing JSON object
+  so keys this CLI does not model survive.
+- **Replace atomically.** New content goes to a sibling temp file, is
+  `sync_all`'d, then `rename`d, so a crash mid-write cannot leave a truncated
+  file that breaks both programs.
+- **Do not silently win a race.** A read-modify-write whose file changed
+  underneath it is refused (`ConfigError::ConcurrentModification`) rather than
+  overwriting the other program's change. It is a narrow guard, not a lock —
+  the doc comment on `update_config` is explicit about what it does and does
+  not cover.
+- **Write only what the command is about.** `:save` in the TUI leaves
+  `server_url` alone when the session has no URL, because "save what I have"
+  is not "clear what you have".
 
 ## Testing
 
