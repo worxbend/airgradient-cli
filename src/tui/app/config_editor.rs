@@ -15,21 +15,47 @@ use crate::{
 use super::{ConfigField, TuiApp, View, clamp_refresh_interval, palette::delete_word_before};
 
 impl TuiApp {
+    /// Loads the draft from disk and opens the editor.
+    ///
+    /// The read is tolerant ([`config::read_display_config`]), not strict. A
+    /// strict read fails on the *first* malformed field, which used to leave
+    /// this building a draft out of live session state plus `Config::default()`
+    /// — silently resetting `notifications_enabled` and `start_minimized` to
+    /// their defaults, and then writing those defaults over the desktop app's
+    /// real values on Save & Close. Falling back per field instead means one
+    /// bad value costs that one value, and says so in the error line.
     pub fn open_config_editor(&mut self) {
-        self.config_draft = self
+        let (draft, warnings) = self
             .config_path
             .as_deref()
-            .and_then(|path| config::read_config(path).ok())
-            .unwrap_or_else(|| Config {
-                server_url: self.configured_url.as_ref().map(ToString::to_string),
-                refresh_interval_secs: self.refresh_interval.as_secs(),
-                theme: self.theme.id.to_string(),
-                ..Config::default()
-            });
+            .map(config::read_display_config)
+            .transpose()
+            .ok()
+            .flatten()
+            .map(|display| (display.config, display.warnings))
+            .unwrap_or_else(|| (self.config_from_session(), Vec::new()));
+
+        self.config_draft = draft;
         self.config_editor_cursor = 0;
         self.config_editor_editing = None;
-        self.config_editor_error = None;
+        self.config_editor_error = if warnings.is_empty() {
+            None
+        } else {
+            Some(warnings.join("; "))
+        };
         self.view = View::ConfigEditor;
+    }
+
+    /// The draft to edit when there is no config file to read — or when reading
+    /// it failed outright (unreadable path, non-object top level), as opposed to
+    /// individual fields being malformed.
+    fn config_from_session(&self) -> Config {
+        Config {
+            server_url: self.configured_url.as_ref().map(ToString::to_string),
+            refresh_interval_secs: self.refresh_interval.as_secs(),
+            theme: self.theme.id.to_string(),
+            ..Config::default()
+        }
     }
 
     pub fn close_config_editor(&mut self) {
@@ -120,9 +146,16 @@ impl TuiApp {
     /// Handles Enter: commits the in-progress field edit if there is one,
     /// otherwise begins editing/toggles/opens/saves based on the selected
     /// field.
+    ///
+    /// A rejected value keeps the buffer open. Taking it unconditionally, as
+    /// this used to, threw away what the user typed the moment it failed to
+    /// validate: a URL with one character wrong came back as an error message
+    /// and an empty field, and had to be retyped from the start.
     pub fn config_editor_confirm(&mut self) {
-        if let Some(buffer) = self.config_editor_editing.take() {
-            self.config_editor_commit_edit(&buffer);
+        if let Some(buffer) = self.config_editor_editing.clone() {
+            if self.config_editor_commit_edit(&buffer) {
+                self.config_editor_editing = None;
+            }
             return;
         }
 
@@ -150,21 +183,28 @@ impl TuiApp {
         }
     }
 
-    fn config_editor_commit_edit(&mut self, buffer: &str) {
+    /// Applies `buffer` to the selected field, returning whether it was
+    /// accepted. A `false` return leaves the caller holding the buffer so the
+    /// user can correct it rather than retype it.
+    fn config_editor_commit_edit(&mut self, buffer: &str) -> bool {
         match self.config_editor_field() {
             ConfigField::ServerUrl => {
+                // An empty field means "no device configured", which is a valid
+                // value rather than a rejected one.
                 if buffer.trim().is_empty() {
                     self.config_draft.server_url = None;
                     self.config_editor_error = None;
-                    return;
+                    return true;
                 }
                 match device::normalize_base_url(buffer) {
                     Ok(normalized) => {
                         self.config_draft.server_url = Some(normalized.to_string());
                         self.config_editor_error = None;
+                        true
                     }
                     Err(error) => {
                         self.config_editor_error = Some(error.to_string());
+                        false
                     }
                 }
             }
@@ -172,21 +212,26 @@ impl TuiApp {
                 Ok(seconds) if config::validate_refresh_interval(seconds).is_ok() => {
                     self.config_draft.refresh_interval_secs = seconds;
                     self.config_editor_error = None;
+                    true
                 }
                 Ok(_) => {
                     self.config_editor_error = Some(format!(
                         "refresh interval must be between {MIN_REFRESH_INTERVAL_SECS} and {MAX_REFRESH_INTERVAL_SECS} seconds"
                     ));
+                    false
                 }
                 Err(_) => {
                     self.config_editor_error =
                         Some("refresh interval must be a whole number of seconds".to_string());
+                    false
                 }
             },
+            // Not text fields — reachable only if a buffer was somehow opened
+            // on one, in which case discarding it is the harmless answer.
             ConfigField::NotificationsEnabled
             | ConfigField::StartMinimized
             | ConfigField::Theme
-            | ConfigField::SaveAndClose => {}
+            | ConfigField::SaveAndClose => true,
         }
     }
 
