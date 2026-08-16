@@ -35,10 +35,6 @@ impl FetchSettings {
         Self { timeout }
     }
 
-    pub const fn timeout(self) -> Duration {
-        self.timeout
-    }
-
     /// Builds the HTTP client used for device requests.
     ///
     /// Redirects are disabled on purpose. The tool talks to exactly one
@@ -164,21 +160,6 @@ fn redact_userinfo(input: &str) -> String {
         Some(index) => format!("{prefix}***@{}{rest}", &authority[index + 1..]),
         None => input.to_owned(),
     }
-}
-
-pub async fn fetch_current_measures(base_url: &Url) -> Result<Value, DeviceError> {
-    let client = FetchSettings::default().client()?;
-
-    fetch_current_measures_with_client(&client, base_url).await
-}
-
-pub async fn fetch_current_measures_with_timeout(
-    base_url: &Url,
-    timeout: Duration,
-) -> Result<Value, DeviceError> {
-    let client = FetchSettings::new(timeout).client()?;
-
-    fetch_current_measures_with_client(&client, base_url).await
 }
 
 pub async fn fetch_current_measures_with_client(

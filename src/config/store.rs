@@ -55,43 +55,6 @@ pub fn read_display_config(path: &Path) -> Result<DisplayConfig, ConfigError> {
     Ok(display_config_from_object(&object))
 }
 
-/// Normalizes an already-loaded config's URL for display, reporting rather
-/// than discarding a URL that cannot be normalized — the stored value is kept
-/// so the user can see what needs fixing.
-pub fn normalized_display_config(mut config: Config) -> DisplayConfig {
-    let Some(server_url) = config.server_url.as_deref() else {
-        return DisplayConfig {
-            config,
-            warnings: Vec::new(),
-        };
-    };
-
-    if server_url.trim().is_empty() {
-        return DisplayConfig {
-            config,
-            warnings: Vec::new(),
-        };
-    }
-
-    match device::normalize_base_url(server_url) {
-        Ok(normalized) => {
-            config.server_url = Some(normalized.to_string());
-            DisplayConfig {
-                config,
-                warnings: Vec::new(),
-            }
-        }
-        Err(error) => {
-            let warning =
-                format!("stored server_url `{server_url}` could not be normalized: {error}");
-            DisplayConfig {
-                config,
-                warnings: vec![warning],
-            }
-        }
-    }
-}
-
 /// Writes `config`, preserving every key already in the file that this CLI
 /// does not model. Creates the parent directory if it does not exist.
 pub fn write_config(path: &Path, config: &Config) -> Result<(), ConfigError> {

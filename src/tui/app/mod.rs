@@ -17,7 +17,6 @@ mod theme_settings;
 mod tests;
 
 use std::{
-    collections::VecDeque,
     fmt,
     path::PathBuf,
     time::{Duration, SystemTime},
@@ -36,7 +35,6 @@ use crate::{
 const REFRESH_STEP: Duration = Duration::from_secs(5);
 const MIN_REFRESH_INTERVAL: Duration = Duration::from_secs(MIN_REFRESH_INTERVAL_SECS);
 const MAX_REFRESH_INTERVAL: Duration = Duration::from_secs(MAX_REFRESH_INTERVAL_SECS);
-const MAX_READING_HISTORY: usize = 48;
 
 /// Which full-screen (or overlay) mode the TUI is currently showing. Gates
 /// both rendering (`ui::draw`) and which keys are live (`runtime::run_loop`).
@@ -81,7 +79,6 @@ pub enum PaletteOutcome {
 pub struct TuiApp {
     pub current_snapshot: Option<SensorSnapshot>,
     pub previous_successful_snapshot: Option<SensorSnapshot>,
-    reading_history: VecDeque<SensorSnapshot>,
     pub last_fetch_duration: Option<Duration>,
     pub last_success_at: Option<SystemTime>,
     pub current_error: Option<String>,
@@ -142,7 +139,6 @@ impl TuiApp {
         Self {
             current_snapshot: None,
             previous_successful_snapshot: None,
-            reading_history: VecDeque::new(),
             last_fetch_duration: None,
             last_success_at: None,
             current_error: None,
@@ -183,7 +179,6 @@ impl TuiApp {
         success_at: SystemTime,
     ) {
         self.is_fetching = false;
-        self.remember_successful_snapshot(snapshot.clone());
         self.previous_successful_snapshot = self.current_snapshot.replace(snapshot);
         self.last_fetch_duration = Some(fetch_duration);
         self.last_success_at = Some(success_at);
@@ -219,17 +214,6 @@ impl TuiApp {
             .as_ref()
             .map(|snapshot| metrics(snapshot, self.trend_baseline()))
             .unwrap_or_default()
-    }
-
-    pub fn successful_snapshots(&self) -> impl Iterator<Item = &SensorSnapshot> {
-        self.reading_history.iter()
-    }
-
-    fn remember_successful_snapshot(&mut self, snapshot: SensorSnapshot) {
-        self.reading_history.push_back(snapshot);
-        while self.reading_history.len() > MAX_READING_HISTORY {
-            self.reading_history.pop_front();
-        }
     }
 }
 

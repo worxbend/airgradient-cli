@@ -143,10 +143,6 @@ impl Theme {
         Style::default().fg(self.border_focus)
     }
 
-    pub fn secondary_border_style(&self) -> Style {
-        Style::default().fg(self.accent_alt)
-    }
-
     pub fn good_card_style(&self) -> Style {
         self.card_style(self.success)
     }
@@ -163,45 +159,10 @@ impl Theme {
         Style::default().fg(self.fg).bg(self.bg)
     }
 
-    pub fn accent_style(&self) -> Style {
-        Style::default().fg(self.info).add_modifier(Modifier::BOLD)
-    }
-
-    pub fn warning_accent_style(&self) -> Style {
-        Style::default()
-            .fg(self.warning)
-            .add_modifier(Modifier::BOLD)
-    }
-
-    pub fn trace_style(&self) -> Style {
-        Style::default().fg(self.success)
-    }
-
-    pub fn header_style(&self) -> Style {
-        Style::default()
-            .fg(self.highlight_fg)
-            .bg(self.highlight_bg)
-            .add_modifier(Modifier::BOLD)
-    }
-
-    pub fn deck_title_style(&self) -> Style {
-        Style::default()
-            .fg(self.fg)
-            .bg(blend(self.bg, self.accent_alt, 0.4))
-            .add_modifier(Modifier::BOLD)
-    }
-
     pub fn command_style(&self) -> Style {
         Style::default()
             .fg(self.highlight_fg)
             .bg(self.warning)
-            .add_modifier(Modifier::BOLD)
-    }
-
-    pub fn status_badge_style(&self, status: Status) -> Style {
-        Style::default()
-            .fg(self.highlight_fg)
-            .bg(self.status_color(status))
             .add_modifier(Modifier::BOLD)
     }
 

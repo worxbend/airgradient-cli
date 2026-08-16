@@ -1,5 +1,6 @@
-//! Fetch lifecycle: what a success or a failure does to the snapshot history,
-//! the pending flag, and the recorded error — plus the refresh-interval bounds.
+//! Fetch lifecycle: what a success or a failure does to the current and
+//! previous snapshots, the pending flag, and the recorded error — plus the
+//! refresh-interval bounds.
 
 use super::*;
 
@@ -14,7 +15,6 @@ fn success_records_current_snapshot_and_fetch_metadata() {
 
     assert_eq!(app.current_snapshot, Some(current));
     assert_eq!(app.previous_successful_snapshot, None);
-    assert_eq!(app.successful_snapshots().count(), 1);
     assert_eq!(app.last_fetch_duration, Some(Duration::from_millis(128)));
     assert_eq!(app.last_success_at, Some(success_at));
     assert_eq!(app.current_error, None);
@@ -45,27 +45,6 @@ fn failure_preserves_successful_snapshots_and_records_error() {
     assert_eq!(app.last_fetch_duration, Some(Duration::from_millis(250)));
     assert_eq!(app.current_error.as_deref(), Some("request timed out"));
     assert!(!app.is_fetching);
-}
-
-#[test]
-fn success_history_keeps_recent_readings_for_terminal_traces() {
-    let mut app = app_with_refresh(Duration::from_secs(30));
-
-    for index in 0_u32..60 {
-        app.finish_fetch_success(
-            snapshot(f64::from(index), 600.0 + f64::from(index)),
-            Duration::from_millis(50),
-            SystemTime::UNIX_EPOCH + Duration::from_secs(index.into()),
-        );
-    }
-
-    let history = app.successful_snapshots().collect::<Vec<_>>();
-    assert_eq!(history.len(), MAX_READING_HISTORY);
-    assert_eq!(
-        history.first().and_then(|snapshot| snapshot.aqi),
-        Some(12.0)
-    );
-    assert_eq!(history.last().and_then(|snapshot| snapshot.aqi), Some(59.0));
 }
 
 #[test]
