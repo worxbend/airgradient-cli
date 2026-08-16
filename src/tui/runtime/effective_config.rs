@@ -7,10 +7,9 @@
 
 use std::time::Duration;
 
-use url::Url;
-
 use crate::{
-    config, device,
+    config,
+    device_url::DeviceUrl,
     tui::{runtime::RuntimeOptions, theme::Theme},
 };
 
@@ -26,7 +25,7 @@ pub const TUI_TEST_REFRESH_INTERVAL_MS_ENV: &str = "AIRGRADIENT_CLI_TUI_TEST_REF
 
 #[derive(Debug)]
 pub(super) struct EffectiveConfig {
-    pub(super) configured_url: Option<Url>,
+    pub(super) configured_url: Option<DeviceUrl>,
     pub(super) refresh_interval: Duration,
     pub(super) theme: Theme,
     /// Whatever went wrong while resolving, surfaced in the UI's error panel.
@@ -58,7 +57,7 @@ impl EffectiveConfig {
             .or(config.server_url);
 
         if let Some(server_url) = server_url.as_deref().filter(|url| !url.trim().is_empty()) {
-            match device::normalize_base_url(server_url) {
+            match DeviceUrl::parse(server_url) {
                 Ok(url) => configured_url = Some(url),
                 Err(error) => current_error = Some(error.to_string()),
             }

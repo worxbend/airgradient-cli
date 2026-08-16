@@ -9,9 +9,8 @@ use std::time::{Duration, Instant, SystemTime};
 use reqwest::Client;
 use serde_json::Value;
 use tokio::task::JoinHandle;
-use url::Url;
 
-use crate::{device, sensors, tui::app::TuiApp};
+use crate::{device, device_url::DeviceUrl, sensors, tui::app::TuiApp};
 
 use super::RuntimeError;
 
@@ -134,7 +133,7 @@ pub(super) struct FetchCompletion {
 /// than awaiting a result, because the loop also has to keep polling the
 /// terminal for input while a fetch is outstanding.
 pub(super) trait MeasureFetchWorker {
-    fn start_fetch(&mut self, base_url: Url);
+    fn start_fetch(&mut self, base_url: DeviceUrl);
     async fn recv_ready_fetch(&mut self) -> Result<Option<FetchCompletion>, RuntimeError>;
     async fn cancel_fetch(&mut self) -> Result<(), RuntimeError>;
 }
@@ -154,7 +153,7 @@ impl BackgroundMeasureFetcher {
 }
 
 impl MeasureFetchWorker for BackgroundMeasureFetcher {
-    fn start_fetch(&mut self, base_url: Url) {
+    fn start_fetch(&mut self, base_url: DeviceUrl) {
         if let Some(handle) = self.active_handle.take() {
             handle.abort();
         }

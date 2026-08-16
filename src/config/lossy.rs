@@ -7,7 +7,7 @@
 
 use serde_json::{Map, Value};
 
-use crate::device;
+use crate::device_url::DeviceUrl;
 
 use super::{
     Config, DEFAULT_REFRESH_INTERVAL_SECS, DisplayConfig, MAX_REFRESH_INTERVAL_SECS,
@@ -66,8 +66,8 @@ fn normalize_parsed_url(server_url: Option<String>, warnings: &mut Vec<String>) 
         return Some(server_url);
     }
 
-    match device::normalize_base_url(&server_url) {
-        Ok(normalized) => Some(normalized.to_string()),
+    match DeviceUrl::parse(&server_url) {
+        Ok(normalized) => Some(normalized.as_str().to_owned()),
         Err(error) => {
             warnings.push(format!(
                 "stored server_url `{server_url}` could not be normalized: {error}"

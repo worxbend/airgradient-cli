@@ -6,10 +6,9 @@
 
 use std::time::Duration;
 
-use url::Url;
-
 use crate::{
-    config, device,
+    config,
+    device_url::DeviceUrl,
     tui::{
         command::{self, PaletteCommand},
         theme::Theme,
@@ -54,7 +53,7 @@ impl TuiApp {
 
         match command::parse(&input) {
             Ok(PaletteCommand::SetUrl(url)) => {
-                match device::normalize_base_url(&url) {
+                match DeviceUrl::parse(&url) {
                     Ok(normalized) => {
                         self.configured_url = Some(normalized.clone());
                         self.persist_url(normalized.as_str());
@@ -130,7 +129,7 @@ impl TuiApp {
             return ("no config file to save to".to_string(), true);
         };
 
-        let url = self.configured_url.as_ref().map(Url::as_str);
+        let url = self.configured_url.as_ref().map(DeviceUrl::as_str);
         match config::set_session(path, url, self.refresh_interval.as_secs(), self.theme.id) {
             Ok(_) => (format!("config saved: {}", path.display()), false),
             Err(error) => (format!("could not save config: {error}"), true),

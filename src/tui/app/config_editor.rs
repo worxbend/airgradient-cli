@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use crate::{
     config::{self, Config, MAX_REFRESH_INTERVAL_SECS, MIN_REFRESH_INTERVAL_SECS},
-    device,
+    device_url::DeviceUrl,
     tui::theme,
 };
 
@@ -196,7 +196,7 @@ impl TuiApp {
                     self.config_editor_error = None;
                     return true;
                 }
-                match device::normalize_base_url(buffer) {
+                match DeviceUrl::parse(buffer) {
                     Ok(normalized) => {
                         self.config_draft.server_url = Some(normalized.to_string());
                         self.config_editor_error = None;
@@ -260,7 +260,7 @@ impl TuiApp {
             .filter(|url| !url.trim().is_empty())
         {
             Some(url) => {
-                if let Ok(normalized) = device::normalize_base_url(url) {
+                if let Ok(normalized) = DeviceUrl::parse(url) {
                     self.configured_url = Some(normalized);
                 }
             }

@@ -15,7 +15,7 @@ use std::{
 
 use serde_json::{Map, Value};
 
-use crate::device;
+use crate::device_url::DeviceUrl;
 
 use super::{
     Config, ConfigError, DisplayConfig,
@@ -157,7 +157,7 @@ fn read_config_object(path: &Path) -> Result<Map<String, Value>, ConfigError> {
 /// Normalizes `url` through the device boundary before storing it, so the
 /// file only ever holds URLs the fetch path can actually use.
 pub fn set_url(path: &Path, url: &str) -> Result<Config, ConfigError> {
-    let normalized_url = device::normalize_base_url(url)?;
+    let normalized_url = DeviceUrl::parse(url)?;
     update_config(path, |config| {
         config.server_url = Some(normalized_url.as_str().to_owned());
     })

@@ -16,9 +16,9 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use crate::device_url::DeviceUrl;
 use serde_json::Value;
 use tokio::task::JoinHandle;
-use url::Url;
 
 use crate::tui::runtime::{
     RuntimeError,
@@ -31,7 +31,7 @@ use super::successful_payload;
 pub(super) struct HarnessFetcher {
     pub(super) completions: VecDeque<Option<Result<Value, String>>>,
     pub(super) stale_completions_after_cancel: VecDeque<Result<Value, String>>,
-    pub(super) calls: Vec<Url>,
+    pub(super) calls: Vec<DeviceUrl>,
     pub(super) active_fetch: bool,
     pub(super) canceled_fetches: usize,
     pub(super) cancel_error: Option<&'static str>,
@@ -77,7 +77,7 @@ impl HarnessFetcher {
 }
 
 impl MeasureFetchWorker for HarnessFetcher {
-    fn start_fetch(&mut self, base_url: Url) {
+    fn start_fetch(&mut self, base_url: DeviceUrl) {
         assert!(
             !self.active_fetch,
             "scheduler started overlapping harness fetches"
@@ -127,7 +127,7 @@ pub(super) struct YieldingFetcher {
     pub(super) receiver: Receiver<FetchCompletion>,
     pub(super) completed: Arc<AtomicBool>,
     pub(super) active_handle: Option<JoinHandle<()>>,
-    pub(super) calls: Vec<Url>,
+    pub(super) calls: Vec<DeviceUrl>,
 }
 
 impl YieldingFetcher {
@@ -144,7 +144,7 @@ impl YieldingFetcher {
 }
 
 impl MeasureFetchWorker for YieldingFetcher {
-    fn start_fetch(&mut self, base_url: Url) {
+    fn start_fetch(&mut self, base_url: DeviceUrl) {
         assert!(
             self.active_handle.is_none(),
             "scheduler started overlapping yielding fetches"
@@ -185,12 +185,12 @@ impl MeasureFetchWorker for YieldingFetcher {
 #[derive(Debug, Default)]
 pub(super) struct SpawnedPendingFetcher {
     pub(super) active_handle: Option<JoinHandle<()>>,
-    pub(super) calls: Vec<Url>,
+    pub(super) calls: Vec<DeviceUrl>,
     pub(super) cancellation_observed: bool,
 }
 
 impl MeasureFetchWorker for SpawnedPendingFetcher {
-    fn start_fetch(&mut self, base_url: Url) {
+    fn start_fetch(&mut self, base_url: DeviceUrl) {
         assert!(
             self.active_handle.is_none(),
             "scheduler started overlapping pending fetches"

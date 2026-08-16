@@ -29,8 +29,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+use crate::device_url::DeviceUrl;
 use serde_json::{Value, json};
-use url::Url;
 
 use crate::{
     config::{MAX_REFRESH_INTERVAL_SECS, MIN_REFRESH_INTERVAL_SECS},
@@ -102,12 +102,12 @@ where
     }
 }
 
-fn app(configured_url: Option<Url>) -> TuiApp {
+fn app(configured_url: Option<DeviceUrl>) -> TuiApp {
     TuiApp::new(configured_url, Duration::from_secs(30))
 }
 
-fn configured_url() -> Url {
-    Url::parse("http://192.168.1.201/").expect("test URL should parse")
+fn configured_url() -> DeviceUrl {
+    DeviceUrl::parse("http://192.168.1.201/").expect("test URL should parse")
 }
 
 fn successful_payload() -> Value {
@@ -130,6 +130,7 @@ fn terminal_error_message(error: &RuntimeError) -> String {
     match error {
         RuntimeError::Terminal(error) => error.to_string(),
         RuntimeError::Device(error) => error.to_string(),
+        RuntimeError::DeviceUrl(error) => error.to_string(),
         RuntimeError::NonInteractiveTerminal => error.to_string(),
         RuntimeError::FetchTask(message) => message.clone(),
         RuntimeError::Secondary { primary, .. } => terminal_error_message(primary),

@@ -117,7 +117,7 @@ pub enum ConfigError {
         source: std::io::Error,
     },
     #[error("failed to normalize server URL")]
-    UrlNormalization(#[from] crate::device::DeviceError),
+    UrlNormalization(#[from] crate::device_url::DeviceUrlError),
 }
 
 /// Where the config file is: an explicit `--config` path if given, otherwise

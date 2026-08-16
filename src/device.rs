@@ -1,11 +1,13 @@
-//! The network boundary: turning user input into a device URL, and fetching
-//! measurements from it.
+//! The network boundary: fetching measurements from a device.
 //!
-//! Everything this module does defensively is because the peer is a device on
-//! a local network that the user named and this tool cannot vouch for. Hence a
-//! request timeout, a hard cap on the response body, no redirect following,
-//! and a normalized URL that refuses to carry credentials — see the individual
-//! items for why each one matters.
+//! What counts as a valid device address is not decided here — that is
+//! [`crate::device_url`], which this module and the config file both depend on
+//! rather than on each other. This module only makes requests.
+//!
+//! Everything it does defensively is because the peer is a device on a local
+//! network that the user named and this tool cannot vouch for. Hence a request
+//! timeout, a hard cap on the response body, and no redirect following — see
+//! the individual items for why each one matters.
 
 use std::time::Duration;
 
@@ -14,7 +16,8 @@ use serde_json::Value;
 use thiserror::Error;
 use url::Url;
 
-const CURRENT_MEASURES_PATH: &str = "measures/current";
+use crate::device_url::DeviceUrl;
+
 const DEFAULT_FETCH_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Largest `/measures/current` body we are willing to hold in memory.
@@ -61,21 +64,6 @@ impl Default for FetchSettings {
 
 #[derive(Debug, Error)]
 pub enum DeviceError {
-    #[error("invalid device URL `{input}`")]
-    InvalidUrl {
-        input: String,
-        #[source]
-        source: url::ParseError,
-    },
-
-    #[error("unsupported device URL scheme `{scheme}`; expected http or https")]
-    UnsupportedScheme { scheme: String },
-
-    #[error(
-        "device URL must not embed credentials; remove the `user:password@` part before the host"
-    )]
-    CredentialsInUrl,
-
     #[error("failed to build HTTP client")]
     ClientBuild(#[source] reqwest::Error),
 
@@ -100,73 +88,11 @@ pub enum DeviceError {
     },
 }
 
-/// Turns whatever the user typed into a bare `scheme://host[:port]/` base URL.
-///
-/// Everything after the host is dropped (path, query, fragment) because the only
-/// endpoint this tool talks to is appended by [`current_measures_url`]. URLs that
-/// embed credentials (`http://user:pass@host`) are rejected rather than stored:
-/// the normalized URL is written to the config file in plaintext and printed by
-/// `config show`, `--json`, the TUI status line, and every error message, so a
-/// password in it would end up in shell scrollback and pasted bug reports.
-pub fn normalize_base_url(input: &str) -> Result<Url, DeviceError> {
-    let trimmed = input.trim();
-    let parse_input = if has_explicit_scheme(trimmed) {
-        trimmed.to_owned()
-    } else {
-        format!("http://{trimmed}")
-    };
-
-    let mut url = Url::parse(&parse_input).map_err(|source| DeviceError::InvalidUrl {
-        input: redact_userinfo(input),
-        source,
-    })?;
-
-    match url.scheme() {
-        "http" | "https" => {}
-        scheme => {
-            return Err(DeviceError::UnsupportedScheme {
-                scheme: scheme.to_owned(),
-            });
-        }
-    }
-
-    if !url.username().is_empty() || url.password().is_some() {
-        return Err(DeviceError::CredentialsInUrl);
-    }
-
-    url.set_path("");
-    url.set_query(None);
-    url.set_fragment(None);
-
-    Ok(url)
-}
-
-/// Masks a `user:password@` prefix so a rejected URL can be echoed back safely.
-///
-/// `Url::parse` failed for this string, so we cannot use the parser to find the
-/// userinfo. Everything between the scheme separator and the last `@` of the
-/// authority is replaced with `***`; strings without an `@` are returned as-is.
-fn redact_userinfo(input: &str) -> String {
-    let (prefix, authority_and_rest) = match input.find("//") {
-        Some(index) => input.split_at(index + 2),
-        None => ("", input),
-    };
-    let authority_end = authority_and_rest
-        .find('/')
-        .unwrap_or(authority_and_rest.len());
-    let (authority, rest) = authority_and_rest.split_at(authority_end);
-
-    match authority.rfind('@') {
-        Some(index) => format!("{prefix}***@{}{rest}", &authority[index + 1..]),
-        None => input.to_owned(),
-    }
-}
-
 pub async fn fetch_current_measures_with_client(
     client: &Client,
-    base_url: &Url,
+    base_url: &DeviceUrl,
 ) -> Result<Value, DeviceError> {
-    let endpoint = current_measures_url(base_url);
+    let endpoint = base_url.measures_endpoint();
 
     let response = client
         .get(endpoint.clone())
@@ -234,24 +160,6 @@ async fn read_body_capped(
     Ok(body)
 }
 
-pub fn current_measures_url(base_url: &Url) -> Url {
-    let mut endpoint = base_url.clone();
-    endpoint
-        .path_segments_mut()
-        .expect("http and https URLs support path segments")
-        .clear()
-        .extend(CURRENT_MEASURES_PATH.split('/'));
-    endpoint.set_query(None);
-    endpoint.set_fragment(None);
-    endpoint
-}
-
-fn has_explicit_scheme(input: &str) -> bool {
-    input
-        .split_once(':')
-        .is_some_and(|(scheme, rest)| !scheme.is_empty() && rest.starts_with("//"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -259,87 +167,6 @@ mod tests {
         Mock, MockServer, ResponseTemplate,
         matchers::{method, path},
     };
-
-    #[test]
-    fn normalizes_bare_host_to_http_base_url() {
-        let url = normalize_base_url("192.168.1.201").expect("URL should normalize");
-
-        assert_eq!(url.as_str(), "http://192.168.1.201/");
-    }
-
-    #[test]
-    fn normalizes_bare_host_with_port_to_http_base_url() {
-        let url = normalize_base_url("localhost:9925").expect("URL should normalize");
-
-        assert_eq!(url.as_str(), "http://localhost:9925/");
-    }
-
-    #[test]
-    fn accepts_http_and_https_schemes() {
-        let http = normalize_base_url("http://192.168.1.201").expect("URL should normalize");
-        let https = normalize_base_url("https://airgradient.local").expect("URL should normalize");
-
-        assert_eq!(http.as_str(), "http://192.168.1.201/");
-        assert_eq!(https.as_str(), "https://airgradient.local/");
-    }
-
-    #[test]
-    fn rejects_unsupported_schemes() {
-        let err = normalize_base_url("ftp://192.168.1.201").expect_err("URL should be rejected");
-
-        assert!(matches!(
-            err,
-            DeviceError::UnsupportedScheme { scheme } if scheme == "ftp"
-        ));
-    }
-
-    #[test]
-    fn strips_path_query_and_fragment() {
-        let url = normalize_base_url("http://192.168.1.201/foo/bar?debug=true#latest")
-            .expect("URL should normalize");
-
-        assert_eq!(url.as_str(), "http://192.168.1.201/");
-    }
-
-    #[test]
-    fn rejects_urls_that_embed_credentials() {
-        for input in [
-            "http://admin:hunter2@192.168.1.201",
-            "https://admin@airgradient.local",
-            "admin:hunter2@192.168.1.201",
-        ] {
-            let err = normalize_base_url(input).expect_err("credentials should be rejected");
-
-            assert!(matches!(err, DeviceError::CredentialsInUrl), "{input}");
-        }
-    }
-
-    #[test]
-    fn credential_rejection_message_does_not_leak_the_password() {
-        let err = normalize_base_url("http://admin:hunter2@192.168.1.201")
-            .expect_err("credentials should be rejected");
-
-        assert!(!err.to_string().contains("hunter2"));
-    }
-
-    #[test]
-    fn invalid_url_error_masks_embedded_credentials() {
-        let err = normalize_base_url("http://admin:hunter2@:::/measures")
-            .expect_err("URL should be rejected");
-
-        let message = err.to_string();
-        assert!(!message.contains("hunter2"), "{message}");
-        assert!(message.contains("***@"), "{message}");
-    }
-
-    #[test]
-    fn builds_exact_current_measures_endpoint() {
-        let base = normalize_base_url("http://192.168.1.201/foo?ignored=true#fragment")
-            .expect("URL should normalize");
-        let endpoint = current_measures_url(&base);
-
-        assert_eq!(endpoint.as_str(), "http://192.168.1.201/measures/current");
-    }
 
     #[tokio::test]
     async fn fetch_settings_client_uses_default_timeout() {
@@ -352,7 +179,7 @@ mod tests {
             )
             .mount(&server)
             .await;
-        let base = normalize_base_url(&server.uri()).expect("URL should normalize");
+        let base = DeviceUrl::parse(&server.uri()).expect("URL should normalize");
         let client = FetchSettings::default()
             .client()
             .expect("default client should build");
@@ -379,7 +206,7 @@ mod tests {
             )
             .mount(&server)
             .await;
-        let base = normalize_base_url(&server.uri()).expect("URL should normalize");
+        let base = DeviceUrl::parse(&server.uri()).expect("URL should normalize");
         let client = Client::builder()
             .timeout(Duration::from_millis(25))
             .build()
@@ -405,7 +232,7 @@ mod tests {
             )
             .mount(&server)
             .await;
-        let base = normalize_base_url(&server.uri()).expect("URL should normalize");
+        let base = DeviceUrl::parse(&server.uri()).expect("URL should normalize");
         let client = FetchSettings::default()
             .client()
             .expect("client should build");
@@ -430,7 +257,7 @@ mod tests {
             )
             .mount(&server)
             .await;
-        let base = normalize_base_url(&server.uri()).expect("URL should normalize");
+        let base = DeviceUrl::parse(&server.uri()).expect("URL should normalize");
         let client = FetchSettings::default()
             .client()
             .expect("client should build");
@@ -456,7 +283,7 @@ mod tests {
             .expect(1)
             .mount(&server)
             .await;
-        let base = normalize_base_url(&format!("{}/ignored?debug=true#now", server.uri()))
+        let base = DeviceUrl::parse(&format!("{}/ignored?debug=true#now", server.uri()))
             .expect("URL should normalize");
         let client = Client::new();
 

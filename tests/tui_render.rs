@@ -1,11 +1,11 @@
 use std::time::{Duration, SystemTime};
 
+use airgradient_cli::device_url::DeviceUrl;
 use airgradient_cli::{
     sensors::SensorSnapshot,
     tui::{app::TuiApp, theme, ui},
 };
 use ratatui::{Terminal, backend::TestBackend};
-use url::Url;
 
 struct Rendered {
     output: String,
@@ -41,12 +41,12 @@ fn render_at(app: &TuiApp, width: u16, height: u16) -> Rendered {
     Rendered { output, lines }
 }
 
-fn app(configured_url: Option<Url>) -> TuiApp {
+fn app(configured_url: Option<DeviceUrl>) -> TuiApp {
     TuiApp::new(configured_url, Duration::from_secs(30))
 }
 
-fn device_url() -> Url {
-    Url::parse("http://192.168.1.201/").expect("url should parse")
+fn device_url() -> DeviceUrl {
+    DeviceUrl::parse("http://192.168.1.201/").expect("url should parse")
 }
 
 fn populated_snapshot() -> SensorSnapshot {
@@ -556,7 +556,7 @@ fn renders_error_panel_in_dedicated_region_at_compact_size() {
 #[test]
 fn truncates_long_configured_url_predictably_on_compact_width() {
     let mut app = app(Some(
-        Url::parse("https://very-long-airgradient-device-name.example.internal:8443/")
+        DeviceUrl::parse("https://very-long-airgradient-device-name.example.internal:8443/")
             .expect("url should parse"),
     ));
     app.finish_fetch_success(
@@ -817,7 +817,7 @@ fn config_rows_stay_clickable_when_a_long_value_would_wrap() {
     // click zone — so clicking a row selected the one above it.
     let mut app = TuiApp::new(
         Some(
-            Url::parse("http://airgradient-living-room-upstairs-by-the-window.lan:9925/")
+            DeviceUrl::parse("http://airgradient-living-room-upstairs-by-the-window.lan:9925/")
                 .expect("test URL should parse"),
         ),
         Duration::from_secs(30),

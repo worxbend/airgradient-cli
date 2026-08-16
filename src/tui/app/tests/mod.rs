@@ -10,7 +10,7 @@ mod palette;
 mod theme_settings;
 
 use super::*;
-use crate::{config, sensors::Trend, tui::theme};
+use crate::{config, device_url::DeviceUrl, sensors::Trend, tui::theme};
 
 fn app_with_refresh(refresh_interval: Duration) -> TuiApp {
     TuiApp::new(None, refresh_interval)
@@ -18,7 +18,7 @@ fn app_with_refresh(refresh_interval: Duration) -> TuiApp {
 
 fn app_with_url() -> TuiApp {
     TuiApp::new(
-        Some(Url::parse("http://192.168.1.201/").expect("url should parse")),
+        Some(DeviceUrl::parse("http://192.168.1.201/").expect("url should parse")),
         Duration::from_secs(30),
     )
 }

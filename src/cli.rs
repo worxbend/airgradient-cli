@@ -18,6 +18,7 @@ use thiserror::Error;
 use crate::{
     config::{self, Config},
     device,
+    device_url::{DeviceUrl, DeviceUrlError},
     output::{self, OutputMetadata},
     sensors, tui,
 };
@@ -86,6 +87,9 @@ pub enum CliError {
 
     #[error(transparent)]
     Device(#[from] device::DeviceError),
+
+    #[error(transparent)]
+    DeviceUrl(#[from] DeviceUrlError),
 
     #[error("failed to serialize output")]
     Output(#[from] serde_json::Error),
@@ -212,8 +216,7 @@ async fn run_config_command(command: &ConfigCommand, cli: &Cli) -> Result<(), Cl
 async fn run_fetch(cli: &Cli, json: bool) -> Result<(), CliError> {
     let path = config_path(cli)?;
     let config = effective_config(&path, cli)?;
-    let server_url = required_server_url(&config)?;
-    let base_url = device::normalize_base_url(&server_url)?;
+    let base_url = required_server_url(&config)?;
     let fetch_settings = fetch_settings()?;
     let client = fetch_settings.client()?;
 
@@ -251,8 +254,7 @@ fn effective_config(path: &Path, cli: &Cli) -> Result<Config, CliError> {
     let mut config = config::read_config(path)?;
 
     if let Some(url) = &cli.url {
-        let normalized = device::normalize_base_url(url)?;
-        config.server_url = Some(normalized.to_string());
+        config.server_url = Some(DeviceUrl::parse(url)?.as_str().to_owned());
     }
 
     Ok(config)
@@ -270,11 +272,17 @@ fn fetch_settings() -> Result<device::FetchSettings, CliError> {
     Ok(device::FetchSettings::new(Duration::from_millis(millis)))
 }
 
-fn required_server_url(config: &Config) -> Result<String, CliError> {
-    config
+/// The device to fetch from, as a validated address.
+///
+/// A blank or whitespace-only stored value means "unset" rather than "invalid",
+/// so it reports the same missing-config guidance as no value at all.
+fn required_server_url(config: &Config) -> Result<DeviceUrl, CliError> {
+    let stored = config
         .server_url
         .as_deref()
-        .filter(|url| !url.trim().is_empty())
-        .map(str::to_owned)
-        .ok_or(CliError::MissingServerUrl)
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
+        .ok_or(CliError::MissingServerUrl)?;
+
+    Ok(DeviceUrl::parse(stored)?)
 }

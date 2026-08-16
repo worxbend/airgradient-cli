@@ -22,7 +22,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use url::Url;
+use crate::device_url::DeviceUrl;
 
 pub use leader::{LEADER_BINDINGS, LeaderAction, LeaderBinding};
 
@@ -82,7 +82,7 @@ pub struct TuiApp {
     pub last_fetch_duration: Option<Duration>,
     pub last_success_at: Option<SystemTime>,
     pub current_error: Option<String>,
-    pub configured_url: Option<Url>,
+    pub configured_url: Option<DeviceUrl>,
     pub refresh_interval: Duration,
     pub is_fetching: bool,
 
@@ -135,7 +135,7 @@ pub struct TuiApp {
 }
 
 impl TuiApp {
-    pub fn new(configured_url: Option<Url>, refresh_interval: Duration) -> Self {
+    pub fn new(configured_url: Option<DeviceUrl>, refresh_interval: Duration) -> Self {
         Self {
             current_snapshot: None,
             previous_successful_snapshot: None,

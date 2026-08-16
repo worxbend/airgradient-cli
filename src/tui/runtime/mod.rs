@@ -35,6 +35,7 @@ use thiserror::Error;
 
 use crate::{
     device::{self, FetchSettings},
+    device_url::DeviceUrlError,
     tui::app::TuiApp,
 };
 
@@ -60,6 +61,9 @@ pub struct RuntimeOptions {
 pub enum RuntimeError {
     #[error(transparent)]
     Device(#[from] device::DeviceError),
+
+    #[error(transparent)]
+    DeviceUrl(#[from] DeviceUrlError),
 
     #[error("terminal I/O failed")]
     Terminal(#[from] io::Error),

@@ -127,7 +127,7 @@ fn palette_rejects_an_unknown_theme_without_touching_the_stored_one() {
 fn palette_save_writes_the_live_session_to_the_config_file() {
     let temp_dir = tempfile::tempdir().unwrap();
     let (mut app, path) = app_with_config(temp_dir.path());
-    app.configured_url = Some(Url::parse("http://192.168.1.77/").unwrap());
+    app.configured_url = Some(DeviceUrl::parse("http://192.168.1.77/").unwrap());
     app.refresh_interval = Duration::from_secs(45);
     app.theme = theme::ALL[1];
 
