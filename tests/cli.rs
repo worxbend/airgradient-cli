@@ -9,8 +9,25 @@ use wiremock::{
     matchers::{method, path},
 };
 
+/// The binary under test, with reading-history recording switched off.
+///
+/// Without this every test that completes a fetch would append to the real
+/// `~/.local/share/airgradient-cli/history.jsonl`, mixing fixture values into
+/// the developer's own readings and evicting them through the 2000-line cap.
+/// Tests that are *about* the history opt back in and point `XDG_DATA_HOME` at
+/// a temp dir, so recording is always written somewhere the test owns.
 fn cli() -> Command {
-    Command::cargo_bin("airgradient-cli").expect("binary should build")
+    let mut command = Command::cargo_bin("airgradient-cli").expect("binary should build");
+    command.env("AIRGRADIENT_CLI_NO_HISTORY", "1");
+    command
+}
+
+/// The binary under test with history recording enabled, writing into `data_home`.
+fn cli_recording_history(data_home: &Path) -> Command {
+    let mut command = Command::cargo_bin("airgradient-cli").expect("binary should build");
+    command.env_remove("AIRGRADIENT_CLI_NO_HISTORY");
+    command.env("XDG_DATA_HOME", data_home);
+    command
 }
 
 #[test]
@@ -820,4 +837,64 @@ fn tui_with_json_is_rejected_rather_than_ignored() {
         .failure()
         .stdout("")
         .stderr(predicate::str::contains("`--tui` does not support it"));
+}
+
+/// Spins up a device that answers one `/measures/current` request.
+fn mock_device(runtime: &tokio::runtime::Runtime) -> MockServer {
+    runtime.block_on(async {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/measures/current"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "rco2": 612,
+                "pm02": 7.4
+            })))
+            .mount(&server)
+            .await;
+        server
+    })
+}
+
+#[test]
+fn a_one_shot_fetch_records_the_reading_it_displayed() {
+    let runtime = tokio::runtime::Runtime::new().expect("runtime should start");
+    let server = mock_device(&runtime);
+    let data_home = tempdir().expect("temp dir");
+
+    cli_recording_history(data_home.path())
+        .args(["--url", &server.uri(), "--no-color"])
+        .assert()
+        .success();
+
+    let history = data_home
+        .path()
+        .join("airgradient-cli")
+        .join("history.jsonl");
+    let recorded = fs::read_to_string(&history).expect("history should have been written");
+    assert_eq!(recorded.lines().count(), 1, "one fetch records one reading");
+    assert!(
+        recorded.contains("\"co2\":612.0"),
+        "the recorded line holds the reading that was displayed, got: {recorded}"
+    );
+}
+
+#[test]
+fn no_history_opts_out_of_recording_entirely() {
+    let runtime = tokio::runtime::Runtime::new().expect("runtime should start");
+    let server = mock_device(&runtime);
+    let data_home = tempdir().expect("temp dir");
+
+    // Same command as the test above, plus the opt-out: the fetch still
+    // succeeds, it just leaves nothing behind.
+    cli_recording_history(data_home.path())
+        .env("AIRGRADIENT_CLI_NO_HISTORY", "1")
+        .args(["--url", &server.uri(), "--no-color"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("AQI"));
+
+    assert!(
+        !data_home.path().join("airgradient-cli").exists(),
+        "the opt-out must not even create the data directory"
+    );
 }

@@ -282,13 +282,8 @@ async fn run_fetch(
 ///
 /// Best-effort and silent: this is a side benefit of a fetch, not the point of
 /// one, and a full disk must not turn a successful reading into a failed
-/// command. `AIRGRADIENT_CLI_NO_HISTORY` opts out for callers that want a
-/// genuinely read-only fetch.
+/// command.
 fn record_reading(snapshot: &sensors::SensorSnapshot) {
-    if env::var_os(NO_HISTORY_ENV).is_some() {
-        return;
-    }
-
     if let Some(path) = history_path() {
         let _ = history::append(
             &path,
@@ -297,13 +292,23 @@ fn record_reading(snapshot: &sensors::SensorSnapshot) {
     }
 }
 
-/// Where readings are recorded, or `None` when no data directory can be
-/// resolved.
+/// Where readings are recorded, or `None` when nothing should be recorded.
 ///
-/// Deliberately not an error: a machine with neither `XDG_DATA_HOME` nor
-/// `HOME` set can still fetch and display readings, and refusing to start the
-/// dashboard over a missing chart would be the wrong trade.
+/// `None` has two causes, and both mean the same thing to every caller —
+/// record nothing:
+///
+/// - `AIRGRADIENT_CLI_NO_HISTORY` is set, for callers that want a genuinely
+///   read-only run. Answering it here rather than at one call site is what
+///   makes the opt-out cover the dashboard as well as a one-shot fetch.
+/// - No data directory can be resolved. Deliberately not an error: a machine
+///   with neither `XDG_DATA_HOME` nor `HOME` set can still fetch and display
+///   readings, and refusing to start the dashboard over a missing chart would
+///   be the wrong trade.
 fn history_path() -> Option<PathBuf> {
+    if env::var_os(NO_HISTORY_ENV).is_some() {
+        return None;
+    }
+
     history::resolve_history_path(None).ok()
 }
 

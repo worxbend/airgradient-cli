@@ -493,7 +493,7 @@ over the next quarter of an hour.
 | **Format** | [JSON Lines](https://jsonlines.org/) — one `{"at_unix_secs":…,"snapshot":{…}}` object per line, oldest first |
 | **Size** | Trimmed to the most recent 2000 readings; a few hundred kilobytes at most |
 | **Written by** | Both the dashboard and one-shot fetches, so a `watch` or cron loop builds history too |
-| **Opting out** | Set `AIRGRADIENT_CLI_NO_HISTORY=1` for a genuinely read-only one-shot fetch |
+| **Opting out** | Set `AIRGRADIENT_CLI_NO_HISTORY=1` for a genuinely read-only run — it silences both the dashboard and one-shot fetches |
 
 It is deliberately *not* in the config directory shared with the desktop app:
 this is data, nothing else reads it, and a settings file you might hand-edit
