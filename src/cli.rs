@@ -141,6 +141,7 @@ pub async fn run(cli: Cli) -> Result<(), CliError> {
         let options = tui::runtime::RuntimeOptions {
             config_path: config_path(&cli)?,
             history_path: history_path(),
+            record_path: recording_path(),
             url_override: cli.url.clone(),
             refresh_override_secs: cli.refresh,
             theme_override: cli.theme.clone(),
@@ -292,7 +293,7 @@ async fn run_fetch(
 /// the point of one. A full disk or an unreadable history costs the trend
 /// column, never the reading the user asked for.
 fn record_reading(snapshot: &sensors::SensorSnapshot) -> Option<history::Reading> {
-    let path = history_path()?;
+    let path = recording_path()?;
 
     // Read before appending, or the "previous" reading would be this one.
     let previous = history::load_recent(&path, 1)
@@ -307,24 +308,32 @@ fn record_reading(snapshot: &sensors::SensorSnapshot) -> Option<history::Reading
     previous
 }
 
-/// Where readings are recorded, or `None` when nothing should be recorded.
+/// Where the reading history lives, for *reading* it.
 ///
-/// `None` has two causes, and both mean the same thing to every caller —
-/// record nothing:
-///
-/// - `AIRGRADIENT_CLI_NO_HISTORY` is set, for callers that want a genuinely
-///   read-only run. Answering it here rather than at one call site is what
-///   makes the opt-out cover the dashboard as well as a one-shot fetch.
-/// - No data directory can be resolved. Deliberately not an error: a machine
-///   with neither `XDG_DATA_HOME` nor `HOME` set can still fetch and display
-///   readings, and refusing to start the dashboard over a missing chart would
-///   be the wrong trade.
+/// `None` when no data directory can be resolved. Deliberately not an error: a
+/// machine with neither `XDG_DATA_HOME` nor `HOME` set can still fetch and
+/// display readings, and refusing to start the dashboard over a missing chart
+/// would be the wrong trade.
 fn history_path() -> Option<PathBuf> {
+    history::resolve_history_path(None).ok()
+}
+
+/// Where new readings are recorded, or `None` to record nothing.
+///
+/// The same file as [`history_path`], minus the callers that must not add to
+/// it. `AIRGRADIENT_CLI_NO_HISTORY` opts out here rather than at each call
+/// site, which is what makes it cover the dashboard as well as a one-shot
+/// fetch — the dashboard being by far the busier writer.
+///
+/// Deliberately does *not* gate reading. Replaying an existing history is a
+/// read-only act, so a run that has opted out of recording still opens its
+/// chart on whatever is already there.
+fn recording_path() -> Option<PathBuf> {
     if env::var_os(NO_HISTORY_ENV).is_some() {
         return None;
     }
 
-    history::resolve_history_path(None).ok()
+    history_path()
 }
 
 fn config_path(cli: &Cli) -> Result<PathBuf, CliError> {
@@ -359,4 +368,74 @@ fn fetch_settings() -> Result<device::FetchSettings, CliError> {
 /// so it reports the same missing-config guidance as no value at all.
 fn required_server_url(config: &Config) -> Result<DeviceUrl, CliError> {
     config.device_url()?.ok_or(CliError::MissingServerUrl)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Serializes the tests that set process-wide environment variables.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Runs `body` with `AIRGRADIENT_CLI_NO_HISTORY` set or cleared, restoring
+    /// whatever was there before.
+    fn with_opt_out<T>(enabled: bool, body: impl FnOnce() -> T) -> T {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let previous = env::var_os(NO_HISTORY_ENV);
+
+        // SAFETY: the lock above makes this the only thread touching the
+        // environment, and the value is restored before it is released.
+        unsafe {
+            if enabled {
+                env::set_var(NO_HISTORY_ENV, "1");
+            } else {
+                env::remove_var(NO_HISTORY_ENV);
+            }
+        }
+
+        let result = body();
+
+        unsafe {
+            match previous {
+                Some(value) => env::set_var(NO_HISTORY_ENV, value),
+                None => env::remove_var(NO_HISTORY_ENV),
+            }
+        }
+
+        result
+    }
+
+    #[test]
+    fn the_history_opt_out_stops_recording_without_stopping_reading() {
+        // Skip where no data directory resolves at all; then both are `None`
+        // for a reason unrelated to the opt-out.
+        if with_opt_out(false, history_path).is_none() {
+            return;
+        }
+
+        with_opt_out(true, || {
+            assert_eq!(
+                recording_path(),
+                None,
+                "the opt-out must stop new readings being recorded"
+            );
+            assert!(
+                history_path().is_some(),
+                "replaying an existing history is read-only, so the opt-out \
+                 must not hide it — otherwise the chart opens blank for users \
+                 who only asked not to add to it"
+            );
+        });
+    }
+
+    #[test]
+    fn without_the_opt_out_readings_are_recorded_where_they_are_read_from() {
+        with_opt_out(false, || {
+            assert_eq!(
+                recording_path(),
+                history_path(),
+                "one file: what is recorded is what is replayed"
+            );
+        });
+    }
 }

@@ -60,10 +60,15 @@ pub use effective_config::TUI_TEST_REFRESH_INTERVAL_MS_ENV;
 #[derive(Debug, Clone)]
 pub struct RuntimeOptions {
     pub config_path: PathBuf,
-    /// Where readings are recorded for the chart. `None` disables recording
-    /// entirely, which is what a session with no resolvable data directory
-    /// gets — the dashboard still works, it just has no history to draw.
+    /// Where previously recorded readings are read from, so the chart opens
+    /// with a shape. `None` when no data directory could be resolved.
     pub history_path: Option<PathBuf>,
+    /// Where new readings are recorded, or `None` to record nothing.
+    ///
+    /// Separate from [`Self::history_path`] because reading and writing are
+    /// different permissions: a session that must not add to the history can
+    /// still draw the history that is already there.
+    pub record_path: Option<PathBuf>,
     pub url_override: Option<String>,
     pub refresh_override_secs: Option<u64>,
     pub theme_override: Option<String>,
@@ -138,7 +143,7 @@ pub async fn run(options: RuntimeOptions) -> Result<(), RuntimeError> {
     );
     app.theme = effective_config.theme;
     app.config_path = Some(options.config_path.clone());
-    app.history_path = options.history_path.clone();
+    app.history_path = options.record_path.clone();
 
     // Previously recorded readings, so the chart opens with a shape rather
     // than filling in over the next quarter of an hour. Best-effort: an
