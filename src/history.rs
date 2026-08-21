@@ -75,7 +75,13 @@ impl Reading {
     }
 
     pub fn at(&self) -> SystemTime {
-        UNIX_EPOCH + Duration::from_secs(self.at_unix_secs)
+        // A stamp too large for the platform's `SystemTime` reads as "the
+        // oldest thing I have", the same rule `new` applies to a pre-epoch
+        // clock, so both ends of the range degrade the same way. Adding it
+        // unchecked would panic on a line that parsed perfectly well.
+        UNIX_EPOCH
+            .checked_add(Duration::from_secs(self.at_unix_secs))
+            .unwrap_or(UNIX_EPOCH)
     }
 }
 
@@ -337,6 +343,28 @@ mod tests {
             resolve_history_path(Some(&explicit)).unwrap(),
             explicit,
             "an explicit path wins outright"
+        );
+    }
+
+    #[test]
+    fn an_out_of_range_timestamp_loads_instead_of_panicking() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history.jsonl");
+        // A line that parses as JSON but whose stamp overflows `SystemTime`.
+        // Reading it must not take down the process that is drawing a chart.
+        std::fs::write(
+            &path,
+            format!("{{\"at_unix_secs\":{},\"snapshot\":{{}}}}\n", u64::MAX),
+        )
+        .unwrap();
+
+        let readings = load(&path).unwrap();
+
+        assert_eq!(readings.len(), 1);
+        assert_eq!(
+            readings[0].at(),
+            UNIX_EPOCH,
+            "clamped to the oldest instant"
         );
     }
 }
