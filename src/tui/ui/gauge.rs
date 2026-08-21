@@ -24,10 +24,7 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-use crate::{
-    sensors::{Metric, Status},
-    tui::theme::Theme,
-};
+use crate::{sensors::Metric, tui::theme::Theme};
 
 /// Rows the gauge uses when it has them: bar, ticks, scale.
 pub(super) const FULL_HEIGHT: u16 = 3;
@@ -83,7 +80,7 @@ fn render_bar(frame: &mut Frame<'_>, area: Rect, theme: Theme, metric: &Metric) 
             // The value this cell stands for, so its colour comes from the same
             // classifier the reading itself went through.
             let at = (f64::from(cell) + 0.5) / f64::from(width) * metric.scale.max();
-            let band = metric.band_at(at);
+            let band = metric.scale.classify(Some(at));
             let filled = cell < filled_cells;
 
             Span::styled(
@@ -170,7 +167,7 @@ fn tick_positions(metric: &Metric, width: u16) -> Vec<(u16, f64)> {
     };
 
     push(0.0);
-    for &boundary in metric.band_boundaries() {
+    for &boundary in metric.scale.boundaries() {
         if boundary > 0.0 && boundary < metric.scale.max() {
             push(boundary);
         }
@@ -197,28 +194,11 @@ fn format_scale_value(value: f64) -> String {
     }
 }
 
-/// The status a value would be classified as, and where the bands change —
-/// asked of the metric's own scale so the gauge cannot disagree with the
-/// colour of the reading beside it.
-trait Banded {
-    fn band_at(&self, value: f64) -> Status;
-    fn band_boundaries(&self) -> &'static [f64];
-}
-
-impl Banded for Metric {
-    fn band_at(&self, value: f64) -> Status {
-        self.scale.classify(Some(value))
-    }
-
-    fn band_boundaries(&self) -> &'static [f64] {
-        self.scale.boundaries()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::sensors::SensorSnapshot;
+    use crate::sensors::Status;
     use crate::sensors::{Metrics, metrics};
 
     fn co2_metric(ppm: f64) -> Metric {
@@ -235,8 +215,11 @@ mod tests {
         let metric = co2_metric(700.0);
 
         // Left end is Good, right end is the worst band, whatever the reading.
-        assert_eq!(metric.band_at(100.0), Status::Good);
-        assert_eq!(metric.band_at(metric.scale.max()), Status::Unhealthy);
+        assert_eq!(metric.scale.classify(Some(100.0)), Status::Good);
+        assert_eq!(
+            metric.scale.classify(Some(metric.scale.max())),
+            Status::Unhealthy
+        );
     }
 
     #[test]
