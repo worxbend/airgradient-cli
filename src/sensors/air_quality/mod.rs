@@ -105,15 +105,14 @@ pub struct SensorSnapshot {
 impl SensorSnapshot {
     pub fn from_airgradient_payload(payload: &Value) -> Self {
         let corrected_particulates = display_shows_compensated_particulates(payload);
+        // The one reading whose source is a runtime choice, so the switch is
+        // read here rather than passed down into a helper as a flag.
         let particulate = |compensated_keys, raw_keys| {
-            preferred_value(
-                payload,
-                corrected_particulates,
-                compensated_keys,
-                raw_keys,
-                0.0,
-                MAX_PM_MASS_UG_M3,
-            )
+            if corrected_particulates {
+                preferred_value(payload, compensated_keys, raw_keys, 0.0, MAX_PM_MASS_UG_M3)
+            } else {
+                find_bounded_number(payload, raw_keys, 0.0, MAX_PM_MASS_UG_M3)
+            }
         };
 
         let pm25 = particulate(PM25_COMPENSATED_KEYS, PM25_KEYS);
@@ -133,7 +132,6 @@ impl SensorSnapshot {
             // particulate values only.
             temperature_c: preferred_value(
                 payload,
-                true,
                 TEMPERATURE_COMPENSATED_KEYS,
                 TEMPERATURE_KEYS,
                 MIN_TEMPERATURE_C,
@@ -141,7 +139,6 @@ impl SensorSnapshot {
             ),
             humidity: preferred_value(
                 payload,
-                true,
                 HUMIDITY_COMPENSATED_KEYS,
                 HUMIDITY_KEYS,
                 MIN_HUMIDITY_PERCENT,
@@ -152,22 +149,23 @@ impl SensorSnapshot {
 }
 
 /// Reads a measurement the firmware reports twice — raw and corrected —
-/// preferring the corrected one when `prefer_compensated` is set.
+/// preferring the corrected one.
 ///
 /// The fallback is not just for old firmware: a corrected value outside the
 /// plausible range is rejected by [`find_bounded_number`] and the raw reading
 /// is shown instead, which is better than showing nothing.
+///
+/// A caller that wants the raw reading regardless asks
+/// [`find_bounded_number`] for it directly; that is a different question, not
+/// a mode of this one.
 fn preferred_value(
     payload: &Value,
-    prefer_compensated: bool,
     compensated_keys: &[&str],
     raw_keys: &[&str],
     min: f64,
     max: f64,
 ) -> Option<f64> {
-    prefer_compensated
-        .then(|| find_bounded_number(payload, compensated_keys, min, max))
-        .flatten()
+    find_bounded_number(payload, compensated_keys, min, max)
         .or_else(|| find_bounded_number(payload, raw_keys, min, max))
 }
 
