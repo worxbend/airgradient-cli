@@ -177,7 +177,7 @@ fn tick_positions(metric: &Metric, width: u16) -> Vec<(u16, f64)> {
     };
 
     push(0.0);
-    for &boundary in metric.scale.boundaries() {
+    for &(boundary, _) in metric.scale.breakpoints() {
         if boundary > 0.0 && boundary < metric.scale.max() {
             push(boundary);
         }
