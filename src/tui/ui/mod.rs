@@ -126,6 +126,20 @@ const GAP_MIN_HEIGHT: u16 = 24;
 /// four of them does not start clipping cards.
 const VERTICAL_GAP_MIN_HEIGHT: u16 = 44;
 
+/// Rows the status line occupies: one line of text inside its border.
+const STATUS_LINE_HEIGHT: u16 = 3;
+
+/// Rows the footer occupies: one line of key hints inside its border.
+const FOOTER_HEIGHT: u16 = 3;
+
+/// Rows the error panel takes when there is an error to show: a bordered block
+/// around the message and the hint beneath it.
+const ERROR_PANEL_HEIGHT: u16 = 5;
+
+/// Least the dashboard itself may be squeezed to before the surrounding bands
+/// stop giving way. Below this there is no room for a card and its gauge.
+const MIN_DASHBOARD_HEIGHT: u16 = 10;
+
 /// Renders one frame of whatever screen the app is currently showing.
 ///
 /// Screens are mutually exclusive and checked in priority order: splash wins
@@ -207,7 +221,7 @@ pub fn draw_with_hits(frame: &mut Frame<'_>, app: &TuiApp, hits: &mut HitMap) {
 fn render_dashboard_screen(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
     let has_error = app.current_error.is_some();
     let has_palette = app.view == View::CommandPalette;
-    let error_height = if has_error { 5 } else { 0 };
+    let error_height = if has_error { ERROR_PANEL_HEIGHT } else { 0 };
     let palette_height = if has_palette { 1 } else { 0 };
 
     // Side margins whenever the terminal can spare a column; gaps between the
@@ -224,34 +238,48 @@ fn render_dashboard_screen(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
     // from.
     let gap_before = |shown: bool| Constraint::Length(if shown { band_gap } else { 0 });
 
-    let chunks = Layout::default()
+    // Named rather than indexed: four of the nine constraints are gaps, so
+    // `chunks[6]` meant counting spacers to find the footer, and inserting a
+    // band silently shifted every index after it. The arity is checked at
+    // compile time here.
+    let [
+        status_area,
+        _,
+        dashboard_area,
+        _,
+        error_area,
+        _,
+        footer_area,
+        _,
+        palette_area,
+    ] = Layout::default()
         .direction(Direction::Vertical)
         .horizontal_margin(side_gap)
         .vertical_margin(band_gap)
         .constraints([
-            Constraint::Length(3),
+            Constraint::Length(STATUS_LINE_HEIGHT),
             Constraint::Length(band_gap),
-            Constraint::Min(10),
+            Constraint::Min(MIN_DASHBOARD_HEIGHT),
             gap_before(has_error),
             Constraint::Length(error_height),
             Constraint::Length(band_gap),
-            Constraint::Length(3),
+            Constraint::Length(FOOTER_HEIGHT),
             gap_before(has_palette),
             Constraint::Length(palette_height),
         ])
-        .split(area);
+        .areas(area);
 
-    status_line::render_status_line(frame, chunks[0], app);
-    dashboard::render_dashboard(frame, chunks[2], app);
+    status_line::render_status_line(frame, status_area, app);
+    dashboard::render_dashboard(frame, dashboard_area, app);
 
     if has_error {
-        chrome::render_error(frame, chunks[4], app);
+        chrome::render_error(frame, error_area, app);
     }
 
-    chrome::render_footer(frame, chunks[6], app.theme);
+    chrome::render_footer(frame, footer_area, app.theme);
 
     if has_palette {
-        chrome::render_command_palette(frame, chunks[8], app);
+        chrome::render_command_palette(frame, palette_area, app);
     }
 }
 
