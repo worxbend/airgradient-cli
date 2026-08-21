@@ -270,13 +270,6 @@ impl TuiApp {
         self.previous_successful_snapshot.as_ref()
     }
 
-    /// The metric rows to draw.
-    ///
-    /// Before the first successful fetch there is no snapshot, so an
-    /// all-missing one stands in: the dashboard then has the same shape from
-    /// frame one rather than popping into existence when data arrives. The UI
-    /// layer used to do this substitution itself, on an empty `Vec` returned
-    /// from here, which meant "no data yet" was represented twice.
     /// Keeps a reading for the chart, and records it to disk so the next
     /// session starts with a shape to draw instead of an empty axis.
     ///
@@ -309,6 +302,13 @@ impl TuiApp {
         self.reading_history.iter()
     }
 
+    /// The metric rows to draw.
+    ///
+    /// Before the first successful fetch there is no snapshot, so an
+    /// all-missing one stands in: the dashboard then has the same shape from
+    /// frame one rather than popping into existence when data arrives. The UI
+    /// layer used to do this substitution itself, on an empty `Vec` returned
+    /// from here, which meant "no data yet" was represented twice.
     pub fn metrics(&self) -> Metrics {
         match &self.current_snapshot {
             Some(snapshot) => metrics(snapshot, self.trend_baseline()),
