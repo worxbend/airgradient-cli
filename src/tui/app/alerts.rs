@@ -62,7 +62,7 @@ impl AirAlert {
                 "{} is {} — {}",
                 metric.label,
                 metric.status.label(),
-                reading_text(metric)
+                metric.reading_text()
             ),
             raised_at,
         }
@@ -77,20 +77,10 @@ impl AirAlert {
                 "{} back to {} — {}",
                 metric.label,
                 metric.status.label(),
-                reading_text(metric)
+                metric.reading_text()
             ),
             raised_at,
         }
-    }
-}
-
-fn reading_text(metric: &Metric) -> String {
-    let value = metric.formatted_value.as_deref().unwrap_or("--");
-
-    if metric.unit.is_empty() {
-        value.to_string()
-    } else {
-        format!("{value} {}", metric.unit)
     }
 }
 

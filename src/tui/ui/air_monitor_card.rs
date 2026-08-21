@@ -19,10 +19,7 @@ use crate::{
     tui::{
         app::TuiApp,
         theme::Theme,
-        ui::{
-            format::{aqi_message, metric_value, metric_value_with_unit},
-            gauge, history,
-        },
+        ui::{format::aqi_message, gauge, history},
     },
 };
 
@@ -76,7 +73,7 @@ pub(super) fn render_air_monitor_aqi_card(
         Line::from(Span::styled("Air Quality Index", theme.value_style())),
         Line::from(vec![
             Span::styled(
-                metric_value(metric),
+                metric.display_value(),
                 theme.value_style().add_modifier(Modifier::BOLD),
             ),
             Span::raw("  "),
@@ -144,7 +141,7 @@ pub(super) fn render_air_monitor_metric_card(
             Span::styled("●", theme.status_style(metric.status)),
         ]),
         Line::from(Span::styled(
-            metric_value_with_unit(metric),
+            metric.reading_text(),
             theme.value_style().add_modifier(Modifier::BOLD),
         )),
         Line::from(Span::styled(metric.status.label(), theme.label_style())),

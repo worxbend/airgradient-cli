@@ -97,6 +97,26 @@ pub struct Metric {
 }
 
 impl Metric {
+    /// This reading as text, or [`MISSING_VALUE`] when the device did not
+    /// report it.
+    pub fn display_value(&self) -> &str {
+        self.formatted_value.as_deref().unwrap_or(MISSING_VALUE)
+    }
+
+    /// This reading with its unit — "612 ppm", "21.8 °C", or "--" — phrased
+    /// once here so the alert banner, the cards and the text output cannot
+    /// word the same reading three different ways.
+    ///
+    /// A metric with no unit (the AQI) is just its value, with no trailing
+    /// space to trim.
+    pub fn reading_text(&self) -> String {
+        if self.unit.is_empty() {
+            self.display_value().to_string()
+        } else {
+            format!("{} {}", self.display_value(), self.unit)
+        }
+    }
+
     /// Writes `value` with this metric's precision.
     ///
     /// For values that are not the current reading — axis labels, bounds —

@@ -20,8 +20,7 @@ use crate::{
         app::TuiApp,
         theme::Theme,
         ui::{
-            ADVANCED_LAYOUT_HEIGHT, ADVANCED_LAYOUT_WIDTH, air_monitor,
-            format::{aqi_message, metric_value},
+            ADVANCED_LAYOUT_HEIGHT, ADVANCED_LAYOUT_WIDTH, air_monitor, format::aqi_message,
             history, vertical_gap, widget_block, widget_gap,
         },
     },
@@ -134,7 +133,7 @@ fn render_aqi(
         Line::from(vec![
             Span::styled("AQI ", theme.label_style()),
             Span::styled(
-                metric_value(metric),
+                metric.display_value(),
                 theme
                     .status_style(metric.status)
                     .add_modifier(Modifier::BOLD),
@@ -246,7 +245,7 @@ fn render_metric_cell(frame: &mut Frame<'_>, area: Rect, theme: Theme, metric: &
             Span::styled(metric.status.label(), theme.status_style(metric.status)),
         ]),
         Line::from(vec![
-            Span::styled(metric_value(metric), theme.value_style()),
+            Span::styled(metric.display_value(), theme.value_style()),
             Span::styled(unit, theme.muted_style()),
             Span::raw("  "),
             Span::styled(

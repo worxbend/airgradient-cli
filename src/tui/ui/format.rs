@@ -8,22 +8,7 @@ use std::time::{Duration, SystemTime};
 
 use ratatui::text::Span;
 
-use crate::{
-    sensors::{MISSING_VALUE, Metric},
-    tui::app::TuiApp,
-};
-
-pub(super) fn metric_value(metric: &Metric) -> &str {
-    metric.formatted_value.as_deref().unwrap_or(MISSING_VALUE)
-}
-
-pub(super) fn metric_value_with_unit(metric: &Metric) -> String {
-    if metric.unit.is_empty() {
-        metric_value(metric).to_string()
-    } else {
-        format!("{} {}", metric_value(metric), metric.unit)
-    }
-}
+use crate::tui::app::TuiApp;
 
 /// The configured device URL without its trailing slash, or a prompt to set
 /// one. Shared by the status bar and the showcase server-URL line.
