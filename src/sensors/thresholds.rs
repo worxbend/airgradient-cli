@@ -260,15 +260,15 @@ pub const HUMIDITY: Scale = Scale {
 /// Relative humidity is a percentage; its gauge is the whole of it.
 const MAX_HUMIDITY_PERCENT: f64 = 100.0;
 
-pub fn classify_aqi(value: Option<f64>) -> Status {
+fn classify_aqi(value: Option<f64>) -> Status {
     classify(value, &AQI_BREAKPOINTS)
 }
 
-pub fn classify_co2(value: Option<f64>) -> Status {
+fn classify_co2(value: Option<f64>) -> Status {
     classify(value, &CO2_BREAKPOINTS)
 }
 
-pub fn classify_pm25(value: Option<f64>) -> Status {
+fn classify_pm25(value: Option<f64>) -> Status {
     classify(value, &PM25_BREAKPOINTS)
 }
 
@@ -284,27 +284,27 @@ pub fn classify_pm25(value: Option<f64>) -> Status {
 /// Kept as its own function rather than pointing the metric table at
 /// [`classify_pm25`] so that the choice is visible where the numbers are, and
 /// so a future published PM1.0 scale is a one-line change here.
-pub fn classify_pm1(value: Option<f64>) -> Status {
+fn classify_pm1(value: Option<f64>) -> Status {
     classify_pm25(value)
 }
 
-pub fn classify_pm10(value: Option<f64>) -> Status {
+fn classify_pm10(value: Option<f64>) -> Status {
     classify(value, &PM10_BREAKPOINTS)
 }
 
-pub fn classify_particles(value: Option<f64>) -> Status {
+fn classify_particles(value: Option<f64>) -> Status {
     classify(value, &PARTICLE_COUNT_BREAKPOINTS)
 }
 
-pub fn classify_tvoc(value: Option<f64>) -> Status {
+fn classify_tvoc(value: Option<f64>) -> Status {
     classify(value, &TVOC_BREAKPOINTS)
 }
 
-pub fn classify_nox(value: Option<f64>) -> Status {
+fn classify_nox(value: Option<f64>) -> Status {
     classify(value, &NOX_BREAKPOINTS)
 }
 
-pub fn classify_temperature(value: Option<f64>) -> Status {
+fn classify_temperature(value: Option<f64>) -> Status {
     let Some(value) = value.filter(|value| value.is_finite()) else {
         return Status::Unknown;
     };
@@ -318,7 +318,7 @@ pub fn classify_temperature(value: Option<f64>) -> Status {
     }
 }
 
-pub fn classify_humidity(value: Option<f64>) -> Status {
+fn classify_humidity(value: Option<f64>) -> Status {
     let Some(value) = value.filter(|value| value.is_finite()) else {
         return Status::Unknown;
     };
