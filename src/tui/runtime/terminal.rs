@@ -110,10 +110,11 @@ impl CrosstermRuntime {
     }
 }
 
-/// The terminal state this process turned on, and therefore owes the user
-/// back. Each flag is cleared only once its undo actually succeeded, so a
-/// partial teardown does not claim to have restored more than it did.
-/// Which of the terminal modifications are currently in effect.
+/// Which terminal modifications this process turned on, and therefore owes the
+/// user back.
+///
+/// Each flag is cleared only once its undo actually succeeded, so a partial
+/// teardown never claims to have restored more than it did.
 ///
 /// One named struct rather than three `bool` parameters in a row: the teardown
 /// steps depend on all three, and transposing two of them at a call site
@@ -136,6 +137,10 @@ impl TerminalState {
     };
 }
 
+/// The terminal for the duration of a dashboard session: raw mode, the
+/// alternate screen and mouse capture, plus the obligation to put all three
+/// back. [`Self::restore`] is idempotent through [`TerminalState`], so the
+/// `Drop` impl can run it again after an explicit teardown or a panic.
 struct TerminalSession {
     terminal: Terminal<CrosstermBackend<Stdout>>,
     state: TerminalState,

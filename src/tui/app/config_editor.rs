@@ -285,9 +285,13 @@ impl TuiApp {
     }
 
     fn apply_draft_to_live_state(&mut self) {
-        // A draft that does not parse leaves the live address alone: the editor
-        // is still open on the text that failed, and dropping the working
-        // address would take the dashboard down with a typo.
+        // A draft address that does not parse leaves the live one alone. This
+        // is not the typo case — `config_editor_commit_edit` rejects a bad URL
+        // as it is typed, so it never reaches the draft. It is the case where
+        // the config file itself holds a bad address, which
+        // `read_display_config` loads lossily and warns about: the dashboard
+        // may already be polling a good address from the session, and blanking
+        // it because the *file* is wrong would stop a working dashboard.
         if let Ok(url) = self.config_draft.device_url() {
             self.configured_url = url;
         }
