@@ -52,7 +52,7 @@ pub enum Trend {
 }
 
 impl Trend {
-    pub const fn symbol(self) -> &'static str {
+    const fn symbol(self) -> &'static str {
         match self {
             Self::Unknown => "",
             Self::Stable => "-",
@@ -342,11 +342,7 @@ fn metric(
 }
 
 fn format_value(value: f64, decimals: usize) -> String {
-    if decimals == 0 {
-        format!("{value:.0}")
-    } else {
-        format!("{value:.decimals$}")
-    }
+    format!("{value:.decimals$}")
 }
 
 fn trend(value: Option<f64>, previous: Option<f64>) -> Trend {
