@@ -57,11 +57,12 @@ impl EffectiveConfig {
             .map(str::to_owned)
             .or(config.server_url);
 
-        if let Some(server_url) = server_url.as_deref().filter(|url| !url.trim().is_empty()) {
-            match DeviceUrl::parse(server_url) {
-                Ok(url) => configured_url = Some(url),
-                Err(error) => current_error = Some(error.to_string()),
-            }
+        // The free function rather than `Config::device_url`, because the rule
+        // applies to the override merged over the stored value, not to the
+        // stored value alone.
+        match DeviceUrl::parse_optional(server_url.as_deref()) {
+            Ok(url) => configured_url = url,
+            Err(error) => current_error = Some(error.to_string()),
         }
 
         // A `--refresh` override out of range is pulled into range rather than

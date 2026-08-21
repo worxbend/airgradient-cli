@@ -109,6 +109,24 @@ impl DeviceUrl {
     pub fn as_str(&self) -> &str {
         self.0.as_str()
     }
+
+    /// Interprets a stored or overridden address, where blank means "unset".
+    ///
+    /// Both halves of that rule live here rather than at each call site: a
+    /// value that is missing, empty, or only whitespace is `Ok(None)` — the
+    /// user has not configured a device, which is not an error — and anything
+    /// else must be a valid [`DeviceUrl`].
+    ///
+    /// Callers differ in what they do with each outcome (the CLI turns `None`
+    /// into missing-config guidance, the dashboard shows an unconfigured
+    /// status, the config editor clears the field), which is why this answers
+    /// the question rather than deciding the response.
+    pub fn parse_optional(value: Option<&str>) -> Result<Option<Self>, DeviceUrlError> {
+        match value.map(str::trim).filter(|url| !url.is_empty()) {
+            Some(url) => Self::parse(url).map(Some),
+            None => Ok(None),
+        }
+    }
 }
 
 impl fmt::Display for DeviceUrl {
@@ -240,5 +258,34 @@ mod tests {
         let twice = DeviceUrl::parse(once.as_str()).expect("normalized URL should re-parse");
 
         assert_eq!(once, twice);
+    }
+
+    #[test]
+    fn blank_and_absent_addresses_both_read_as_unset() {
+        // Not an error: the user simply has no device configured yet, and each
+        // caller turns this into its own guidance.
+        for blank in [None, Some(""), Some("   "), Some("\t\n ")] {
+            assert_eq!(
+                DeviceUrl::parse_optional(blank).expect("blank is not an error"),
+                None,
+                "{blank:?} should read as unset"
+            );
+        }
+    }
+
+    #[test]
+    fn a_padded_address_is_accepted_rather_than_rejected() {
+        // A stored value with stray whitespace is a real address that happens
+        // to have been pasted with spaces, not a malformed one.
+        let padded = DeviceUrl::parse_optional(Some("  192.168.1.201  "))
+            .expect("padding should not make an address invalid")
+            .expect("a padded address is still an address");
+
+        assert_eq!(padded, DeviceUrl::parse("192.168.1.201").unwrap());
+    }
+
+    #[test]
+    fn a_genuinely_bad_address_is_still_an_error() {
+        assert!(DeviceUrl::parse_optional(Some("http://user:pass@host")).is_err());
     }
 }

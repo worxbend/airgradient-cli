@@ -342,12 +342,5 @@ fn fetch_settings() -> Result<device::FetchSettings, CliError> {
 /// A blank or whitespace-only stored value means "unset" rather than "invalid",
 /// so it reports the same missing-config guidance as no value at all.
 fn required_server_url(config: &Config) -> Result<DeviceUrl, CliError> {
-    let stored = config
-        .server_url
-        .as_deref()
-        .map(str::trim)
-        .filter(|url| !url.is_empty())
-        .ok_or(CliError::MissingServerUrl)?;
-
-    Ok(DeviceUrl::parse(stored)?)
+    config.device_url()?.ok_or(CliError::MissingServerUrl)
 }

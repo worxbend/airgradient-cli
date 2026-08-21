@@ -261,18 +261,11 @@ impl TuiApp {
     }
 
     fn apply_draft_to_live_state(&mut self) {
-        match self
-            .config_draft
-            .server_url
-            .as_deref()
-            .filter(|url| !url.trim().is_empty())
-        {
-            Some(url) => {
-                if let Ok(normalized) = DeviceUrl::parse(url) {
-                    self.configured_url = Some(normalized);
-                }
-            }
-            None => self.configured_url = None,
+        // A draft that does not parse leaves the live address alone: the editor
+        // is still open on the text that failed, and dropping the working
+        // address would take the dashboard down with a typo.
+        if let Ok(url) = self.config_draft.device_url() {
+            self.configured_url = url;
         }
         self.refresh_interval = self.config_draft.refresh_interval;
         self.theme = theme::Theme::by_id(&self.config_draft.theme);

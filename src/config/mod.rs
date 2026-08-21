@@ -35,6 +35,7 @@ pub use store::{
 #[cfg(test)]
 use store::update_config;
 
+use crate::device_url::{DeviceUrl, DeviceUrlError};
 pub use crate::refresh_interval::{
     DEFAULT_SECS as DEFAULT_REFRESH_INTERVAL_SECS, MAX_SECS as MAX_REFRESH_INTERVAL_SECS,
     MIN_SECS as MIN_REFRESH_INTERVAL_SECS, RefreshInterval,
@@ -60,6 +61,18 @@ pub struct Config {
     /// theme when the TUI starts rather than failing to load the config.
     #[serde(default = "default_theme")]
     pub theme: String,
+}
+
+impl Config {
+    /// The stored device address, or `None` when none is configured.
+    ///
+    /// `server_url` stays a `String` on purpose — the file may hold a value the
+    /// domain rejects, and `config show` has to display exactly that so the
+    /// user can see what needs fixing. This is the interpretation of that
+    /// string, for the callers that need an address rather than a field.
+    pub fn device_url(&self) -> Result<Option<DeviceUrl>, DeviceUrlError> {
+        DeviceUrl::parse_optional(self.server_url.as_deref())
+    }
 }
 
 /// A config as it should be shown to the user: values repaired where they
