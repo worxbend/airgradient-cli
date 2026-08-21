@@ -266,3 +266,55 @@ fn theme_chosen_inside_the_config_editor_survives_save_and_close() {
     assert_eq!(app.theme.id, chosen.id);
     assert_eq!(config::read_config(&path).unwrap().theme, chosen.id);
 }
+
+#[test]
+fn a_save_whose_file_changed_underneath_it_reports_rather_than_clobbers() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let (mut app, path) = app_with_config(temp_dir.path());
+
+    app.open_config_editor();
+    app.config_editor_confirm();
+    for c in "192.168.1.50".chars() {
+        app.config_editor_push_char(c);
+    }
+    app.config_editor_confirm();
+
+    // While the editor sits open, the desktop app writes the file — turning on
+    // a setting this editor holds a stale copy of. A blind write would revert
+    // it with no clue but a setting that changed back on its own.
+    std::fs::write(
+        &path,
+        r#"{"server_url":"http://192.168.1.9/","refresh_interval_secs":30,
+            "notifications_enabled":true,"start_minimized":false,"theme":"nord"}"#,
+    )
+    .unwrap();
+
+    for _ in 0..(ConfigField::ALL.len() - 1) {
+        app.config_editor_nav_down();
+    }
+    assert_eq!(app.config_editor_field(), ConfigField::SaveAndClose);
+    app.config_editor_confirm();
+
+    // The editor stays open, carrying the reason, so the edit is not lost.
+    assert_eq!(app.view, View::ConfigEditor);
+    let reported = app
+        .config_editor_error
+        .as_deref()
+        .expect("a refused save explains itself");
+    assert!(
+        reported.contains("changed"),
+        "the message should say the file moved, got: {reported}"
+    );
+
+    // The other writer's change is still on disk, untouched.
+    let persisted = config::read_config(&path).unwrap();
+    assert!(
+        persisted.notifications_enabled,
+        "the concurrent writer's change must survive a refused save"
+    );
+    assert_eq!(
+        persisted.server_url.as_deref(),
+        Some("http://192.168.1.9/"),
+        "the stale draft must not have been written"
+    );
+}

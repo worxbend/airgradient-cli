@@ -24,6 +24,10 @@ impl TuiApp {
     /// real values on Save & Close. Falling back per field instead means one
     /// bad value costs that one value, and says so in the error line.
     pub fn open_config_editor(&mut self) {
+        // Fingerprint before reading, so the window a save checks covers the
+        // read as well as however long the user spends editing.
+        self.config_draft_version = self.config_path.as_deref().map(config::config_version);
+
         let (draft, warnings) = self
             .config_path
             .as_deref()
@@ -245,7 +249,15 @@ impl TuiApp {
 
     fn config_editor_save(&mut self) {
         if let Some(path) = self.config_path.clone() {
-            match config::write_config(&path, &self.config_draft) {
+            // The draft was read when the editor opened and the user may have
+            // been editing for minutes since. The desktop app shares this file,
+            // so the save is refused if it changed underneath — otherwise their
+            // edit would vanish with no clue but a setting that reverted.
+            let expected = self
+                .config_draft_version
+                .clone()
+                .unwrap_or_else(|| config::config_version(&path));
+            match config::write_config_if_unchanged(&path, &self.config_draft, &expected) {
                 Ok(()) => {
                     self.apply_draft_to_live_state();
                     self.close_config_editor();

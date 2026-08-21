@@ -184,20 +184,51 @@ pub(super) fn update_config(
     path: &Path,
     apply: impl FnOnce(&mut Config),
 ) -> Result<Config, ConfigError> {
-    let before = fingerprint(path);
+    let before = config_version(path);
 
     let object = read_config_object(path)?;
     let mut config = config_from_object_lossy(&object);
     apply(&mut config);
 
-    if fingerprint(path) != before {
+    write_config_if_unchanged(path, &config, &before)?;
+    Ok(config)
+}
+
+/// What the file looked like when it was read, for detecting that somebody
+/// else has written it since.
+///
+/// Opaque on purpose: callers carry one from their read to their write and
+/// compare it only by handing it back, so there is nothing to interpret and
+/// no way to construct a version that did not come from a real observation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigVersion(Option<(u64, Option<std::time::SystemTime>)>);
+
+/// Fingerprints the file as it is now. Take this *before* reading, so the
+/// window being guarded includes the read itself.
+pub fn config_version(path: &Path) -> ConfigVersion {
+    ConfigVersion(fingerprint(path))
+}
+
+/// Writes `config`, unless the file has changed since `expected` was taken.
+///
+/// The guard every read-modify-write against this file needs, expressed once.
+/// See [`update_config`] for what it does and does not cover: a writer landing
+/// inside the microseconds between the check and the rename still wins, but a
+/// change made at any point during the caller's read-modify-write — including
+/// a user sitting in the config editor — is caught and reported instead of
+/// silently overwriting somebody else's edit.
+pub fn write_config_if_unchanged(
+    path: &Path,
+    config: &Config,
+    expected: &ConfigVersion,
+) -> Result<(), ConfigError> {
+    if config_version(path) != *expected {
         return Err(ConfigError::ConcurrentModification {
             path: path.to_path_buf(),
         });
     }
 
-    write_config(path, &config)?;
-    Ok(config)
+    write_config(path, config)
 }
 
 /// What the file looked like, for detecting that somebody else wrote it.

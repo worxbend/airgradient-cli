@@ -29,7 +29,7 @@ pub use alerts::{AirAlert, AlertKind};
 pub use leader::{LEADER_BINDINGS, LeaderAction, LeaderBinding};
 
 use crate::{
-    config::Config,
+    config::{Config, ConfigVersion},
     device_url::DeviceUrl,
     history::{self, Reading},
     refresh_interval::RefreshInterval,
@@ -130,6 +130,10 @@ pub struct TuiApp {
     /// on "Save & Close" — everything else in this view previews live but
     /// discards on Esc.
     pub config_draft: Config,
+    /// What the config file looked like when [`Self::open_config_editor`] read
+    /// it, so a save can tell whether the desktop app has written it since.
+    /// `None` when the draft did not come from a file.
+    pub config_draft_version: Option<ConfigVersion>,
     /// Cursor into `ConfigField::ALL`.
     pub config_editor_cursor: usize,
     /// `Some(buffer)` while the selected text field is being edited.
@@ -191,6 +195,7 @@ impl TuiApp {
             palette_message: None,
 
             config_draft: Config::default(),
+            config_draft_version: None,
             config_editor_cursor: 0,
             config_editor_editing: None,
             config_editor_error: None,

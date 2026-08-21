@@ -148,7 +148,11 @@ app as much as to this CLI, which constrains every write:
   underneath it is refused (`ConfigError::ConcurrentModification`) rather than
   overwriting the other program's change. It is a narrow guard, not a lock —
   the doc comment on `update_config` is explicit about what it does and does
-  not cover.
+  not cover. The rule has no exemption for slow writers: the TUI's config
+  editor holds its draft for as long as the user is typing, which is the
+  longest such window in the program, so it takes a `config_version` before
+  reading and saves through `write_config_if_unchanged`. Reach for bare
+  `write_config` only where the content owes nothing to a prior read.
 - **Write only what the command is about.** `:save` in the TUI leaves
   `server_url` alone when the session has no URL, because "save what I have"
   is not "clear what you have".
