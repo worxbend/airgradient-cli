@@ -1,17 +1,22 @@
 //! The banded gauge: a bar whose colour changes along its length, with tick
 //! marks and a scale underneath.
 //!
-//! The bar is not one colour filled to a point. Every cell is coloured by the
-//! band *that position on the scale* falls into, so the green/yellow/orange/red
-//! run is visible across the whole width and the reading is a marker travelling
-//! along it. That is what makes it readable at a glance: you can see how much
-//! headroom is left before the next band without knowing the numbers.
+//! The bar is not one colour filled to a point. Each *filled* cell is coloured
+//! by the band that its own position on the scale falls into, so a reading well
+//! into the yellow shows the green run it passed through on the way there
+//! rather than turning uniformly yellow.
+//!
+//! Past the reading the bar is hollow and muted — one neutral colour, not the
+//! upcoming bands. What is drawn is therefore where the air has got to, not a
+//! preview of where it could go; the tick marks and the scale underneath are
+//! what say how much headroom is left.
 //!
 //! Three rows when there is room for all of it, gracefully fewer when there is
 //! not:
 //!
 //! ```text
-//!  ███████████▓▓▓▓▒▒▒▒░░░░░░░░░░░░░░     bar, banded, filled to the reading
+//!  ███████████░░░░░░░░░░░░░░░░░░░░░     filled and banded up to the reading,
+//!                                        hollow and muted past it
 //!  ▲         ▲         ▲         ▲      ticks at the band boundaries
 //!  0        50        100      500      the scale those ticks sit at
 //! ```
@@ -88,8 +93,9 @@ fn render_bar(frame: &mut Frame<'_>, area: Rect, theme: Theme, metric: &Metric) 
                 if filled {
                     Style::default().fg(theme.status_color(band))
                 } else {
-                    // Past the reading the band is still shown, but dimmed:
-                    // it is where the air could go, not where it is.
+                    // One neutral colour, deliberately not this cell's band:
+                    // colouring the empty run would read as a reading that is
+                    // already there. The ticks below carry the headroom.
                     theme.muted_style()
                 },
             )
@@ -196,10 +202,13 @@ fn format_scale_value(value: f64) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
+    use ratatui::style::Color;
+    use ratatui::{Terminal, backend::TestBackend};
+
     use super::*;
-    use crate::sensors::SensorSnapshot;
-    use crate::sensors::Status;
-    use crate::sensors::{Metrics, metrics};
+    use crate::sensors::{Metrics, SensorSnapshot, metrics};
 
     fn co2_metric(ppm: f64) -> Metric {
         let snapshot = SensorSnapshot {
@@ -210,15 +219,58 @@ mod tests {
         built.by_key("co2").expect("co2 is a metric").clone()
     }
 
-    #[test]
-    fn the_bar_is_coloured_by_band_across_its_whole_width() {
-        let metric = co2_metric(700.0);
+    /// Renders just the bar row and returns each cell as (symbol, foreground).
+    fn render_bar_cells(metric: &Metric, width: u16) -> Vec<(String, Color)> {
+        let backend = TestBackend::new(width, 1);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        let theme = Theme::default_theme();
+        terminal
+            .draw(|frame| render_bar(frame, frame.area(), theme, metric))
+            .expect("bar should render");
 
-        // Left end is Good, right end is the worst band, whatever the reading.
-        assert_eq!(metric.scale.classify(Some(100.0)), Status::Good);
+        let buffer = terminal.backend().buffer().clone();
+        (0..width)
+            .map(|column| {
+                let cell = &buffer[(column, 0)];
+                (
+                    cell.symbol().to_owned(),
+                    cell.style().fg.expect("every bar cell is coloured"),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_filled_run_is_banded_and_the_rest_is_hollow_and_muted() {
+        // CO2 bands break at 800/1000/1500 on a 2000 scale, so a reading of
+        // 1600 fills four fifths of the bar and that filled run crosses three
+        // bands — which is the point of the banded gauge over a plain one.
+        let metric = co2_metric(1600.0);
+        let theme = Theme::default_theme();
+        let cells = render_bar_cells(&metric, 40);
+
+        let filled: Vec<_> = cells.iter().filter(|(symbol, _)| symbol == "█").collect();
+        let hollow: Vec<_> = cells.iter().filter(|(symbol, _)| symbol == "░").collect();
         assert_eq!(
-            metric.scale.classify(Some(metric.scale.max())),
-            Status::Unhealthy
+            filled.len() + hollow.len(),
+            cells.len(),
+            "the bar draws only these two glyphs"
+        );
+        assert!(!filled.is_empty() && !hollow.is_empty());
+
+        // The banded run is real: the filled cells are not all one colour.
+        let filled_colours: HashSet<_> = filled.iter().map(|(_, fg)| *fg).collect();
+        assert!(
+            filled_colours.len() > 1,
+            "filled cells should carry their own band's colour, got {filled_colours:?}"
+        );
+
+        // Past the reading every cell is the one muted colour, deliberately
+        // not the band it sits in — this is what the module header promises.
+        let muted = theme.muted_style().fg.expect("muted has a colour");
+        assert!(
+            hollow.iter().all(|(_, fg)| *fg == muted),
+            "cells past the reading must all be muted"
         );
     }
 
