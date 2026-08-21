@@ -30,6 +30,22 @@ use crate::{
 /// heading, value, two message lines, trend.
 const AQI_CARD_TEXT_ROWS_WRAPPED: u16 = 5;
 
+/// Columns the hero card gives its icon: the glyph plus the padding that
+/// centres it against five rows of text beside it.
+const HERO_ICON_WIDTH: u16 = 11;
+
+/// Columns the hero card's text needs before wrapping starts to hurt — the
+/// longest line it draws is the AQI message, not the reading.
+const HERO_MIN_TEXT_WIDTH: u16 = 24;
+
+/// Columns a metric card gives its icon. Narrower than the hero card's: the
+/// glyph is the same, but there are only three rows to centre it against.
+const METRIC_CARD_ICON_WIDTH: u16 = 7;
+
+/// Columns a metric card's text needs to hold its longest formatted value and
+/// unit ("1013.2 hPa") without wrapping.
+const METRIC_CARD_MIN_TEXT_WIDTH: u16 = 16;
+
 /// The fixed presentation of a card: everything that does not come from the
 /// metric reading itself.
 #[derive(Clone, Copy)]
@@ -50,7 +66,12 @@ pub(super) fn render_air_monitor_aqi_card(
     let inner = pad_card_area(block.inner(area));
     frame.render_widget(block, area);
 
-    let (icon_area, text_area, gauge_area) = split_card(inner, 11, 24, gauge::FULL_HEIGHT);
+    let (icon_area, text_area, gauge_area) = split_card(
+        inner,
+        HERO_ICON_WIDTH,
+        HERO_MIN_TEXT_WIDTH,
+        gauge::FULL_HEIGHT,
+    );
     let lines = vec![
         Line::from(Span::styled("Air Quality Index", theme.value_style())),
         Line::from(vec![
@@ -110,7 +131,12 @@ pub(super) fn render_air_monitor_metric_card(
     let inner = pad_card_area(block.inner(area));
     frame.render_widget(block, area);
 
-    let (icon_area, text_area, gauge_area) = split_card(inner, 7, 16, 1);
+    let (icon_area, text_area, gauge_area) = split_card(
+        inner,
+        METRIC_CARD_ICON_WIDTH,
+        METRIC_CARD_MIN_TEXT_WIDTH,
+        gauge::SINGLE_ROW,
+    );
     let lines = vec![
         Line::from(vec![
             Span::styled(spec.title, theme.value_style()),

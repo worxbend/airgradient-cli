@@ -34,6 +34,10 @@ use crate::{sensors::Metric, tui::theme::Theme};
 /// Rows the gauge uses when it has them: bar, ticks, scale.
 pub(super) const FULL_HEIGHT: u16 = 3;
 
+/// The bar on its own, with no room for ticks or the scale beneath it. What a
+/// card gives its gauge when the reading and its labels have taken the rest.
+pub(super) const SINGLE_ROW: u16 = 1;
+
 /// Below this width the ticks and their labels collide, so only the bar is
 /// drawn.
 const MIN_TICK_WIDTH: u16 = 24;
