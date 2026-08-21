@@ -114,9 +114,6 @@ fn render_air_monitor_hero_row(
             metric,
             CardSpec {
                 title: "Temperature",
-                // Empty on purpose: the card then shows the status computed
-                // from the reading, like every other card in this layout.
-                detail: "",
                 style: theme.neutral_card_style(),
             },
         );
@@ -130,7 +127,6 @@ fn render_air_monitor_hero_row(
             metric,
             CardSpec {
                 title: "Humidity",
-                detail: "",
                 style: theme.good_card_style(),
             },
         );
@@ -148,7 +144,6 @@ fn render_air_monitor_gas_row(frame: &mut Frame<'_>, area: Rect, theme: Theme, m
                 "co2",
                 CardSpec {
                     title: "CO₂",
-                    detail: "",
                     style: theme.good_card_style(),
                 },
             ),
@@ -156,7 +151,6 @@ fn render_air_monitor_gas_row(frame: &mut Frame<'_>, area: Rect, theme: Theme, m
                 "tvoc",
                 CardSpec {
                     title: "TVOC",
-                    detail: "",
                     style: theme.warning_card_style(),
                 },
             ),
@@ -164,7 +158,6 @@ fn render_air_monitor_gas_row(frame: &mut Frame<'_>, area: Rect, theme: Theme, m
                 "nox",
                 CardSpec {
                     title: "NOx",
-                    detail: "",
                     style: theme.good_card_style(),
                 },
             ),
@@ -183,7 +176,6 @@ fn render_air_monitor_pm_row(frame: &mut Frame<'_>, area: Rect, theme: Theme, me
                 "pm03_count",
                 CardSpec {
                     title: "PM₀․₃ Count",
-                    detail: "",
                     style: theme.neutral_card_style(),
                 },
             ),
@@ -191,7 +183,6 @@ fn render_air_monitor_pm_row(frame: &mut Frame<'_>, area: Rect, theme: Theme, me
                 "pm1",
                 CardSpec {
                     title: "PM₁․₀",
-                    detail: "",
                     style: theme.neutral_card_style(),
                 },
             ),
@@ -199,7 +190,6 @@ fn render_air_monitor_pm_row(frame: &mut Frame<'_>, area: Rect, theme: Theme, me
                 "pm25",
                 CardSpec {
                     title: "PM₂․₅",
-                    detail: "",
                     style: theme.good_card_style(),
                 },
             ),
@@ -207,7 +197,6 @@ fn render_air_monitor_pm_row(frame: &mut Frame<'_>, area: Rect, theme: Theme, me
                 "pm10",
                 CardSpec {
                     title: "PM₁₀",
-                    detail: "",
                     style: theme.warning_card_style(),
                 },
             ),

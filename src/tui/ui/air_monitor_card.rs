@@ -35,8 +35,6 @@ const AQI_CARD_TEXT_ROWS_WRAPPED: u16 = 5;
 #[derive(Clone, Copy)]
 pub(super) struct CardSpec {
     pub(super) title: &'static str,
-    /// Sub-label under the value. Empty falls back to the metric's status.
-    pub(super) detail: &'static str,
     pub(super) style: Style,
 }
 
@@ -113,11 +111,6 @@ pub(super) fn render_air_monitor_metric_card(
     frame.render_widget(block, area);
 
     let (icon_area, text_area, gauge_area) = split_card(inner, 7, 16, 1);
-    let detail = if spec.detail.is_empty() {
-        metric.status.label()
-    } else {
-        spec.detail
-    };
     let lines = vec![
         Line::from(vec![
             Span::styled(spec.title, theme.value_style()),
@@ -128,7 +121,7 @@ pub(super) fn render_air_monitor_metric_card(
             metric_value_with_unit(metric),
             theme.value_style().add_modifier(Modifier::BOLD),
         )),
-        Line::from(Span::styled(detail, theme.label_style())),
+        Line::from(Span::styled(metric.status.label(), theme.label_style())),
         Line::from(trend_spans(theme, metric)),
     ];
 
