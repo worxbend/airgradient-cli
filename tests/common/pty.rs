@@ -105,6 +105,11 @@ impl PtyTui {
         command.args(args);
         command.env("TERM", "xterm-256color");
         command.env("AIRGRADIENT_CLI_FETCH_TIMEOUT_MS", "1000");
+        // The dashboard records every successful fetch. Left alone that lands
+        // in the real `~/.local/share/airgradient-cli/history.jsonl`, so a test
+        // run would pollute the developer's own readings; a caller that wants
+        // recording overrides this through `env_vars` below.
+        command.env("AIRGRADIENT_CLI_NO_HISTORY", "1");
         for (name, value) in env_vars {
             command.env(name, value);
         }
