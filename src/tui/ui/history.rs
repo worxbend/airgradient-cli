@@ -52,11 +52,29 @@ const MIN_READINGS: usize = 3;
 /// heights at this resolution and the same one without it.
 const FIXED_POINT: f64 = 100.0;
 
+/// Narrowest area worth drawing a sparkline into.
+const MIN_HISTORY_WIDTH: u16 = 8;
+
+/// The slice of `history` that actually fits in `area`, newest reading last.
+///
+/// The graph is one bar per cell, so only the most recent `area.width` readings
+/// are ever drawn. Both the guard and the renderer take their window from here,
+/// so they cannot disagree about which readings are in play.
+fn visible_window(area: Rect, history: &[Option<f64>]) -> &[Option<f64>] {
+    let dropped = history.len().saturating_sub(usize::from(area.width));
+    &history[dropped..]
+}
+
 /// Whether `history` has enough in it, and `area` enough room, to draw.
+///
+/// The reading count is taken over the *visible* window rather than the whole
+/// history. A history that is long but whose recent tail is all absent readings
+/// has nothing to plot, and the bounds computed from such a window would be
+/// infinite.
 pub(super) fn can_render_history(area: Rect, history: &[Option<f64>]) -> bool {
     area.height >= MIN_HISTORY_HEIGHT
-        && area.width >= 8
-        && history.iter().filter(|value| value.is_some()).count() >= MIN_READINGS
+        && area.width >= MIN_HISTORY_WIDTH
+        && visible_window(area, history).iter().flatten().count() >= MIN_READINGS
 }
 
 /// Draws `history` as a captioned sparkline, newest reading at the right.
@@ -77,10 +95,9 @@ pub(super) fn render_metric_history(
         return;
     }
 
-    // The graph is one bar per cell, so only the readings that fit are drawn —
-    // and it is the most recent ones that are worth keeping.
-    let visible = history.len().saturating_sub(usize::from(area.width));
-    let window = &history[visible..];
+    // Guarded above, so this window holds at least `MIN_READINGS` values and
+    // the bounds taken from it below are finite.
+    let window = visible_window(area, history);
 
     let [caption_area, bars_area] = Layout::default()
         .direction(Direction::Vertical)
@@ -185,6 +202,22 @@ mod tests {
         assert!(!can_render_history(area(20, 2), &enough));
         assert!(!can_render_history(area(7, 3), &enough));
         assert!(!can_render_history(area(20, 3), &[Some(1.0), Some(2.0)]));
+    }
+
+    #[test]
+    fn readings_scrolled_out_of_the_window_do_not_keep_the_graph_alive() {
+        // A long history whose recent tail is all absent readings: the sensor
+        // dropped out a while ago. Counting over the whole history would say
+        // "plenty of readings" while the window that actually gets drawn holds
+        // none, and the min/max folds over an empty window return infinities —
+        // a caption reading "inf - -inf" and every bar the same height.
+        let mut history = vec![Some(1.0), Some(2.0), Some(3.0), Some(4.0)];
+        history.extend(std::iter::repeat_n(None, 10));
+
+        // Width 10 keeps only the trailing ten entries, all of them absent.
+        assert!(!can_render_history(area(10, 3), &history));
+        // Wide enough to reach back to the real readings, so it draws again.
+        assert!(can_render_history(area(20, 3), &history));
     }
 
     #[test]
