@@ -345,29 +345,14 @@ impl PlotBounds {
         let middle = (self.y_min + self.y_max) / 2.0;
 
         vec![
-            Span::styled(format_axis_value(self.y_min, metric), theme.muted_style()),
-            Span::styled(format_axis_value(middle, metric), theme.muted_style()),
-            Span::styled(format_axis_value(self.y_max, metric), theme.value_style()),
+            Span::styled(metric.format_reading(self.y_min), theme.muted_style()),
+            Span::styled(metric.format_reading(middle), theme.muted_style()),
+            Span::styled(metric.format_reading(self.y_max), theme.value_style()),
         ]
     }
 }
 
 use std::time::Duration;
-
-/// Axis values keep a decimal only where the metric itself does, so a CO2 axis
-/// reads 400/700/1000 rather than 400.0/700.0/1000.0.
-fn format_axis_value(value: f64, metric: &Metric) -> String {
-    let fractional = metric
-        .formatted_value
-        .as_deref()
-        .is_some_and(|formatted| formatted.contains('.'));
-
-    if fractional {
-        format!("{value:.1}")
-    } else {
-        format!("{value:.0}")
-    }
-}
 
 /// What the plot shows before there is anything to plot.
 ///
@@ -492,13 +477,45 @@ mod tests {
                 nerd: "",
                 plain: "",
             },
+            decimals: 0,
         };
         let fractional = Metric {
+            decimals: 1,
             formatted_value: Some("7.4".to_string()),
             ..whole.clone()
         };
 
-        assert_eq!(format_axis_value(612.4, &whole), "612");
-        assert_eq!(format_axis_value(7.44, &fractional), "7.4");
+        assert_eq!(whole.format_reading(612.4), "612");
+        assert_eq!(fractional.format_reading(7.44), "7.4");
+    }
+
+    /// A PM2.5 metric, optionally reporting a value.
+    fn pm25_metric(value: Option<f64>) -> Metric {
+        let snapshot = crate::sensors::SensorSnapshot {
+            pm25: value,
+            ..crate::sensors::SensorSnapshot::default()
+        };
+        crate::sensors::metrics(&snapshot, None)
+            .by_key("pm25")
+            .expect("pm25 is a metric")
+            .clone()
+    }
+
+    #[test]
+    fn axis_precision_survives_a_metric_the_device_is_not_reporting() {
+        // The precision used to be inferred by looking for a "." inside the
+        // *current* formatted reading. A metric the device is not reporting has
+        // no formatted reading, so a PM2.5 chart drawn from recorded history
+        // lost its decimal and drew 0/5/10 for a range where the decimal is the
+        // whole point.
+        let reported = pm25_metric(Some(7.4));
+        let absent = pm25_metric(None);
+
+        assert_eq!(reported.format_reading(7.44), "7.4");
+        assert_eq!(
+            absent.format_reading(7.44),
+            "7.4",
+            "precision belongs to the metric, not to whether it has a reading"
+        );
     }
 }

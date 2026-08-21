@@ -87,6 +87,23 @@ pub struct Metric {
     /// a renderer never has to look a metric's scale up by its key.
     #[serde(skip)]
     pub scale: Scale,
+    /// Decimal places this metric is written with. Carried for the same reason
+    /// as `scale`: a renderer formatting a value that is *not* the current
+    /// reading — an axis label, a bound — needs the metric's precision, and the
+    /// only alternative was inferring it from `formatted_value`, which says
+    /// nothing when the device is not reporting this metric.
+    #[serde(skip)]
+    pub decimals: usize,
+}
+
+impl Metric {
+    /// Writes `value` with this metric's precision.
+    ///
+    /// For values that are not the current reading — axis labels, bounds —
+    /// which is why it takes one rather than using `formatted_value`.
+    pub fn format_reading(&self, value: f64) -> String {
+        format_value(value, self.decimals)
+    }
 }
 
 /// The metric rows for one reading, with the AQI row reachable by name.
@@ -338,6 +355,7 @@ fn metric(
         trend: trend(value, previous),
         icon: spec.icons,
         scale: spec.scale,
+        decimals: spec.decimals,
     }
 }
 
