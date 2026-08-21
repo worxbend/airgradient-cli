@@ -41,11 +41,11 @@ fn theme_motions_jump_to_the_ends_of_the_list() {
     app.open_theme_settings();
 
     app.theme_cursor_last();
-    assert_eq!(app.settings_cursor, theme::ALL.len() - 1);
+    assert_eq!(app.theme_cursor(), theme::ALL.len() - 1);
     assert_eq!(app.theme, theme::ALL[theme::ALL.len() - 1]);
 
     app.theme_cursor_first();
-    assert_eq!(app.settings_cursor, 0);
+    assert_eq!(app.theme_cursor(), 0);
     assert_eq!(app.theme, theme::ALL[0]);
 }
 
@@ -56,18 +56,18 @@ fn theme_half_page_motions_stay_inside_the_list() {
     app.theme_cursor_first();
 
     app.theme_cursor_half_page(1);
-    assert_eq!(app.settings_cursor, theme::ALL.len() / 2);
+    assert_eq!(app.theme_cursor(), theme::ALL.len() / 2);
 
     // Repeated scrolling clamps at the end rather than wrapping or panicking.
     for _ in 0..5 {
         app.theme_cursor_half_page(1);
     }
-    assert_eq!(app.settings_cursor, theme::ALL.len() - 1);
+    assert_eq!(app.theme_cursor(), theme::ALL.len() - 1);
 
     for _ in 0..5 {
         app.theme_cursor_half_page(-1);
     }
-    assert_eq!(app.settings_cursor, 0);
+    assert_eq!(app.theme_cursor(), 0);
 }
 
 #[test]
@@ -77,7 +77,7 @@ fn clicking_a_theme_row_selects_and_previews_it() {
 
     app.select_theme_index(3);
 
-    assert_eq!(app.settings_cursor, 3);
+    assert_eq!(app.theme_cursor(), 3);
     assert_eq!(app.theme, theme::ALL[3]);
 }
 
@@ -88,5 +88,5 @@ fn selecting_out_of_range_clamps_instead_of_panicking() {
 
     app.select_theme_index(usize::MAX);
 
-    assert_eq!(app.settings_cursor, theme::ALL.len() - 1);
+    assert_eq!(app.theme_cursor(), theme::ALL.len() - 1);
 }

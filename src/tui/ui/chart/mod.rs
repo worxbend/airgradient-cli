@@ -94,7 +94,7 @@ pub(super) fn render_history(frame: &mut Frame<'_>, area: Rect, app: &TuiApp, hi
 fn render_metric_list(frame: &mut Frame<'_>, area: Rect, app: &TuiApp, hits: &mut HitMap) {
     let theme = app.theme;
     let metrics = app.metrics();
-    let selected = app.history_cursor.min(metrics.len().saturating_sub(1));
+    let selected = app.history_cursor.index(metrics.len());
 
     let rows: Vec<Line> = metrics
         .iter()

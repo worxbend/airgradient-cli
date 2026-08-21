@@ -74,7 +74,7 @@ fn render_theme_list(frame: &mut Frame<'_>, area: Rect, app: &TuiApp, hits: &mut
                 Span::raw("  "),
                 Span::raw(candidate.label),
             ];
-            let style = if index == app.settings_cursor {
+            let style = if index == app.theme_cursor() {
                 selected_row_style(theme)
             } else {
                 Style::default()
@@ -187,7 +187,7 @@ pub(super) fn render_config_editor(
     let rows: Vec<Line> = ConfigField::ALL
         .iter()
         .enumerate()
-        .map(|(index, field)| config_field_row(app, *field, index == app.config_editor_cursor))
+        .map(|(index, field)| config_field_row(app, *field, index == app.config_field_cursor()))
         .collect();
 
     // The field list and the error message are rendered separately, and only

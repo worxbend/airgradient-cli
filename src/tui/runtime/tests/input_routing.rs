@@ -25,7 +25,7 @@ async fn gg_requires_two_presses_to_jump_to_the_top() {
         .await
         .expect("loop should end cleanly");
 
-    assert_eq!(app.settings_cursor, 2, "a single g must not jump");
+    assert_eq!(app.theme_cursor(), 2, "a single g must not jump");
 }
 
 #[tokio::test]
@@ -45,7 +45,7 @@ async fn a_second_g_completes_the_jump_to_the_top() {
         .await
         .expect("loop should end cleanly");
 
-    assert_eq!(app.settings_cursor, 0);
+    assert_eq!(app.theme_cursor(), 0);
 }
 
 #[tokio::test]
@@ -68,7 +68,8 @@ async fn an_interrupted_g_prefix_does_not_arm_a_later_g() {
         .expect("loop should end cleanly");
 
     assert_eq!(
-        app.settings_cursor, 3,
+        app.theme_cursor(),
+        3,
         "the trailing g should still be armed"
     );
 }
@@ -87,7 +88,7 @@ async fn nav_last_jumps_to_the_end_of_the_theme_list() {
         .await
         .expect("loop should end cleanly");
 
-    assert_eq!(app.settings_cursor, crate::tui::theme::ALL.len() - 1);
+    assert_eq!(app.theme_cursor(), crate::tui::theme::ALL.len() - 1);
 }
 
 #[tokio::test]
@@ -155,7 +156,7 @@ async fn a_click_selects_the_row_the_hit_map_reports() {
         .await
         .expect("loop should end cleanly");
 
-    assert_eq!(app.settings_cursor, 5);
+    assert_eq!(app.theme_cursor(), 5);
     assert_eq!(app.theme, crate::tui::theme::ALL[5]);
 }
 
@@ -174,7 +175,7 @@ async fn a_click_on_empty_space_changes_nothing() {
         .await
         .expect("loop should end cleanly");
 
-    assert_eq!(app.settings_cursor, 0);
+    assert_eq!(app.theme_cursor(), 0);
     assert_eq!(app.view, View::ThemeSettings);
 }
 

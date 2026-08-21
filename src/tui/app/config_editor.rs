@@ -4,6 +4,7 @@
 //! so Esc can discard the whole form. Fields are committed to the draft one
 //! at a time as each edit is confirmed.
 
+use super::ListCursor;
 use crate::{
     config::{self, Config},
     device_url::DeviceUrl,
@@ -39,7 +40,7 @@ impl TuiApp {
             .unwrap_or_else(|| (self.config_from_session(), Vec::new()));
 
         self.config_draft = draft;
-        self.config_editor_cursor = 0;
+        self.config_editor_cursor.set(0, ConfigField::ALL.len());
         self.config_editor_editing = None;
         self.config_editor_error = if warnings.is_empty() {
             None
@@ -75,7 +76,7 @@ impl TuiApp {
     /// full-screen TUI is not.
     pub fn config_editor_field(&self) -> ConfigField {
         ConfigField::ALL
-            .get(self.config_editor_cursor)
+            .get(self.config_field_cursor())
             .copied()
             .unwrap_or(ConfigField::ServerUrl)
     }
@@ -100,7 +101,7 @@ impl TuiApp {
 
     /// `<C-d>` / `<C-u>` — half-page scroll over the field list.
     pub fn config_editor_half_page(&mut self, direction: i32) {
-        let half = (ConfigField::ALL.len() / 2).max(1) as i32;
+        let half = ListCursor::half_page(ConfigField::ALL.len());
         self.move_config_cursor(direction * half);
     }
 
@@ -115,13 +116,12 @@ impl TuiApp {
     }
 
     fn move_config_cursor(&mut self, delta: i32) {
-        let last = ConfigField::ALL.len().saturating_sub(1) as i32;
-        let next = (self.config_editor_cursor as i32 + delta).clamp(0, last);
-        self.set_config_cursor(next as usize);
+        self.config_editor_cursor
+            .move_by(delta, ConfigField::ALL.len());
     }
 
     fn set_config_cursor(&mut self, index: usize) {
-        self.config_editor_cursor = index.min(ConfigField::ALL.len().saturating_sub(1));
+        self.config_editor_cursor.set(index, ConfigField::ALL.len());
     }
 
     pub fn config_editor_push_char(&mut self, c: char) {

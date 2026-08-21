@@ -12,6 +12,9 @@ mod alerts;
 mod config_editor;
 mod history_view;
 mod leader;
+mod list_cursor;
+
+pub use list_cursor::ListCursor;
 mod palette;
 mod theme_settings;
 
@@ -34,7 +37,7 @@ use crate::{
     history::{self, Reading},
     refresh_interval::RefreshInterval,
     sensors::{Metrics, SensorSnapshot, metrics, series},
-    tui::theme::Theme,
+    tui::theme::{self, Theme},
 };
 
 /// How many successful readings to keep for the dashboard's trend sparkline.
@@ -117,7 +120,7 @@ pub struct TuiApp {
     pub theme_settings_return: View,
 
     /// Cursor into `theme::ALL` while the theme picker is open.
-    pub settings_cursor: usize,
+    pub settings_cursor: ListCursor,
     /// Theme active before the picker opened, restored on Esc-cancel.
     pub theme_preview_origin: Option<Theme>,
 
@@ -135,7 +138,7 @@ pub struct TuiApp {
     /// `None` when the draft did not come from a file.
     pub config_draft_version: Option<ConfigVersion>,
     /// Cursor into `ConfigField::ALL`.
-    pub config_editor_cursor: usize,
+    pub config_editor_cursor: ListCursor,
     /// `Some(buffer)` while the selected text field is being edited.
     pub config_editor_editing: Option<String>,
     pub config_editor_error: Option<String>,
@@ -156,8 +159,9 @@ pub struct TuiApp {
     pub leader_pending: bool,
 
     /// Which metric the history chart is plotting, as an index into the
-    /// metric list `metrics()` returns.
-    pub history_cursor: usize,
+    /// metric list `metrics()` returns — a list whose length follows what the
+    /// device reports, which is why the cursor clamps on read as well as write.
+    pub history_cursor: ListCursor,
 
     /// Air-quality alerts waiting to be shown, worst first. The front one is
     /// what the toast is currently showing.
@@ -188,7 +192,7 @@ impl TuiApp {
             view: View::Dashboard,
             theme_settings_return: View::Dashboard,
 
-            settings_cursor: 0,
+            settings_cursor: ListCursor::default(),
             theme_preview_origin: None,
 
             palette_input: String::new(),
@@ -196,13 +200,13 @@ impl TuiApp {
 
             config_draft: Config::default(),
             config_draft_version: None,
-            config_editor_cursor: 0,
+            config_editor_cursor: ListCursor::default(),
             config_editor_editing: None,
             config_editor_error: None,
 
             animation_frame: 0,
             splash_frame: None,
-            history_cursor: 0,
+            history_cursor: ListCursor::default(),
             air_alerts: alerts::AlertQueue::new(),
             leader_pending: false,
             pending_g: false,
@@ -305,6 +309,16 @@ impl TuiApp {
     /// The recorded readings the chart draws, oldest first.
     pub fn reading_history(&self) -> impl ExactSizeIterator<Item = &Reading> {
         self.reading_history.iter()
+    }
+
+    /// The highlighted row in the theme picker.
+    pub fn theme_cursor(&self) -> usize {
+        self.settings_cursor.index(theme::ALL.len())
+    }
+
+    /// The highlighted row in the config editor.
+    pub fn config_field_cursor(&self) -> usize {
+        self.config_editor_cursor.index(ConfigField::ALL.len())
     }
 
     /// The metric rows to draw.

@@ -4,6 +4,7 @@
 //! preview. That is why closing must restore `theme_preview_origin`: without
 //! it, cancelling would silently leave the previewed theme applied.
 
+use super::ListCursor;
 use crate::{config, tui::theme};
 
 use super::{TuiApp, View};
@@ -12,7 +13,8 @@ impl TuiApp {
     pub fn open_theme_settings(&mut self) {
         self.theme_settings_return = self.view;
         self.theme_preview_origin = Some(self.theme);
-        self.settings_cursor = self.theme.index();
+        self.settings_cursor
+            .set(self.theme.index(), theme::ALL.len());
         self.view = View::ThemeSettings;
     }
 
@@ -44,7 +46,7 @@ impl TuiApp {
     /// `<C-d>` / `<C-u>` — vim's half-page scroll. The list is short enough
     /// that a "page" is the whole list, so half of it is the useful step.
     pub fn theme_cursor_half_page(&mut self, direction: i32) {
-        let half = (theme::ALL.len() / 2).max(1) as i32;
+        let half = ListCursor::half_page(theme::ALL.len());
         self.move_theme_cursor(direction * half);
     }
 
@@ -54,16 +56,19 @@ impl TuiApp {
     }
 
     fn move_theme_cursor(&mut self, delta: i32) {
-        let last = theme::ALL.len().saturating_sub(1) as i32;
-        let next = (self.settings_cursor as i32 + delta).clamp(0, last);
-        self.set_theme_cursor(next as usize);
+        self.settings_cursor.move_by(delta, theme::ALL.len());
+        self.preview_selected_theme();
     }
 
     fn set_theme_cursor(&mut self, index: usize) {
-        // Every cursor move previews the theme immediately; `close_theme_settings`
-        // is what puts the original back if the user cancels.
-        self.settings_cursor = index.min(theme::ALL.len().saturating_sub(1));
-        self.theme = theme::ALL[self.settings_cursor];
+        self.settings_cursor.set(index, theme::ALL.len());
+        self.preview_selected_theme();
+    }
+
+    /// Every cursor move previews the theme immediately;
+    /// `close_theme_settings` is what puts the original back on cancel.
+    fn preview_selected_theme(&mut self) {
+        self.theme = theme::ALL[self.theme_cursor()];
     }
 
     /// Accepts the highlighted theme and returns to whichever view opened the
@@ -76,7 +81,7 @@ impl TuiApp {
     /// a write here would be overwritten moments later by a draft still holding
     /// the old theme.
     pub fn confirm_theme_settings(&mut self) {
-        let chosen = theme::ALL[self.settings_cursor];
+        let chosen = theme::ALL[self.theme_cursor()];
         self.theme = chosen;
         self.theme_preview_origin = None;
         self.view = self.theme_settings_return;
