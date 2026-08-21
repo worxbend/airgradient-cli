@@ -960,6 +960,30 @@ fn the_trend_column_is_filled_from_the_previously_recorded_reading() {
         "up",
         "600 ppm then 900 ppm is a rising trend"
     );
+
+    // The table is the default output mode, so it needs its own assertion:
+    // the JSON check above passes even if only the JSON renderer is wired up.
+    let table = cli_recording_history(data_home.path())
+        .args(["--url", &server.uri(), "--no-color"])
+        .assert()
+        .success();
+    let table = String::from_utf8(table.get_output().stdout.clone()).expect("utf-8 output");
+    let co2_row = table
+        .lines()
+        .find(|line| line.contains("CO2"))
+        .expect("the table has a CO2 row");
+    // This third run reads 900 against a recorded 900, so the trend is
+    // *stable* — the point is that the cell carries a real trend rather than
+    // the "--" placeholder a completely unwired column would show.
+    let trend_cell = co2_row
+        .rsplit('|')
+        .nth(1)
+        .expect("the row has a trailing Trend cell")
+        .trim();
+    assert_eq!(
+        trend_cell, "-",
+        "the table's Trend column should be filled too, got row: {co2_row}"
+    );
 }
 
 #[test]
@@ -968,14 +992,25 @@ fn opting_out_of_history_leaves_the_trend_empty() {
     let server = mock_device(&runtime);
     let data_home = tempdir().expect("temp dir");
 
-    // Two runs, but nothing is recorded between them, so there is nothing to
-    // trend against and the reading still renders.
+    // Two runs, but nothing is recorded between them, so the second has
+    // nothing to trend against and must still say so rather than inventing one.
     for _ in 0..2 {
-        cli_recording_history(data_home.path())
+        let run = cli_recording_history(data_home.path())
             .env("AIRGRADIENT_CLI_NO_HISTORY", "1")
-            .args(["--url", &server.uri(), "--no-color"])
+            .args(["--url", &server.uri(), "--json"])
             .assert()
-            .success()
-            .stdout(predicate::str::contains("AQI"));
+            .success();
+        let output: Value =
+            serde_json::from_slice(&run.get_output().stdout).expect("json output should parse");
+        let co2 = output["metrics"]
+            .as_array()
+            .expect("metrics is a list")
+            .iter()
+            .find(|m| m["key"] == "co2")
+            .expect("co2 is reported");
+        assert_eq!(
+            co2["trend"], "unknown",
+            "with nothing recorded there is nothing to compare against"
+        );
     }
 }
