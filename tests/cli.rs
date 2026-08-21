@@ -898,3 +898,84 @@ fn no_history_opts_out_of_recording_entirely() {
         "the opt-out must not even create the data directory"
     );
 }
+
+#[test]
+fn the_trend_column_is_filled_from_the_previously_recorded_reading() {
+    let runtime = tokio::runtime::Runtime::new().expect("runtime should start");
+    let data_home = tempdir().expect("temp dir");
+    let server = runtime.block_on(async {
+        let server = MockServer::start().await;
+        // First fetch reads 600 ppm, the second 900: CO2 is on the way up.
+        Mock::given(method("GET"))
+            .and(path("/measures/current"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "rco2": 600, "pm02": 7.4
+            })))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/measures/current"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "rco2": 900, "pm02": 7.4
+            })))
+            .mount(&server)
+            .await;
+        server
+    });
+
+    // First run has nothing to compare against, so the trend is empty.
+    let first = cli_recording_history(data_home.path())
+        .args(["--url", &server.uri(), "--json"])
+        .assert()
+        .success();
+    let first: Value =
+        serde_json::from_slice(&first.get_output().stdout).expect("json output should parse");
+    let co2_trend = |value: &Value| {
+        value["metrics"]
+            .as_array()
+            .expect("metrics is a list")
+            .iter()
+            .find(|m| m["key"] == "co2")
+            .expect("co2 is reported")["trend"]
+            .as_str()
+            .expect("trend is a string")
+            .to_owned()
+    };
+    assert_eq!(
+        co2_trend(&first),
+        "unknown",
+        "the first ever reading has nothing to trend against"
+    );
+
+    // The second run compares against what the first one recorded.
+    let second = cli_recording_history(data_home.path())
+        .args(["--url", &server.uri(), "--json"])
+        .assert()
+        .success();
+    let second: Value =
+        serde_json::from_slice(&second.get_output().stdout).expect("json output should parse");
+    assert_eq!(
+        co2_trend(&second),
+        "up",
+        "600 ppm then 900 ppm is a rising trend"
+    );
+}
+
+#[test]
+fn opting_out_of_history_leaves_the_trend_empty() {
+    let runtime = tokio::runtime::Runtime::new().expect("runtime should start");
+    let server = mock_device(&runtime);
+    let data_home = tempdir().expect("temp dir");
+
+    // Two runs, but nothing is recorded between them, so there is nothing to
+    // trend against and the reading still renders.
+    for _ in 0..2 {
+        cli_recording_history(data_home.path())
+            .env("AIRGRADIENT_CLI_NO_HISTORY", "1")
+            .args(["--url", &server.uri(), "--no-color"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("AQI"));
+    }
+}

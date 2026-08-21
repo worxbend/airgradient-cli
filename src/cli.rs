@@ -253,7 +253,8 @@ async fn run_fetch(
     let payload = device::fetch_current_measures_with_client(&client, &base_url).await?;
     let fetch_duration = started.elapsed();
     let snapshot = sensors::parse_snapshot(&payload);
-    record_reading(&snapshot);
+    let previous = record_reading(&snapshot);
+    let previous = previous.as_ref().map(|reading| &reading.snapshot);
     let metadata = OutputMetadata {
         device_url: Some(base_url.as_str()),
         last_update: None,
@@ -263,13 +264,13 @@ async fn run_fetch(
     if json {
         println!(
             "{}",
-            output::json::render_pretty(&snapshot, None, metadata)?
+            output::json::render_pretty(&snapshot, previous, metadata)?
         );
     } else {
         let no_color = cli.no_color || !io::stdout().is_terminal();
         print!(
             "{}",
-            output::text::render(&snapshot, None, metadata, no_color)
+            output::text::render(&snapshot, previous, metadata, no_color)
         );
     }
 
@@ -277,18 +278,33 @@ async fn run_fetch(
 }
 
 /// Records a one-shot reading alongside the dashboard's own, so a device polled
-/// from `watch` or a cron job builds the same history the chart draws from.
+/// from `watch` or a cron job builds the same history the chart draws from, and
+/// returns the reading this one displaces.
 ///
-/// Best-effort and silent: this is a side benefit of a fetch, not the point of
-/// one, and a full disk must not turn a successful reading into a failed
-/// command.
-fn record_reading(snapshot: &sensors::SensorSnapshot) {
-    if let Some(path) = history_path() {
-        let _ = history::append(
-            &path,
-            &history::Reading::new(SystemTime::now(), snapshot.clone()),
-        );
-    }
+/// That returned reading is what the Trend column is measured against, so a
+/// one-shot fetch can say which way each value is moving. It is the previously
+/// recorded reading rather than a remembered one because a one-shot run has no
+/// earlier reading of its own — the history file is the only memory it has.
+/// The trend is therefore empty on the first run, and whenever recording is
+/// switched off.
+///
+/// Best-effort and silent throughout: this is a side benefit of a fetch, not
+/// the point of one. A full disk or an unreadable history costs the trend
+/// column, never the reading the user asked for.
+fn record_reading(snapshot: &sensors::SensorSnapshot) -> Option<history::Reading> {
+    let path = history_path()?;
+
+    // Read before appending, or the "previous" reading would be this one.
+    let previous = history::load_recent(&path, 1)
+        .ok()
+        .and_then(|mut readings| readings.pop());
+
+    let _ = history::append(
+        &path,
+        &history::Reading::new(SystemTime::now(), snapshot.clone()),
+    );
+
+    previous
 }
 
 /// Where readings are recorded, or `None` when nothing should be recorded.

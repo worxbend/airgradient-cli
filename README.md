@@ -106,19 +106,24 @@ AQI 41 - Good
 +-------------+-------+----------+----------+-------+
 | Metric      | Value | Unit     | Status   | Trend |
 +===================================================+
-| AQI         | 41    |          | Good     | --    |
+| AQI         | 41    |          | Good     | -     |
 |-------------+-------+----------+----------+-------|
-| CO2         | 612   | ppm      | Good     | --    |
+| CO2         | 612   | ppm      | Good     | up    |
 |-------------+-------+----------+----------+-------|
-| PM2.5       | 7.4   | ug/m3    | Good     | --    |
+| PM2.5       | 7.4   | ug/m3    | Good     | -     |
 |-------------+-------+----------+----------+-------|
-| PM0.3 count | 1234  | count/dL | Elevated | --    |
+| PM0.3 count | 1234  | count/dL | Elevated | down  |
 |-------------+-------+----------+----------+-------|
-| TVOC        | 83    | index    | Good     | --    |
+| TVOC        | 83    | index    | Good     | -     |
 |-------------+-------+----------+----------+-------|
-| Temperature | 22.6  | C        | Good     | --    |
+| Temperature | 22.6  | C        | Good     | up    |
 +-------------+-------+----------+----------+-------+
 ```
+
+The Trend column compares each value against the previously recorded reading,
+so it fills in from the second fetch onward. It shows `--` on the very first
+run, and whenever `AIRGRADIENT_CLI_NO_HISTORY` is set — with nothing recorded,
+there is nothing to compare against.
 
 ---
 
