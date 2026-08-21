@@ -354,7 +354,11 @@ async fn cleanup_failure_is_returned_after_clean_loop() {
 #[test]
 fn cleanup_order_restores_screen_and_cursor_before_disabling_raw_mode() {
     assert_eq!(
-        terminal_cleanup_steps(true, true, false),
+        terminal_cleanup_steps(TerminalState {
+            raw_mode: true,
+            alternate_screen: true,
+            mouse_capture: false,
+        }),
         vec![
             TerminalCleanupStep::LeaveAlternateScreen,
             TerminalCleanupStep::ShowCursor,
@@ -368,7 +372,11 @@ fn cleanup_order_releases_the_mouse_before_leaving_the_alternate_screen() {
     // Mouse capture is enabled on the alternate screen, so releasing it after
     // leaving would write the escape sequence to the user's restored shell.
     assert_eq!(
-        terminal_cleanup_steps(true, true, true),
+        terminal_cleanup_steps(TerminalState {
+            raw_mode: true,
+            alternate_screen: true,
+            mouse_capture: true,
+        }),
         vec![
             TerminalCleanupStep::DisableMouseCapture,
             TerminalCleanupStep::LeaveAlternateScreen,
@@ -383,21 +391,28 @@ fn cleanup_skips_mouse_release_when_capture_was_never_enabled() {
     // Enabling capture is best-effort, so a terminal that refused it must not
     // be sent a disable sequence it never asked for.
     assert!(
-        !terminal_cleanup_steps(true, true, false)
-            .contains(&TerminalCleanupStep::DisableMouseCapture)
+        !terminal_cleanup_steps(TerminalState {
+            raw_mode: true,
+            alternate_screen: true,
+            mouse_capture: false,
+        })
+        .contains(&TerminalCleanupStep::DisableMouseCapture)
     );
 }
 
 #[test]
 fn cleanup_order_handles_partial_setup_after_raw_mode_started() {
     assert_eq!(
-        terminal_cleanup_steps(true, false, false),
+        terminal_cleanup_steps(TerminalState {
+            raw_mode: true,
+            ..TerminalState::NONE
+        }),
         vec![
             TerminalCleanupStep::ShowCursor,
             TerminalCleanupStep::DisableRawMode,
         ]
     );
-    assert_eq!(terminal_cleanup_steps(false, false, false), vec![]);
+    assert_eq!(terminal_cleanup_steps(TerminalState::NONE), vec![]);
 }
 
 #[tokio::test]

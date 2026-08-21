@@ -113,11 +113,32 @@ impl CrosstermRuntime {
 /// The terminal state this process turned on, and therefore owes the user
 /// back. Each flag is cleared only once its undo actually succeeded, so a
 /// partial teardown does not claim to have restored more than it did.
+/// Which of the terminal modifications are currently in effect.
+///
+/// One named struct rather than three `bool` parameters in a row: the teardown
+/// steps depend on all three, and transposing two of them at a call site
+/// compiles cleanly while producing a restore that leaves the shell in raw
+/// mode, or writes mouse-capture escapes onto the user's shell after the
+/// alternate screen has already been left.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(super) struct TerminalState {
+    pub(super) raw_mode: bool,
+    pub(super) alternate_screen: bool,
+    pub(super) mouse_capture: bool,
+}
+
+impl TerminalState {
+    /// Nothing entered yet — what a session starts from and ends at.
+    pub(super) const NONE: Self = Self {
+        raw_mode: false,
+        alternate_screen: false,
+        mouse_capture: false,
+    };
+}
+
 struct TerminalSession {
     terminal: Terminal<CrosstermBackend<Stdout>>,
-    raw_mode_enabled: bool,
-    alternate_screen_enabled: bool,
-    mouse_capture_enabled: bool,
+    state: TerminalState,
     /// Click targets from the most recent frame, used to resolve mouse
     /// coordinates back to the row the user clicked.
     hits: HitMap,
@@ -129,39 +150,36 @@ impl TerminalSession {
     /// leaving the user's shell in raw mode.
     fn enter() -> Result<Self, RuntimeError> {
         enable_raw_mode()?;
-        let raw_mode_enabled = true;
+        let mut state = TerminalState {
+            raw_mode: true,
+            ..TerminalState::NONE
+        };
 
         let mut stdout = io::stdout();
         if let Err(error) = execute!(stdout, EnterAlternateScreen) {
-            cleanup_failed_terminal_setup(&mut stdout, raw_mode_enabled, false, false);
+            cleanup_failed_terminal_setup(&mut stdout, state);
             return Err(error.into());
         }
+        state.alternate_screen = true;
 
         // Mouse capture is best-effort: a terminal that refuses it still gets
         // a fully keyboard-driven TUI, which is worse than nothing only if we
         // aborted the launch over it.
-        let mouse_capture_enabled = execute!(stdout, EnableMouseCapture).is_ok();
+        state.mouse_capture = execute!(stdout, EnableMouseCapture).is_ok();
 
         let backend = CrosstermBackend::new(stdout);
         let terminal = match Terminal::new(backend) {
             Ok(terminal) => terminal,
             Err(error) => {
                 let mut stdout = io::stdout();
-                cleanup_failed_terminal_setup(
-                    &mut stdout,
-                    raw_mode_enabled,
-                    true,
-                    mouse_capture_enabled,
-                );
+                cleanup_failed_terminal_setup(&mut stdout, state);
                 return Err(error.into());
             }
         };
 
         Ok(Self {
             terminal,
-            raw_mode_enabled,
-            alternate_screen_enabled: true,
-            mouse_capture_enabled,
+            state,
             hits: HitMap::default(),
         })
     }
@@ -178,11 +196,7 @@ impl TerminalSession {
     /// terminal in a worse state than finishing the teardown.
     fn restore(&mut self) -> Result<(), RuntimeError> {
         let mut first_error = None;
-        let cleanup_steps = terminal_cleanup_steps(
-            self.raw_mode_enabled,
-            self.alternate_screen_enabled,
-            self.mouse_capture_enabled,
-        );
+        let cleanup_steps = terminal_cleanup_steps(self.state);
 
         for step in cleanup_steps {
             match step {
@@ -190,7 +204,7 @@ impl TerminalSession {
                     if let Err(error) = execute!(self.terminal.backend_mut(), DisableMouseCapture) {
                         first_error.get_or_insert(error);
                     } else {
-                        self.mouse_capture_enabled = false;
+                        self.state.mouse_capture = false;
                     }
                 }
                 TerminalCleanupStep::LeaveAlternateScreen => {
@@ -198,7 +212,7 @@ impl TerminalSession {
                     {
                         first_error.get_or_insert(error);
                     } else {
-                        self.alternate_screen_enabled = false;
+                        self.state.alternate_screen = false;
                     }
                 }
                 TerminalCleanupStep::ShowCursor => {
@@ -210,7 +224,7 @@ impl TerminalSession {
                     if let Err(error) = disable_raw_mode() {
                         first_error.get_or_insert(error);
                     } else {
-                        self.raw_mode_enabled = false;
+                        self.state.raw_mode = false;
                     }
                 }
             }
@@ -234,29 +248,25 @@ pub(super) enum TerminalCleanupStep {
 /// The teardown steps for a given amount of setup, in the order they must
 /// run: leave the alternate screen and show the cursor *before* leaving raw
 /// mode, so the cursor is restored on the screen the user is returning to.
-pub(super) fn terminal_cleanup_steps(
-    raw_mode_enabled: bool,
-    alternate_screen_enabled: bool,
-    mouse_capture_enabled: bool,
-) -> Vec<TerminalCleanupStep> {
+pub(super) fn terminal_cleanup_steps(state: TerminalState) -> Vec<TerminalCleanupStep> {
     let mut steps = Vec::new();
 
     // Mouse capture goes first: it is written to the alternate screen, so
     // releasing it after leaving would emit the escape sequence onto the
     // user's restored shell instead.
-    if mouse_capture_enabled {
+    if state.mouse_capture {
         steps.push(TerminalCleanupStep::DisableMouseCapture);
     }
 
-    if alternate_screen_enabled {
+    if state.alternate_screen {
         steps.push(TerminalCleanupStep::LeaveAlternateScreen);
     }
 
-    if raw_mode_enabled || alternate_screen_enabled {
+    if state.raw_mode || state.alternate_screen {
         steps.push(TerminalCleanupStep::ShowCursor);
     }
 
-    if raw_mode_enabled {
+    if state.raw_mode {
         steps.push(TerminalCleanupStep::DisableRawMode);
     }
 
@@ -266,17 +276,8 @@ pub(super) fn terminal_cleanup_steps(
 /// Best-effort teardown for a setup that never completed. Errors are dropped
 /// deliberately: the caller is already returning the failure that caused this,
 /// and a cleanup error on top of it would bury the useful one.
-fn cleanup_failed_terminal_setup<W: io::Write>(
-    writer: &mut W,
-    raw_mode_enabled: bool,
-    alternate_screen_enabled: bool,
-    mouse_capture_enabled: bool,
-) {
-    for step in terminal_cleanup_steps(
-        raw_mode_enabled,
-        alternate_screen_enabled,
-        mouse_capture_enabled,
-    ) {
+fn cleanup_failed_terminal_setup<W: io::Write>(writer: &mut W, state: TerminalState) {
+    for step in terminal_cleanup_steps(state) {
         match step {
             TerminalCleanupStep::DisableMouseCapture => {
                 let _ = execute!(writer, DisableMouseCapture);

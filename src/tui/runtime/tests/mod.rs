@@ -45,7 +45,7 @@ use super::{
     fetch::{FetchScheduler, MeasureFetchWorker, observe_fetch_handle},
     run_with_adapters, run_with_adapters_with_refresh_interval,
     schedule::RuntimeClock,
-    terminal::{TerminalCleanupStep, TerminalRuntime, terminal_cleanup_steps},
+    terminal::{TerminalCleanupStep, TerminalRuntime, TerminalState, terminal_cleanup_steps},
 };
 
 #[derive(Debug)]
