@@ -262,6 +262,18 @@ impl TuiApp {
                     self.apply_draft_to_live_state();
                     self.close_config_editor();
                 }
+                Err(config::ConfigError::ConcurrentModification { .. }) => {
+                    // Re-arm against the file as it is now, so pressing Save a
+                    // second time goes through. The guard exists to stop a
+                    // *silent* overwrite, not to trap the user in a modal whose
+                    // only other exit discards what they typed — and the CLI's
+                    // "re-run the command" advice has no meaning here, because
+                    // re-opening the editor would throw the draft away.
+                    self.config_draft_version = Some(config::config_version(&path));
+                    self.config_editor_error = Some(
+                        "config file changed on disk — press Save again to overwrite it".to_owned(),
+                    );
+                }
                 Err(error) => {
                     self.config_editor_error = Some(error.to_string());
                 }

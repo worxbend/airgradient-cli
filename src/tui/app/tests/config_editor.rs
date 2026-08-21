@@ -317,4 +317,17 @@ fn a_save_whose_file_changed_underneath_it_reports_rather_than_clobbers() {
         Some("http://192.168.1.9/"),
         "the stale draft must not have been written"
     );
+
+    // Pressing Save again is the confirmation: the user has now been told, so
+    // the second attempt goes through rather than refusing forever against a
+    // fingerprint that can never match again.
+    app.config_editor_confirm();
+
+    assert_eq!(app.view, View::Dashboard, "the second save should complete");
+    let persisted = config::read_config(&path).unwrap();
+    assert_eq!(
+        persisted.server_url.as_deref(),
+        Some("http://192.168.1.50/"),
+        "the draft the user typed should be what finally lands"
+    );
 }
