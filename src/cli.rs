@@ -151,7 +151,7 @@ pub async fn run(cli: Cli) -> Result<(), CliError> {
     }
 
     match &cli.command {
-        Some(Command::Config { command }) => run_config_command(command, &cli).await,
+        Some(Command::Config { command }) => run_config_command(command, &cli),
         Some(Command::Fetch(fetch)) => {
             run_fetch(&cli, fetch.json || cli.json, fetch_settings).await
         }
@@ -209,33 +209,32 @@ fn run_themes() -> Result<(), CliError> {
     Ok(())
 }
 
-async fn run_config_command(command: &ConfigCommand, cli: &Cli) -> Result<(), CliError> {
+/// Every config subcommand except `path` ends by printing the resulting
+/// config, so the match decides *which* config that is and the printing
+/// happens once, below it.
+fn run_config_command(command: &ConfigCommand, cli: &Cli) -> Result<(), CliError> {
     let path = config_path(cli)?;
 
-    match command {
+    let config = match command {
+        // The odd one out: it reports where the file is without reading it, so
+        // it has nothing to print afterwards.
         ConfigCommand::Path => {
             println!("{}", path.display());
+            return Ok(());
         }
         ConfigCommand::Show => {
             let display = config::read_display_config(&path)?;
             for warning in display.warnings {
                 eprintln!("warning: {warning}");
             }
-            println!("{}", serde_json::to_string_pretty(&display.config)?);
+            display.config
         }
-        ConfigCommand::SetUrl { url } => {
-            let config = config::set_url(&path, url)?;
-            println!("{}", serde_json::to_string_pretty(&config)?);
-        }
-        ConfigCommand::SetRefresh { seconds } => {
-            let config = config::set_refresh_interval(&path, *seconds)?;
-            println!("{}", serde_json::to_string_pretty(&config)?);
-        }
-        ConfigCommand::SetTheme { id } => {
-            let config = config::set_theme(&path, id)?;
-            println!("{}", serde_json::to_string_pretty(&config)?);
-        }
-    }
+        ConfigCommand::SetUrl { url } => config::set_url(&path, url)?,
+        ConfigCommand::SetRefresh { seconds } => config::set_refresh_interval(&path, *seconds)?,
+        ConfigCommand::SetTheme { id } => config::set_theme(&path, id)?,
+    };
+
+    println!("{}", serde_json::to_string_pretty(&config)?);
 
     Ok(())
 }
