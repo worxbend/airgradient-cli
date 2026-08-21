@@ -174,19 +174,14 @@ impl MeasureFetchWorker for BackgroundMeasureFetcher {
     }
 
     async fn recv_ready_fetch(&mut self) -> Result<Option<FetchCompletion>, RuntimeError> {
-        let Some(handle) = self.active_handle.as_ref() else {
+        // Readiness is polled rather than awaited so an unfinished fetch never
+        // blocks the loop, and the handle is taken in the same step that finds
+        // it ready — leaving no window in which it is known-finished but still
+        // owned by `self`.
+        let Some(handle) = self.active_handle.take_if(|handle| handle.is_finished()) else {
             return Ok(None);
         };
 
-        // Checked before awaiting so an unfinished fetch never blocks the loop.
-        if !handle.is_finished() {
-            return Ok(None);
-        }
-
-        let handle = self
-            .active_handle
-            .take()
-            .expect("active handle should exist after readiness check");
         observe_fetch_handle(handle).await.map(Some)
     }
 
