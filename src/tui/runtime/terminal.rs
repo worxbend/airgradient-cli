@@ -12,10 +12,7 @@ use std::{
 
 use crossterm::{
     cursor::Show,
-    event::{
-        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
-        KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
-    },
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -26,6 +23,7 @@ use crate::tui::app::TuiApp;
 use super::{
     RuntimeError,
     event::{InputMode, RuntimeEvent},
+    keymap,
 };
 use crate::tui::ui::{HitMap, HitTarget};
 
@@ -69,8 +67,8 @@ impl TerminalRuntime for CrosstermRuntime {
         Ok(match blocking_terminal_call(event::read).await? {
             // Key *release* events also arrive on some terminals; acting on
             // both would fire every shortcut twice.
-            Event::Key(key) if key.kind == KeyEventKind::Press => key_event(key, mode),
-            Event::Mouse(mouse) => mouse_event(mouse, mode),
+            Event::Key(key) if key.kind == KeyEventKind::Press => keymap::key_event(key, mode),
+            Event::Mouse(mouse) => keymap::mouse_event(mouse, mode),
             _ => RuntimeEvent::Ignored,
         })
     }
@@ -86,92 +84,6 @@ impl TerminalRuntime for CrosstermRuntime {
         self.session
             .as_ref()
             .and_then(|session| session.hits.hit(column, row))
-    }
-}
-
-/// Maps a keypress to a runtime event for the currently active input mode.
-///
-/// The same key means different things per mode by design — in
-/// [`InputMode::TextEntry`] every printable character is content, so the
-/// dashboard shortcuts (`q`, `t`, `c`, …) must not be reachable there.
-fn key_event(key: KeyEvent, mode: InputMode) -> RuntimeEvent {
-    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-
-    match mode {
-        // Vim's insert-mode line editing: everything printable is content,
-        // and only the control chords act.
-        InputMode::TextEntry => match key.code {
-            KeyCode::Esc => RuntimeEvent::Escape,
-            KeyCode::Enter => RuntimeEvent::Confirm,
-            KeyCode::Backspace => RuntimeEvent::PaletteBackspace,
-            KeyCode::Char('w') if ctrl => RuntimeEvent::DeleteWordBefore,
-            KeyCode::Char('u') if ctrl => RuntimeEvent::ClearLine,
-            KeyCode::Char('c') if ctrl => RuntimeEvent::Escape,
-            KeyCode::Char(c) => RuntimeEvent::PaletteChar(c),
-            _ => RuntimeEvent::Ignored,
-        },
-        // The which-key popup owns the next key, whatever it is.
-        InputMode::Leader => match key.code {
-            KeyCode::Esc => RuntimeEvent::Escape,
-            KeyCode::Char(' ') => RuntimeEvent::ToggleLeader,
-            KeyCode::Char(c) => RuntimeEvent::LeaderKey(c),
-            _ => RuntimeEvent::Escape,
-        },
-        InputMode::ModalNav => match key.code {
-            KeyCode::Char('d') if ctrl => RuntimeEvent::NavHalfPage(1),
-            KeyCode::Char('u') if ctrl => RuntimeEvent::NavHalfPage(-1),
-            KeyCode::Char('c') if ctrl => RuntimeEvent::Escape,
-            // `h` closes as well as `q`/`c`/Esc — it is vim's "back out"
-            // direction, and it is what opened the chart in the first place.
-            KeyCode::Esc | KeyCode::F(2) | KeyCode::Char('q' | 'c' | 'C' | 'h' | 'H') => {
-                RuntimeEvent::Escape
-            }
-            KeyCode::Up | KeyCode::Char('k') => RuntimeEvent::NavUp,
-            KeyCode::Down | KeyCode::Char('j') => RuntimeEvent::NavDown,
-            // `g` is a prefix; the event loop pairs it with the next one.
-            KeyCode::Char('g') => RuntimeEvent::GPrefix,
-            KeyCode::Char('G') => RuntimeEvent::NavLast,
-            KeyCode::Home => RuntimeEvent::NavFirst,
-            KeyCode::End => RuntimeEvent::NavLast,
-            KeyCode::PageDown => RuntimeEvent::NavHalfPage(1),
-            KeyCode::PageUp => RuntimeEvent::NavHalfPage(-1),
-            // `l`/`Right` enters, matching vim tree/file pickers.
-            KeyCode::Enter | KeyCode::Char('l') | KeyCode::Right => RuntimeEvent::Confirm,
-            _ => RuntimeEvent::Ignored,
-        },
-        InputMode::Normal => match key.code {
-            KeyCode::Char('c') if ctrl => RuntimeEvent::Quit,
-            KeyCode::Char(' ') => RuntimeEvent::ToggleLeader,
-            KeyCode::Char('q') | KeyCode::Esc => RuntimeEvent::Quit,
-            KeyCode::Char('r' | 'R') => RuntimeEvent::Refresh,
-            KeyCode::Char('+' | '=') => RuntimeEvent::IncreaseRefreshInterval,
-            KeyCode::Char('-' | '_') => RuntimeEvent::DecreaseRefreshInterval,
-            KeyCode::Char(':') => RuntimeEvent::OpenPalette,
-            KeyCode::Char('t' | 'T') | KeyCode::F(2) => RuntimeEvent::ToggleThemeSettings,
-            KeyCode::Char('c' | 'C') => RuntimeEvent::ToggleConfigEditor,
-            KeyCode::Char('h' | 'H') => RuntimeEvent::ToggleHistory,
-            _ => RuntimeEvent::Ignored,
-        },
-    }
-}
-
-/// Maps a mouse action to a runtime event.
-///
-/// The wheel scrolls the active list, and a left click selects what it landed
-/// on. Text entry ignores the mouse entirely: there is no cursor to move
-/// within the line, so a click there would only be able to do something
-/// surprising.
-fn mouse_event(mouse: MouseEvent, mode: InputMode) -> RuntimeEvent {
-    match mode {
-        InputMode::TextEntry | InputMode::Leader => RuntimeEvent::Ignored,
-        InputMode::Normal | InputMode::ModalNav => match mouse.kind {
-            MouseEventKind::ScrollUp => RuntimeEvent::NavUp,
-            MouseEventKind::ScrollDown => RuntimeEvent::NavDown,
-            MouseEventKind::Down(MouseButton::Left) => {
-                RuntimeEvent::MouseClick(mouse.column, mouse.row)
-            }
-            _ => RuntimeEvent::Ignored,
-        },
     }
 }
 

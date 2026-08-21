@@ -18,6 +18,7 @@ mod effective_config;
 mod event;
 mod event_loop;
 mod fetch;
+mod keymap;
 mod schedule;
 mod terminal;
 mod view_events;
