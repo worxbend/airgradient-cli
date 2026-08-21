@@ -20,6 +20,7 @@ mod event_loop;
 mod fetch;
 mod schedule;
 mod terminal;
+mod view_events;
 
 #[cfg(test)]
 mod tests;
