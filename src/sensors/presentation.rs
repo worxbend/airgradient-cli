@@ -24,7 +24,7 @@ pub const MISSING_VALUE: &str = "--";
 /// also shows the metric's label, so the glyph never carries meaning on its
 /// own — but a row of tofu still looks broken, which is what the fallback is
 /// for. Which one is used is the theme's call: see `Theme::nerd_icons`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Icons {
     /// Nerd Font v3 glyph (Material Design Icons range).
     pub nerd: &'static str,
@@ -72,7 +72,7 @@ impl Trend {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Metric {
     pub key: &'static str,
     pub label: &'static str,
@@ -85,14 +85,12 @@ pub struct Metric {
     pub icon: Icons,
     /// How this reading is judged and how far its gauge runs, carried here so
     /// a renderer never has to look a metric's scale up by its key.
-    #[serde(skip)]
     pub scale: Scale,
     /// Decimal places this metric is written with. Carried for the same reason
     /// as `scale`: a renderer formatting a value that is *not* the current
     /// reading — an axis label, a bound — needs the metric's precision, and the
     /// only alternative was inferring it from `formatted_value`, which says
     /// nothing when the device is not reporting this metric.
-    #[serde(skip)]
     pub decimals: usize,
 }
 

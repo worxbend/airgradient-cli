@@ -103,14 +103,6 @@ impl Scale {
     }
 }
 
-/// The default exists only so `Metric` can derive `Deserialize` with the scale
-/// skipped; a deserialized metric is a rendering input, not a classifier.
-impl Default for Scale {
-    fn default() -> Self {
-        AQI
-    }
-}
-
 impl PartialEq for Scale {
     fn eq(&self, other: &Self) -> bool {
         self.max == other.max && self.breakpoints == other.breakpoints
