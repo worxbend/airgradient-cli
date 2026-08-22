@@ -164,7 +164,18 @@ fn several_metrics_turning_at_once_queue_up_worst_first() {
     assert_eq!(first.status, Status::VeryUnhealthy);
 
     // The next one follows once the first has had its time.
-    app.expire_due_alerts(first.raised_at + Duration::from_secs(30));
-    let second = app.current_alert().expect("a second alert");
+    let promoted_at = first.raised_at + Duration::from_secs(30);
+    app.expire_due_alerts(promoted_at);
+    let second = app.current_alert().expect("a second alert").clone();
     assert_eq!(second.metric_key, "co2");
+
+    // And it gets a full display window of its own, measured from the moment
+    // it was promoted rather than from when the fetch queued it. Both alerts
+    // were stamped by the same fetch, so without restamping this one would
+    // arrive already expired and disappear on the very next tick.
+    assert!(!app.expire_due_alerts(promoted_at + Duration::from_millis(100)));
+    assert!(app.current_alert().is_some());
+
+    assert!(app.expire_due_alerts(promoted_at + Duration::from_secs(6)));
+    assert!(app.current_alert().is_none());
 }

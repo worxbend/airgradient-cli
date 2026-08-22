@@ -150,6 +150,15 @@ impl TuiApp {
         }
 
         self.air_alerts.pop_front();
+
+        // The queue is stamped all at once by `raise_air_alerts`, so a promoted
+        // alert would arrive already older than `ALERT_DURATION` and vanish on
+        // the next tick. Restamping starts its own display window here, which
+        // is what gives every alert in a queue its full time on screen.
+        if let Some(promoted) = self.air_alerts.front_mut() {
+            promoted.raised_at = now;
+        }
+
         true
     }
 
