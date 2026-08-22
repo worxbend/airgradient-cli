@@ -40,9 +40,12 @@ use crate::{atomic_file, sensors::SensorSnapshot};
 
 /// How many readings survive a trim.
 ///
-/// At the default 30-second refresh this is about seventeen hours, which is the
-/// span the chart's widest zoom covers. It is a cap on a local file of a few
-/// hundred kilobytes, not a retention policy.
+/// At the default 30-second refresh this is about seventeen hours. It is a cap
+/// on a local file of a few hundred kilobytes, not a retention policy -- the
+/// dashboard only ever replays the newest [`MAX_READING_HISTORY`] of them, and
+/// the rest are there for whatever wants to read the file later.
+///
+/// [`MAX_READING_HISTORY`]: crate::tui::app::MAX_READING_HISTORY
 pub const MAX_STORED_READINGS: usize = 2000;
 
 /// File size at which a trim is considered. Comfortably more than

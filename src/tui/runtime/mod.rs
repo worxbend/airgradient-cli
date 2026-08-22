@@ -39,14 +39,8 @@ use crate::{
     device::{self, FetchSettings},
     device_url::DeviceUrlError,
     history,
-    tui::app::TuiApp,
+    tui::app::{MAX_READING_HISTORY, TuiApp},
 };
-
-/// How much recorded history to replay into a new session.
-///
-/// The chart plots what fits on screen and the in-memory buffer is smaller
-/// still, so reading the whole file would only be work thrown away.
-const MAX_REPLAYED_READINGS: usize = 512;
 
 use effective_config::{EffectiveConfig, runtime_refresh_schedule_interval};
 use event::RuntimeEvent;
@@ -149,7 +143,7 @@ pub async fn run(options: RuntimeOptions) -> Result<(), RuntimeError> {
     // than filling in over the next quarter of an hour. Best-effort: an
     // unreadable history costs the graph, not the dashboard.
     if let Some(path) = &options.history_path
-        && let Ok(readings) = history::load_recent(path, MAX_REPLAYED_READINGS)
+        && let Ok(readings) = history::load_recent(path, MAX_READING_HISTORY)
     {
         app.restore_history(readings);
     }

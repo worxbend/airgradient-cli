@@ -40,13 +40,18 @@ use crate::{
     tui::theme::{self, Theme},
 };
 
-/// How many successful readings to keep for the dashboard's trend sparkline.
+/// How many successful readings the dashboard keeps in memory.
 ///
-/// The graph is a few dozen cells wide at most, so this is the useful ceiling
-/// rather than an arbitrary one: at the default 30-second refresh it is a
-/// little under half an hour of history, which is the span over which a room
+/// Two things read this buffer: the card sparklines, which slice it down to
+/// however many cells they have, and the full-screen chart, which plots all of
+/// it. So this is the span the chart covers -- at the default 30-second
+/// refresh, a little under half an hour, which is the span over which a room
 /// visibly reacts to a window opening or a burner being lit.
-const MAX_READING_HISTORY: usize = 48;
+///
+/// It is also how much of the recorded history a starting session replays, so
+/// the chart opens with a shape instead of filling in over the next half hour.
+/// Reading more than this would only be discarded on arrival.
+pub(crate) const MAX_READING_HISTORY: usize = 48;
 
 /// Which full-screen (or overlay) mode the TUI is currently showing. Gates
 /// both rendering (`ui::draw`) and which keys are live (`runtime::run_loop`).
