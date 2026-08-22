@@ -34,6 +34,37 @@ impl HitMap {
         self.zones.push((area, target));
     }
 
+    /// Registers one click zone per visible row of a list drawn in `inner`.
+    ///
+    /// Rows past the bottom of `inner` are skipped rather than recorded
+    /// off-screen. That clamp is what keeps a click landing on whatever is
+    /// actually drawn: [`HitMap::hit`] returns the *last* matching zone, so a
+    /// row recorded below the panel would shadow anything drawn there
+    /// afterwards -- an overlay, or another panel's rows.
+    ///
+    /// Every vertical list in the dashboard registers its rows through here,
+    /// so none of them can drift from that rule.
+    pub(super) fn push_rows(
+        &mut self,
+        inner: Rect,
+        row_count: usize,
+        target: impl Fn(usize) -> HitTarget,
+    ) {
+        let visible = usize::from(inner.height).min(row_count);
+
+        for index in 0..visible {
+            self.push(
+                Rect {
+                    x: inner.x,
+                    y: inner.y.saturating_add(index as u16),
+                    width: inner.width,
+                    height: 1,
+                },
+                target(index),
+            );
+        }
+    }
+
     /// The target drawn at this cell, if any.
     ///
     /// Later zones win: the renderer draws overlays after the content beneath

@@ -95,33 +95,7 @@ fn render_theme_list(frame: &mut Frame<'_>, area: Rect, app: &TuiApp, hits: &mut
         area,
     );
 
-    record_row_hits(hits, inner, theme::ALL.len(), HitTarget::ThemeRow);
-}
-
-/// Registers one click zone per visible list row.
-///
-/// Rows past the bottom of `inner` are skipped rather than recorded off-screen:
-/// a click there lands on whatever is actually drawn, not on a row the user
-/// cannot see.
-fn record_row_hits(
-    hits: &mut HitMap,
-    inner: Rect,
-    row_count: usize,
-    target: impl Fn(usize) -> HitTarget,
-) {
-    let visible = usize::from(inner.height).min(row_count);
-
-    for index in 0..visible {
-        hits.push(
-            Rect {
-                x: inner.x,
-                y: inner.y.saturating_add(index as u16),
-                width: inner.width,
-                height: 1,
-            },
-            target(index),
-        );
-    }
+    hits.push_rows(inner, theme::ALL.len(), HitTarget::ThemeRow);
 }
 
 /// Sample of the currently highlighted theme, covering every role the
@@ -191,7 +165,7 @@ pub(super) fn render_config_editor(
         .collect();
 
     // The field list and the error message are rendered separately, and only
-    // the error message wraps. `record_row_hits` records one click zone per
+    // the error message wraps. `HitMap::push_rows` records one click zone per
     // field, one terminal row apart, so a field that wrapped onto a second
     // visual line would push every field below it out of step with its own
     // click zone: clicking "Refresh interval" would select "Server URL", and
@@ -216,12 +190,7 @@ pub(super) fn render_config_editor(
         );
     }
 
-    record_row_hits(
-        hits,
-        field_area,
-        ConfigField::ALL.len(),
-        HitTarget::ConfigRow,
-    );
+    hits.push_rows(field_area, ConfigField::ALL.len(), HitTarget::ConfigRow);
 }
 
 fn config_field_row(app: &TuiApp, field: ConfigField, selected: bool) -> Line<'static> {

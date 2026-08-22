@@ -138,20 +138,7 @@ fn render_metric_list(frame: &mut Frame<'_>, area: Rect, app: &TuiApp, hits: &mu
         area,
     );
 
-    // One click zone per visible row, so the list can be used with a mouse the
-    // way the theme picker and config editor already can.
-    let visible = usize::from(list_inner.height).min(metrics.len());
-    for index in 0..visible {
-        hits.push(
-            Rect {
-                x: list_inner.x,
-                y: list_inner.y.saturating_add(index as u16),
-                width: list_inner.width,
-                height: 1,
-            },
-            HitTarget::HistoryRow(index),
-        );
-    }
+    hits.push_rows(list_inner, metrics.len(), HitTarget::HistoryRow);
 }
 
 fn render_plot(frame: &mut Frame<'_>, area: Rect, app: &TuiApp, metric: &Metric) {
