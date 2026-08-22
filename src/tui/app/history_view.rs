@@ -5,7 +5,7 @@
 //! that is, and the motions that change it.
 
 use super::ListCursor;
-use crate::sensors::Metric;
+use crate::sensors::{Metric, Metrics};
 
 use super::{TuiApp, View};
 
@@ -20,8 +20,10 @@ impl TuiApp {
 
     /// The metric currently plotted, with its live reading.
     ///
-    /// The cursor is clamped rather than trusted, so a metric list that grows
-    /// or shrinks between frames cannot index past the end.
+    /// The cursor is clamped rather than trusted: it does not own the list and
+    /// is read on every frame, so clamping on the way out is what makes "in
+    /// range" a property of the cursor rather than a rule each caller has to
+    /// remember.
     pub fn history_metric(&self) -> Metric {
         let metrics = self.metrics();
         let index = self.history_cursor.index(metrics.len());
@@ -48,28 +50,27 @@ impl TuiApp {
 
     /// `gg` — back to the first metric, which is AQI.
     pub fn history_first_metric(&mut self) {
-        self.history_cursor.set(0, self.metrics().len());
+        self.history_cursor.set(0, Metrics::LEN);
     }
 
     /// `G` — the last metric in the list.
     pub fn history_last_metric(&mut self) {
-        let len = self.metrics().len();
-        self.history_cursor.set(len.saturating_sub(1), len);
+        self.history_cursor.set(Metrics::LEN - 1, Metrics::LEN);
     }
 
     /// `<C-d>` / `<C-u>`. The list is short, so half of it is the useful step —
     /// the same rule the theme picker and config editor use.
     pub fn history_half_page(&mut self, direction: i32) {
-        let delta = ListCursor::half_page_delta(direction, self.metrics().len());
+        let delta = ListCursor::half_page_delta(direction, Metrics::LEN);
         self.move_history_cursor(delta);
     }
 
     /// Selects a metric by index, e.g. from a click on the chart's metric list.
     pub fn select_history_metric_index(&mut self, index: usize) {
-        self.history_cursor.set(index, self.metrics().len());
+        self.history_cursor.set(index, Metrics::LEN);
     }
 
     fn move_history_cursor(&mut self, delta: i32) {
-        self.history_cursor.move_by(delta, self.metrics().len());
+        self.history_cursor.move_by(delta, Metrics::LEN);
     }
 }

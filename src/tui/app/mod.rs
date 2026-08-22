@@ -159,8 +159,10 @@ pub struct TuiApp {
     pub leader_pending: bool,
 
     /// Which metric the history chart is plotting, as an index into the
-    /// metric list `metrics()` returns — a list whose length follows what the
-    /// device reports, which is why the cursor clamps on read as well as write.
+    /// metric list `metrics()` returns. That list is always `Metrics::LEN`
+    /// rows; the cursor still clamps on read as well as write because it does
+    /// not own the list, which is what keeps "in range" the cursor's own
+    /// property rather than every caller's job.
     pub history_cursor: ListCursor,
 
     /// Air-quality alerts waiting to be shown, worst first. The front one is

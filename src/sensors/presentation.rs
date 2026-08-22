@@ -132,6 +132,11 @@ impl Metric {
 /// rather than guaranteed where the list is built. Holding the AQI row
 /// separately makes it a fact of the type: [`Metrics::aqi`] cannot fail, so
 /// there is nothing left for a caller to assert or to get wrong.
+///
+/// The roster is fixed: this is always every row in `SPECS`, in that order,
+/// whatever the device reported. A reading the device did not send is a `None`
+/// value on its own row, never a missing row -- so the dashboard's list of
+/// metrics does not reshuffle itself when a sensor drops out.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Metrics {
     aqi: Metric,
@@ -139,6 +144,14 @@ pub struct Metrics {
 }
 
 impl Metrics {
+    /// How many rows there are, known without building any.
+    ///
+    /// Cursor bounds are the main caller: moving a selection needs the length
+    /// of the list, not its contents, and building ten `Metric`s -- each with
+    /// its reading formatted into a fresh `String` -- to read a number that
+    /// cannot change was the cost of every keypress and every frame.
+    pub const LEN: usize = SPECS.len();
+
     /// The AQI row, which always exists.
     pub fn aqi(&self) -> &Metric {
         &self.aqi
@@ -157,6 +170,8 @@ impl Metrics {
         self.others.len() + 1
     }
 
+    /// Always false -- see the type's own doc. Present because clippy warns on
+    /// a `len` without an `is_empty` beside it.
     pub fn is_empty(&self) -> bool {
         false
     }
@@ -427,7 +442,11 @@ mod tests {
 
         let metrics = metrics(&snapshot, None);
 
-        assert_eq!(metrics.len(), 10);
+        // Ties the compile-time length to the list actually built. Without
+        // this the two could drift apart silently: a cursor bounded by a
+        // stale `LEN` would simply stop reaching the last rows.
+        assert_eq!(metrics.len(), Metrics::LEN);
+        assert_eq!(Metrics::LEN, 10);
         assert_eq!(metrics.aqi().label, "AQI");
         assert_eq!(metrics.aqi().formatted_value.as_deref(), Some("42"));
 

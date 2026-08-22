@@ -204,9 +204,11 @@ fn render_air_monitor_pm_row(frame: &mut Frame<'_>, area: Rect, theme: Theme, me
     );
 }
 
-/// Lays `cards` out as equal-width columns separated by 1-cell gutters, and
-/// draws each one whose metric the device actually reported. A card whose
-/// metric is absent leaves its column blank rather than shifting the rest.
+/// Lays `cards` out as equal-width columns separated by 1-cell gutters.
+///
+/// The columns are the same every frame: a metric the device did not report
+/// still gets its column, drawn with a placeholder value. Nothing shifts
+/// sideways when a sensor drops out, so a card stays where the eye left it.
 fn render_card_row(
     frame: &mut Frame<'_>,
     area: Rect,

@@ -5,11 +5,15 @@
 //! same rule: an index moved by a signed delta, clamped to the ends, with a
 //! half-page step and jumps to first and last.
 //!
-//! The list each one indexes is not owned here, and its length can change
-//! between frames (the metric list follows what the device reports), so every
-//! method takes the current `len`. That is what makes "the cursor is always in
-//! range" a property of the type rather than something each caller has to
-//! remember at both the write and the read.
+//! None of those lists is owned here, so every method takes the current `len`
+//! and clamps to it -- on the way out as well as the way in. That is what
+//! makes "the cursor is always in range" a property of the type rather than
+//! something each caller has to remember at both the write and the read.
+//!
+//! All three lists happen to be fixed-length today (`theme::ALL`,
+//! `ConfigField::ALL`, and the metric roster). The clamping does not depend on
+//! that: a cursor that is handed a length on every call cannot be left holding
+//! a stale one.
 
 /// A clamped index into a list of `len` items.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -20,8 +24,9 @@ pub struct ListCursor {
 impl ListCursor {
     /// The selected index, clamped to a list of `len` items.
     ///
-    /// Clamped on the way out as well as on the way in, because the list may
-    /// have shrunk since the cursor was last moved.
+    /// Clamped on the way out as well as on the way in: the cursor stores a
+    /// bare index and is told the length by its caller, so this is the only
+    /// place that can guarantee the two agree.
     pub fn index(self, len: usize) -> usize {
         self.index.min(len.saturating_sub(1))
     }
@@ -87,8 +92,9 @@ mod tests {
 
     #[test]
     fn a_cursor_past_the_end_of_a_shrunken_list_reads_as_its_last_row() {
-        // The metric list follows what the device reports, so it can shrink
-        // between the frame that moved the cursor and the frame that reads it.
+        // A cursor is handed a length on every call, so nothing stops a
+        // caller passing a shorter list than the one the cursor was last
+        // moved against. Clamping on read is what keeps that safe.
         let mut cursor = ListCursor::default();
         cursor.set(9, 10);
 
