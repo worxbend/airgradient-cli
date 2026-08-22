@@ -46,8 +46,8 @@ const METRIC_LIST_WIDTH: u16 = 24;
 const METRIC_LABEL_WIDTH: usize = 12;
 const METRIC_VALUE_WIDTH: usize = 6;
 
-/// Readings below which there is no line to draw. Two points make a segment,
-/// not a trend.
+/// Readings below which there is no line to draw: one point is a dot, and it
+/// takes two to join a segment between them.
 const MIN_PLOTTABLE_READINGS: usize = 2;
 
 /// Fraction of the value range left as headroom above and below the line, so
@@ -355,7 +355,7 @@ fn render_waiting_for_readings(frame: &mut Frame<'_>, area: Rect, theme: Theme, 
     let message = if recorded == 0 {
         "No readings recorded for this metric yet.".to_string()
     } else {
-        format!("Only {recorded} reading recorded so far; a line needs two.")
+        format!("Only {recorded} reading recorded for this metric so far; a line needs two.")
     };
 
     frame.render_widget(
