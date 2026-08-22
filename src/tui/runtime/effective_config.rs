@@ -35,18 +35,19 @@ pub(super) struct EffectiveConfig {
 
 impl EffectiveConfig {
     pub(super) fn resolve(options: &RuntimeOptions) -> Self {
-        let mut current_error = None;
+        // Collected rather than assigned: startup can turn up more than one
+        // problem, and a single slot meant each one silently replaced the
+        // last, so a bad `--url` hid a broken config file behind it.
+        let mut problems: Vec<String> = Vec::new();
         let mut configured_url = None;
 
         let config = match config::read_display_config(&options.config_path) {
             Ok(display) => {
-                if !display.warnings.is_empty() {
-                    current_error = Some(display.warnings.join("; "));
-                }
+                problems.extend(display.warnings);
                 display.config
             }
             Err(error) => {
-                current_error = Some(error.to_string());
+                problems.push(error.to_string());
                 config::Config::default()
             }
         };
@@ -62,7 +63,15 @@ impl EffectiveConfig {
         // stored value alone.
         match DeviceUrl::parse_optional(server_url.as_deref()) {
             Ok(url) => configured_url = url,
-            Err(error) => current_error = Some(error.to_string()),
+            // Only when the bad URL came from the command line. A bad *stored*
+            // URL has already been reported by the config layer above, which
+            // hands back the original so the user can see what needs fixing --
+            // reporting it here as well would say the same thing twice.
+            Err(error) => {
+                if options.url_override.is_some() {
+                    problems.push(error.to_string());
+                }
+            }
         }
 
         // A `--refresh` override out of range is pulled into range rather than
@@ -72,7 +81,7 @@ impl EffectiveConfig {
             Some(seconds) => match RefreshInterval::from_secs(seconds) {
                 Ok(interval) => interval,
                 Err(error) => {
-                    current_error = Some(error.to_string());
+                    problems.push(error.to_string());
                     RefreshInterval::clamping(Duration::from_secs(seconds))
                 }
             },
@@ -85,7 +94,7 @@ impl EffectiveConfig {
             configured_url,
             refresh_interval,
             theme: Theme::by_id(theme_id),
-            current_error,
+            current_error: (!problems.is_empty()).then(|| problems.join("; ")),
         }
     }
 }
@@ -113,5 +122,61 @@ pub(super) fn runtime_refresh_schedule_interval(
         override_interval
     } else {
         production_interval
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::*;
+    use crate::device::FetchSettings;
+
+    fn options(config_path: PathBuf, url_override: Option<&str>) -> RuntimeOptions {
+        RuntimeOptions {
+            config_path,
+            history_path: None,
+            record_path: None,
+            url_override: url_override.map(str::to_owned),
+            refresh_override_secs: None,
+            theme_override: None,
+            fetch_settings: FetchSettings::default(),
+        }
+    }
+
+    fn config_file(dir: &std::path::Path, contents: &str) -> PathBuf {
+        let path = dir.join("config.json");
+        std::fs::write(&path, contents).unwrap();
+        path
+    }
+
+    #[test]
+    fn every_startup_problem_is_reported_not_just_the_last_one() {
+        // A single `Option` accumulator meant the URL error, resolved last,
+        // silently replaced the config warning found before it.
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = config_file(temp_dir.path(), r#"{"theme": 7}"#);
+
+        let resolved = EffectiveConfig::resolve(&options(path, Some("not a url")));
+
+        let error = resolved.current_error.expect("both problems should show");
+        assert!(error.contains("theme"), "{error}");
+        assert!(
+            error.contains("not a url") || error.to_lowercase().contains("url"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_bad_stored_url_is_reported_once_not_twice() {
+        // The config layer already warns about an unparseable stored URL and
+        // hands the original back, so the URL parse here must stay quiet.
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = config_file(temp_dir.path(), r#"{"server_url": "not a url"}"#);
+
+        let resolved = EffectiveConfig::resolve(&options(path, None));
+
+        let error = resolved.current_error.expect("the stored URL is bad");
+        assert!(!error.contains("; "), "reported twice: {error}");
     }
 }
