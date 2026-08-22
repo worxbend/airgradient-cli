@@ -93,10 +93,12 @@ impl TuiApp {
                     Ok(normalized) => {
                         self.configured_url = Some(normalized.clone());
                         self.persist_url(normalized.as_str());
-                        self.palette_message = Some(PaletteMessage::success(format!("url set: {normalized}")));
+                        self.palette_message =
+                            Some(PaletteMessage::success(format!("url set: {normalized}")));
                     }
                     Err(error) => {
-                        self.palette_message = Some(PaletteMessage::error(format!("invalid url: {error}")));
+                        self.palette_message =
+                            Some(PaletteMessage::error(format!("invalid url: {error}")));
                     }
                 }
                 PaletteOutcome::Continue
@@ -131,7 +133,8 @@ impl TuiApp {
                         )));
                     }
                     None => {
-                        self.palette_message = Some(PaletteMessage::error(format!("unknown theme: {id}")));
+                        self.palette_message =
+                            Some(PaletteMessage::error(format!("unknown theme: {id}")));
                     }
                 }
                 PaletteOutcome::Continue

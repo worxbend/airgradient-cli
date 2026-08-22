@@ -29,8 +29,7 @@ use thiserror::Error;
 
 pub use store::{
     ConfigUpdate, ConfigVersion, config_version, read_config, read_display_config,
-    set_refresh_interval,
-    set_session, set_theme, set_url, write_config, write_config_if_unchanged,
+    set_refresh_interval, set_session, set_theme, set_url, write_config, write_config_if_unchanged,
 };
 
 #[cfg(test)]

@@ -29,8 +29,8 @@ use std::{
 };
 
 pub use alerts::{AirAlert, AlertKind};
-pub use palette::{PaletteMessage, PaletteMessageKind};
 pub use leader::{LEADER_BINDINGS, LeaderAction, LeaderBinding};
+pub use palette::{PaletteMessage, PaletteMessageKind};
 
 use crate::{
     config::{Config, ConfigVersion},

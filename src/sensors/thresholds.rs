@@ -372,16 +372,7 @@ mod tests {
         // banded scale rather than a sampled few: a scale whose classifier
         // switched anywhere other than its own table would draw a colour
         // change away from the tick marking it.
-        for scale in [
-            AQI,
-            CO2,
-            PM25,
-            PM1,
-            PM10,
-            PARTICLE_COUNT,
-            TVOC,
-            NOX,
-        ] {
+        for scale in [AQI, CO2, PM25, PM1, PM10, PARTICLE_COUNT, TVOC, NOX] {
             for (band_ends_at, status) in scale.breakpoints() {
                 assert_eq!(
                     scale.classify(Some(*band_ends_at)),
@@ -414,4 +405,3 @@ mod tests {
         assert_eq!(PM1.classify(Some(55.5)), Status::Unhealthy);
     }
 }
-

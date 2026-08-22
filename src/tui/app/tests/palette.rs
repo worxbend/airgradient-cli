@@ -142,7 +142,12 @@ fn palette_save_writes_the_live_session_to_the_config_file() {
     app.palette_submit();
 
     let message = app.palette_message.clone().expect("message should be set");
-    assert_eq!(message.kind, PaletteMessageKind::Success, "{}", message.text);
+    assert_eq!(
+        message.kind,
+        PaletteMessageKind::Success,
+        "{}",
+        message.text
+    );
     let saved = config::read_config(&path).unwrap();
     assert_eq!(saved.server_url.as_deref(), Some("http://192.168.1.77/"));
     assert_eq!(saved.refresh_interval.as_secs(), 45);
