@@ -60,8 +60,8 @@ impl TuiApp {
     /// `<C-d>` / `<C-u>`. The list is short, so half of it is the useful step —
     /// the same rule the theme picker and config editor use.
     pub fn history_half_page(&mut self, direction: i32) {
-        let half = ListCursor::half_page(self.metrics().len());
-        self.move_history_cursor(direction * half);
+        let delta = ListCursor::half_page_delta(direction, self.metrics().len());
+        self.move_history_cursor(delta);
     }
 
     /// Selects a metric by index, e.g. from a click on the chart's metric list.

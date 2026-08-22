@@ -46,8 +46,8 @@ impl TuiApp {
     /// `<C-d>` / `<C-u>` — vim's half-page scroll. The list is short enough
     /// that a "page" is the whole list, so half of it is the useful step.
     pub fn theme_cursor_half_page(&mut self, direction: i32) {
-        let half = ListCursor::half_page(theme::ALL.len());
-        self.move_theme_cursor(direction * half);
+        let delta = ListCursor::half_page_delta(direction, theme::ALL.len());
+        self.move_theme_cursor(delta);
     }
 
     /// Selects a theme by index, e.g. from a mouse click on its row.

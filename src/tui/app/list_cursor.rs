@@ -44,11 +44,16 @@ impl ListCursor {
         self.index = index.min(len.saturating_sub(1));
     }
 
-    /// Half a screen's worth of rows, the step `ctrl-d`/`ctrl-u` take.
+    /// The signed step `ctrl-d`/`ctrl-u` take: half a screen's worth of rows,
+    /// in `direction`.
     ///
-    /// At least one, so the key still moves on a list too short to halve.
-    pub fn half_page(len: usize) -> i32 {
-        (len / 2).max(1) as i32
+    /// Half a page is at least one row, so the key still moves on a list too
+    /// short to halve. The three views that scroll this way each apply the
+    /// step through their own cursor-moving method -- moving the theme cursor
+    /// also previews the theme under it -- so this returns the delta rather
+    /// than moving anything itself.
+    pub fn half_page_delta(direction: i32, len: usize) -> i32 {
+        direction * (len / 2).max(1) as i32
     }
 }
 
@@ -103,8 +108,14 @@ mod tests {
 
     #[test]
     fn a_half_page_always_moves_at_least_one_row() {
-        assert_eq!(ListCursor::half_page(10), 5);
-        assert_eq!(ListCursor::half_page(1), 1);
-        assert_eq!(ListCursor::half_page(0), 1);
+        assert_eq!(ListCursor::half_page_delta(1, 10), 5);
+        assert_eq!(ListCursor::half_page_delta(1, 1), 1);
+        assert_eq!(ListCursor::half_page_delta(1, 0), 1);
+    }
+
+    #[test]
+    fn a_half_page_upwards_is_the_same_step_negated() {
+        assert_eq!(ListCursor::half_page_delta(-1, 10), -5);
+        assert_eq!(ListCursor::half_page_delta(-1, 0), -1);
     }
 }

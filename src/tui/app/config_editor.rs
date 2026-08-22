@@ -101,8 +101,8 @@ impl TuiApp {
 
     /// `<C-d>` / `<C-u>` — half-page scroll over the field list.
     pub fn config_editor_half_page(&mut self, direction: i32) {
-        let half = ListCursor::half_page(ConfigField::ALL.len());
-        self.move_config_cursor(direction * half);
+        let delta = ListCursor::half_page_delta(direction, ConfigField::ALL.len());
+        self.move_config_cursor(delta);
     }
 
     /// Moves the cursor to a field, e.g. from a mouse click on its row.
