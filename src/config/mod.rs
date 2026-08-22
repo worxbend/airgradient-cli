@@ -28,7 +28,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub use store::{
-    ConfigVersion, config_version, read_config, read_display_config, set_refresh_interval,
+    ConfigUpdate, ConfigVersion, config_version, read_config, read_display_config,
+    set_refresh_interval,
     set_session, set_theme, set_url, write_config, write_config_if_unchanged,
 };
 

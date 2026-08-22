@@ -112,14 +112,14 @@ fn read_config_object(path: &Path) -> Result<Map<String, Value>, ConfigError> {
 
 /// Normalizes `url` through the device boundary before storing it, so the
 /// file only ever holds URLs the fetch path can actually use.
-pub fn set_url(path: &Path, url: &str) -> Result<Config, ConfigError> {
+pub fn set_url(path: &Path, url: &str) -> Result<ConfigUpdate, ConfigError> {
     let normalized_url = DeviceUrl::parse(url)?;
     update_config(path, |config| {
         config.server_url = Some(normalized_url.as_str().to_owned());
     })
 }
 
-pub fn set_refresh_interval(path: &Path, seconds: u64) -> Result<Config, ConfigError> {
+pub fn set_refresh_interval(path: &Path, seconds: u64) -> Result<ConfigUpdate, ConfigError> {
     let refresh_interval = RefreshInterval::from_secs(seconds)?;
     update_config(path, |config| config.refresh_interval = refresh_interval)
 }
@@ -127,7 +127,7 @@ pub fn set_refresh_interval(path: &Path, seconds: u64) -> Result<Config, ConfigE
 /// Stores a theme id without validating it. Ids are not validated here on
 /// purpose: an unknown id falls back to the default theme at startup, so a
 /// theme added by a newer build is stored, not rejected.
-pub fn set_theme(path: &Path, id: &str) -> Result<Config, ConfigError> {
+pub fn set_theme(path: &Path, id: &str) -> Result<ConfigUpdate, ConfigError> {
     update_config(path, |config| config.theme = id.to_owned())
 }
 
@@ -149,7 +149,7 @@ pub fn set_session(
     url: Option<&str>,
     refresh_interval: RefreshInterval,
     theme: &str,
-) -> Result<Config, ConfigError> {
+) -> Result<ConfigUpdate, ConfigError> {
     update_config(path, |config| {
         if let Some(url) = url {
             config.server_url = Some(url.to_owned());
@@ -183,15 +183,30 @@ pub fn set_session(
 pub(super) fn update_config(
     path: &Path,
     apply: impl FnOnce(&mut Config),
-) -> Result<Config, ConfigError> {
+) -> Result<ConfigUpdate, ConfigError> {
     let before = config_version(path);
 
     let object = read_config_object(path)?;
-    let mut config = config_from_object_lossy(&object);
+    let (mut config, warnings) = config_from_object_lossy(&object);
     apply(&mut config);
 
     write_config_if_unchanged(path, &config, &before)?;
-    Ok(config)
+    Ok(ConfigUpdate { config, warnings })
+}
+
+/// The result of writing one field: the config as it now stands on disk, and
+/// anything else that had to be repaired to get there.
+///
+/// The two travel together because the repairs are a side effect of the write
+/// -- a caller that takes the config without looking at the warnings is
+/// rewriting fields the user did not ask it to touch, silently, which is what
+/// [`config_from_object_lossy`] exists to make visible.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigUpdate {
+    pub config: Config,
+    /// What else was repaired on the way, in the same words `config show`
+    /// uses. Empty when the file was already well-formed.
+    pub warnings: Vec<String>,
 }
 
 /// What the file looked like when it was read, for detecting that somebody

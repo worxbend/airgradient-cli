@@ -175,6 +175,9 @@ impl TuiApp {
         }
     }
 
+    /// Any repairs the write had to make are dropped on purpose: the TUI owns
+    /// the alternate screen, so there is nowhere to print them to, and the
+    /// config editor shows the repaired values anyway.
     fn persist_url(&self, url: &str) {
         if let Some(path) = &self.config_path {
             let _ = config::set_url(path, url);
@@ -183,6 +186,7 @@ impl TuiApp {
 
     fn persist_refresh(&self, seconds: u64) {
         if let Some(path) = &self.config_path {
+            // Repairs dropped on purpose -- see `persist_url`.
             let _ = config::set_refresh_interval(path, seconds);
         }
     }

@@ -210,13 +210,13 @@ fn run_themes() -> Result<(), CliError> {
     Ok(())
 }
 
-/// Every config subcommand except `path` ends by printing the resulting
-/// config, so the match decides *which* config that is and the printing
-/// happens once, below it.
+/// Every config subcommand except `path` ends by reporting whatever the file
+/// needed repairing and then printing the resulting config, so the match
+/// decides *which* config that is and both of those happen once, below it.
 fn run_config_command(command: &ConfigCommand, cli: &Cli) -> Result<(), CliError> {
     let path = config_path(cli)?;
 
-    let config = match command {
+    let (config, warnings) = match command {
         // The odd one out: it reports where the file is without reading it, so
         // it has nothing to print afterwards.
         ConfigCommand::Path => {
@@ -225,15 +225,27 @@ fn run_config_command(command: &ConfigCommand, cli: &Cli) -> Result<(), CliError
         }
         ConfigCommand::Show => {
             let display = config::read_display_config(&path)?;
-            for warning in display.warnings {
-                eprintln!("warning: {warning}");
-            }
-            display.config
+            (display.config, display.warnings)
         }
-        ConfigCommand::SetUrl { url } => config::set_url(&path, url)?,
-        ConfigCommand::SetRefresh { seconds } => config::set_refresh_interval(&path, *seconds)?,
-        ConfigCommand::SetTheme { id } => config::set_theme(&path, id)?,
+        ConfigCommand::SetUrl { url } => {
+            let update = config::set_url(&path, url)?;
+            (update.config, update.warnings)
+        }
+        ConfigCommand::SetRefresh { seconds } => {
+            let update = config::set_refresh_interval(&path, *seconds)?;
+            (update.config, update.warnings)
+        }
+        ConfigCommand::SetTheme { id } => {
+            let update = config::set_theme(&path, id)?;
+            (update.config, update.warnings)
+        }
     };
+
+    // Warnings to stderr before the config to stdout, so a caller piping the
+    // JSON somewhere still sees these on the terminal.
+    for warning in warnings {
+        eprintln!("warning: {warning}");
+    }
 
     println!("{}", serde_json::to_string_pretty(&config)?);
 

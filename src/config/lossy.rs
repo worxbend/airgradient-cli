@@ -24,12 +24,18 @@ pub(super) fn display_config_from_object(object: &Map<String, Value>) -> Display
     DisplayConfig { config, warnings }
 }
 
-/// Parses for a read-modify-write, discarding the warnings.
+/// Parses for a read-modify-write, reporting what it had to repair.
 ///
 /// The URL is deliberately left as stored: rewriting the file must not
-/// silently rewrite a field the user did not ask to change.
-pub(super) fn config_from_object_lossy(object: &Map<String, Value>) -> Config {
-    parse_config(object, &mut Vec::new())
+/// silently rewrite a field the user did not ask to change. Every *other*
+/// malformed field is repaired to its default so that setting one field still
+/// works when another is broken -- and the repairs come back with the config
+/// so the caller can say what it changed rather than doing it in silence.
+pub(super) fn config_from_object_lossy(object: &Map<String, Value>) -> (Config, Vec<String>) {
+    let mut warnings = Vec::new();
+    let config = parse_config(object, &mut warnings);
+
+    (config, warnings)
 }
 
 fn parse_config(object: &Map<String, Value>, warnings: &mut Vec<String>) -> Config {

@@ -722,6 +722,62 @@ fn config_set_url_repairs_malformed_refresh_interval_and_preserves_unknown_field
 }
 
 #[test]
+fn config_set_reports_the_other_fields_it_had_to_repair() {
+    // Setting one field rewrites the whole file, so a malformed value in
+    // another field is repaired to its default on the way past. That repair
+    // used to happen in silence: the file this CLI shares with the desktop app
+    // came back with a setting changed and nothing said so.
+    let dir = tempdir().expect("tempdir should be created");
+    let config_path = dir.path().join("config.json");
+    fs::write(
+        &config_path,
+        serde_json::json!({ "refresh_interval_secs": 99999 }).to_string(),
+    )
+    .expect("config should be written");
+
+    cli()
+        .args([
+            "--config",
+            path_str(&config_path),
+            "config",
+            "set-theme",
+            "nord",
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("refresh_interval_secs"));
+
+    // The repair is still persisted, and the command still prints the config.
+    let contents = fs::read_to_string(&config_path).expect("config should be rewritten");
+    let json: Value = serde_json::from_str(&contents).expect("config should be JSON");
+    assert_eq!(json["theme"], "nord");
+    assert_eq!(json["refresh_interval_secs"], 30);
+}
+
+#[test]
+fn config_set_says_nothing_extra_about_a_well_formed_file() {
+    let dir = tempdir().expect("tempdir should be created");
+    let config_path = dir.path().join("config.json");
+    fs::write(
+        &config_path,
+        serde_json::json!({ "refresh_interval_secs": 60 }).to_string(),
+    )
+    .expect("config should be written");
+
+    cli()
+        .args([
+            "--config",
+            path_str(&config_path),
+            "config",
+            "set-theme",
+            "nord",
+        ])
+        .assert()
+        .success()
+        .stderr("");
+}
+
+#[test]
 fn config_show_rejects_non_object_top_level_json() {
     let dir = tempdir().expect("tempdir should be created");
     let config_path = dir.path().join("config.json");

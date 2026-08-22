@@ -141,7 +141,7 @@ fn set_url_normalizes_with_device_boundary_before_persisting() {
     let temp_dir = tempfile::tempdir().unwrap();
     let path = temp_dir.path().join("config.json");
 
-    let config = set_url(&path, "192.168.1.201/sensors").unwrap();
+    let config = set_url(&path, "192.168.1.201/sensors").unwrap().config;
 
     assert_eq!(config.server_url.as_deref(), Some("http://192.168.1.201/"));
     assert_eq!(
@@ -155,7 +155,7 @@ fn set_refresh_interval_persists_valid_value() {
     let temp_dir = tempfile::tempdir().unwrap();
     let path = temp_dir.path().join("config.json");
 
-    let config = set_refresh_interval(&path, 120).unwrap();
+    let config = set_refresh_interval(&path, 120).unwrap().config;
 
     assert_eq!(config.refresh_interval.as_secs(), 120);
     assert_eq!(read_config(&path).unwrap().refresh_interval.as_secs(), 120);
@@ -166,7 +166,7 @@ fn set_theme_persists_any_id_without_validation() {
     let temp_dir = tempfile::tempdir().unwrap();
     let path = temp_dir.path().join("config.json");
 
-    let config = set_theme(&path, "dracula").unwrap();
+    let config = set_theme(&path, "dracula").unwrap().config;
 
     assert_eq!(config.theme, "dracula");
     assert_eq!(read_config(&path).unwrap().theme, "dracula");
@@ -178,7 +178,7 @@ fn set_theme_preserves_other_fields() {
     let path = temp_dir.path().join("config.json");
     set_refresh_interval(&path, 90).unwrap();
 
-    let config = set_theme(&path, "gruvbox").unwrap();
+    let config = set_theme(&path, "gruvbox").unwrap().config;
 
     assert_eq!(config.theme, "gruvbox");
     assert_eq!(config.refresh_interval.as_secs(), 90);

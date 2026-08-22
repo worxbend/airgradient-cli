@@ -95,6 +95,7 @@ impl TuiApp {
 
     pub(super) fn persist_theme(&self, id: &str) {
         if let Some(path) = &self.config_path {
+            // Repairs dropped on purpose -- see `TuiApp::persist_url`.
             let _ = config::set_theme(path, id);
         }
     }
