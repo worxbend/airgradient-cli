@@ -42,8 +42,10 @@ pub(super) const SINGLE_ROW: u16 = 1;
 /// drawn.
 const MIN_TICK_WIDTH: u16 = 24;
 
-/// Cell shades from "well inside the band" to "at its top", which gives the
-/// bar texture even in a terminal with a narrow palette.
+/// The two cells the bar is drawn from: solid up to the reading, hollow past
+/// it. There is no shading between them -- the band a cell falls into is
+/// carried entirely by its colour, which is what keeps the bar legible in a
+/// terminal with a narrow palette.
 const FILLED: &str = "█";
 const UNFILLED: &str = "░";
 

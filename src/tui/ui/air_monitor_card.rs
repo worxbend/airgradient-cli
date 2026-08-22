@@ -40,7 +40,14 @@ const HERO_MIN_TEXT_WIDTH: u16 = 24;
 const METRIC_CARD_ICON_WIDTH: u16 = 7;
 
 /// Columns a metric card's text needs to hold its longest formatted value and
-/// unit ("1013.2 hPa") without wrapping.
+/// unit without wrapping.
+///
+/// The widest is the particle count: `MAX_PM03_COUNT_PER_DL` written with no
+/// decimals and no thousands separators, plus its unit -- "1000000 count/dL",
+/// exactly 16 columns.
+///
+/// The trend line drawn beneath it ("↑ from last reading") is longer and is
+/// deliberately left to wrap; it is a sentence, not a number to line up.
 const METRIC_CARD_MIN_TEXT_WIDTH: u16 = 16;
 
 /// The fixed presentation of a card: everything that does not come from the

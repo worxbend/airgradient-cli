@@ -195,8 +195,10 @@ fn render_plot(frame: &mut Frame<'_>, area: Rect, app: &TuiApp, metric: &Metric)
                     .bounds([bounds.y_min, bounds.y_max])
                     .labels(bounds.y_labels(theme, metric)),
             )
-            // The single dataset is already named in the title; a legend box
-            // over the top-right corner would only cover the line.
+            // The datasets here are colour bands of one line -- see
+            // `split_into_bands` -- not separate named series, so there is
+            // nothing a legend could usefully list. Saying so explicitly keeps
+            // that true if a band is ever given a name of its own.
             .legend_position(None),
         inner,
     );
@@ -230,7 +232,10 @@ fn split_into_bands(points: &[(f64, f64)], metric: &Metric) -> Vec<(Status, Vec<
     bands
 }
 
-/// "AQI — last 2h 15m" / "CO2 (ppm) — last 40m".
+/// The chart's title: "AQI" / "CO2 (ppm)".
+///
+/// The metric and its unit only. How far back the plot reaches is on the x
+/// axis, which is where it can stay correct as the window fills.
 fn plot_title(metric: &Metric) -> String {
     if metric.unit.is_empty() {
         metric.label.to_string()
