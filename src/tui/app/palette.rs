@@ -16,6 +16,43 @@ use crate::{
 
 use super::{PaletteOutcome, TuiApp, View};
 
+/// Whether a palette message reports something that worked or something that
+/// did not.
+///
+/// The two are drawn differently -- an error in the theme's error colour, a
+/// success in its success colour -- and the difference used to travel as a
+/// bare `bool` alongside the text. At a call site `Some((message, true))` says
+/// nothing about which way round it is, and transposing it produces a green
+/// failure or a red success that still compiles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaletteMessageKind {
+    Success,
+    Error,
+}
+
+/// What the palette shows after running a command.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PaletteMessage {
+    pub text: String,
+    pub kind: PaletteMessageKind,
+}
+
+impl PaletteMessage {
+    pub fn success(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            kind: PaletteMessageKind::Success,
+        }
+    }
+
+    pub fn error(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            kind: PaletteMessageKind::Error,
+        }
+    }
+}
+
 impl TuiApp {
     pub fn open_command_palette(&mut self) {
         self.palette_input.clear();
@@ -56,10 +93,10 @@ impl TuiApp {
                     Ok(normalized) => {
                         self.configured_url = Some(normalized.clone());
                         self.persist_url(normalized.as_str());
-                        self.palette_message = Some((format!("url set: {normalized}"), false));
+                        self.palette_message = Some(PaletteMessage::success(format!("url set: {normalized}")));
                     }
                     Err(error) => {
-                        self.palette_message = Some((format!("invalid url: {error}"), true));
+                        self.palette_message = Some(PaletteMessage::error(format!("invalid url: {error}")));
                     }
                 }
                 PaletteOutcome::Continue
@@ -69,11 +106,12 @@ impl TuiApp {
                     Ok(interval) => {
                         self.refresh_interval = interval;
                         self.persist_refresh(seconds);
-                        self.palette_message =
-                            Some((format!("refresh interval set: {interval}"), false));
+                        self.palette_message = Some(PaletteMessage::success(format!(
+                            "refresh interval set: {interval}"
+                        )));
                     }
                     Err(error) => {
-                        self.palette_message = Some((error.to_string(), true));
+                        self.palette_message = Some(PaletteMessage::error(error.to_string()));
                     }
                 }
                 PaletteOutcome::Continue
@@ -87,11 +125,13 @@ impl TuiApp {
                     Some(resolved) => {
                         self.theme = resolved;
                         self.persist_theme(resolved.id);
-                        self.palette_message =
-                            Some((format!("theme set: {}", resolved.label), false));
+                        self.palette_message = Some(PaletteMessage::success(format!(
+                            "theme set: {}",
+                            resolved.label
+                        )));
                     }
                     None => {
-                        self.palette_message = Some((format!("unknown theme: {id}"), true));
+                        self.palette_message = Some(PaletteMessage::error(format!("unknown theme: {id}")));
                     }
                 }
                 PaletteOutcome::Continue
@@ -110,28 +150,28 @@ impl TuiApp {
             }
             Ok(PaletteCommand::Quit) => PaletteOutcome::Quit,
             Err(message) => {
-                self.palette_message = Some((message, true));
+                self.palette_message = Some(PaletteMessage::error(message));
                 PaletteOutcome::Continue
             }
         }
     }
 
     /// Writes the session's URL, refresh interval, and theme to the config
-    /// file, returning the message to show and whether it is an error.
+    /// file, returning the message to show for it.
     ///
     /// Every other palette verb persists as a side effect of the change it
     /// makes, so `:save` matters mainly when there is nothing to persist to
     /// yet -- and saying "config saved" when no file is configured would be a
     /// lie, which is why that case reports instead.
-    fn save_session(&self) -> (String, bool) {
+    fn save_session(&self) -> PaletteMessage {
         let Some(path) = &self.config_path else {
-            return ("no config file to save to".to_string(), true);
+            return PaletteMessage::error("no config file to save to");
         };
 
         let url = self.configured_url.as_ref().map(DeviceUrl::as_str);
         match config::set_session(path, url, self.refresh_interval, self.theme.id) {
-            Ok(_) => (format!("config saved: {}", path.display()), false),
-            Err(error) => (format!("could not save config: {error}"), true),
+            Ok(_) => PaletteMessage::success(format!("config saved: {}", path.display())),
+            Err(error) => PaletteMessage::error(format!("could not save config: {error}")),
         }
     }
 

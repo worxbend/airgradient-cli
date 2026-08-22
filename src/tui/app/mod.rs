@@ -29,6 +29,7 @@ use std::{
 };
 
 pub use alerts::{AirAlert, AlertKind};
+pub use palette::{PaletteMessage, PaletteMessageKind};
 pub use leader::{LEADER_BINDINGS, LeaderAction, LeaderBinding};
 
 use crate::{
@@ -132,7 +133,7 @@ pub struct TuiApp {
     /// Text currently typed into the `:` command palette.
     pub palette_input: String,
     /// Last palette result (message, is_error), shown until the next submit.
-    pub palette_message: Option<(String, bool)>,
+    pub palette_message: Option<PaletteMessage>,
 
     /// Working copy of `Config` edited by the config editor, persisted only
     /// on "Save & Close" — everything else in this view previews live but

@@ -10,7 +10,7 @@ use ratatui::{
 };
 
 use crate::tui::{
-    app::TuiApp,
+    app::{PaletteMessageKind, TuiApp},
     theme::Theme,
     ui::{ADVANCED_LAYOUT_WIDTH, widget_block},
 };
@@ -130,14 +130,13 @@ fn render_showcase_footer(frame: &mut Frame<'_>, area: Rect, theme: Theme) {
 pub(super) fn render_command_palette(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
     let theme = app.theme;
     let line = match &app.palette_message {
-        Some((message, is_error)) => Line::from(Span::styled(
-            message.clone(),
-            if *is_error {
-                theme.error_style()
-            } else {
-                Style::default()
+        Some(message) => Line::from(Span::styled(
+            message.text.clone(),
+            match message.kind {
+                PaletteMessageKind::Error => theme.error_style(),
+                PaletteMessageKind::Success => Style::default()
                     .fg(theme.success)
-                    .add_modifier(Modifier::BOLD)
+                    .add_modifier(Modifier::BOLD),
             },
         )),
         None => Line::from(vec![

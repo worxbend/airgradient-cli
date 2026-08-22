@@ -37,8 +37,8 @@ fn palette_submit_rejects_out_of_range_refresh_interval() {
 
     assert_eq!(app.refresh_interval, refresh(30));
     assert_eq!(
-        app.palette_message.as_ref().map(|(_, is_error)| *is_error),
-        Some(true)
+        app.palette_message.as_ref().map(|message| message.kind),
+        Some(PaletteMessageKind::Error)
     );
 }
 
@@ -63,8 +63,8 @@ fn palette_submit_unknown_command_shows_error_and_stays() {
 
     assert_eq!(outcome, PaletteOutcome::Continue);
     assert_eq!(
-        app.palette_message.as_ref().map(|(_, is_error)| *is_error),
-        Some(true)
+        app.palette_message.as_ref().map(|message| message.kind),
+        Some(PaletteMessageKind::Error)
     );
 }
 
@@ -116,9 +116,13 @@ fn palette_rejects_an_unknown_theme_without_touching_the_stored_one() {
     }
     app.palette_submit();
 
-    let (message, is_error) = app.palette_message.clone().expect("message should be set");
-    assert!(message.contains("unknown theme: drakula"), "{message}");
-    assert!(is_error);
+    let message = app.palette_message.clone().expect("message should be set");
+    assert!(
+        message.text.contains("unknown theme: drakula"),
+        "{}",
+        message.text
+    );
+    assert_eq!(message.kind, PaletteMessageKind::Error);
     assert_eq!(app.theme.id, stored.id);
     assert_eq!(config::read_config(&path).unwrap().theme, stored.id);
 }
@@ -137,8 +141,8 @@ fn palette_save_writes_the_live_session_to_the_config_file() {
     }
     app.palette_submit();
 
-    let (message, is_error) = app.palette_message.clone().expect("message should be set");
-    assert!(!is_error, "{message}");
+    let message = app.palette_message.clone().expect("message should be set");
+    assert_eq!(message.kind, PaletteMessageKind::Success, "{}", message.text);
     let saved = config::read_config(&path).unwrap();
     assert_eq!(saved.server_url.as_deref(), Some("http://192.168.1.77/"));
     assert_eq!(saved.refresh_interval.as_secs(), 45);
@@ -155,7 +159,7 @@ fn palette_save_reports_when_there_is_no_config_file() {
     }
     app.palette_submit();
 
-    let (message, is_error) = app.palette_message.clone().expect("message should be set");
-    assert!(is_error, "{message}");
-    assert!(message.contains("no config file"), "{message}");
+    let message = app.palette_message.clone().expect("message should be set");
+    assert_eq!(message.kind, PaletteMessageKind::Error, "{}", message.text);
+    assert!(message.text.contains("no config file"), "{}", message.text);
 }
