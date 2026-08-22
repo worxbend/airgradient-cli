@@ -72,21 +72,56 @@ impl Status {
 /// output tells nobody anything.
 #[derive(Clone, Copy)]
 pub struct Scale {
-    classify: fn(Option<f64>) -> Status,
+    /// How a comfort scale is judged, for the two metrics whose bands are a
+    /// range around a middle rather than a climb. `None` on every hazard
+    /// scale, which is judged by its own `breakpoints`.
+    comfort_classifier: Option<fn(Option<f64>) -> Status>,
     max: f64,
-    /// The table this metric is judged by: the value each band starts at,
-    /// ascending, paired with the status from there up. Empty for the two
-    /// comfort scales, whose bands are ranges around a middle rather than a
+    /// The table this metric is judged by: the value each band *ends* at,
+    /// ascending, paired with the status up to and including it. Empty for the
+    /// two comfort scales, whose bands are ranges around a middle rather than a
     /// climb — a gauge draws those as one continuous run.
     ///
-    /// The classifier and the gauge read the same table, so the points a gauge
-    /// marks cannot drift from the points the classifier switches at.
+    /// This is the only copy of that table a hazard scale has: the classifier
+    /// reads it and so does the gauge, so the points a gauge marks cannot
+    /// drift from the points the classifier switches at.
     breakpoints: &'static [(f64, Status)],
 }
 
 impl Scale {
+    /// A hazard scale: judged by its own breakpoints, with the gauge filling
+    /// where the worst status begins.
+    const fn banded(breakpoints: &'static [(f64, Status)]) -> Self {
+        Self::banded_to(worst_status_begins_at(breakpoints), breakpoints)
+    }
+
+    /// A hazard scale whose gauge runs to `max` rather than to its last
+    /// breakpoint. Only AQI needs this; see [`AQI_SCALE_MAX`].
+    const fn banded_to(max: f64, breakpoints: &'static [(f64, Status)]) -> Self {
+        Self {
+            comfort_classifier: None,
+            max,
+            breakpoints,
+        }
+    }
+
+    /// A comfort scale, judged by `judge` rather than by a table of bands.
+    ///
+    /// Pins `breakpoints` empty, so a comfort scale cannot carry a hazard
+    /// table for a gauge to draw tick marks from.
+    const fn comfort(max: f64, judge: fn(Option<f64>) -> Status) -> Self {
+        Self {
+            comfort_classifier: Some(judge),
+            max,
+            breakpoints: &COMFORT_BREAKPOINTS,
+        }
+    }
+
     pub fn classify(self, value: Option<f64>) -> Status {
-        (self.classify)(value)
+        match self.comfort_classifier {
+            Some(judge) => judge(value),
+            None => classify(value, self.breakpoints),
+        }
     }
 
     /// The value at which this metric's gauge reads full. For most metrics
@@ -169,7 +204,13 @@ const NOX_BREAKPOINTS: [(f64, Status); 4] = [
     (100.0, Status::Unhealthy),
 ];
 
-/// The value at which the worst status begins, i.e. the last breakpoint.
+/// Where a banded gauge fills: the last breakpoint in the table.
+///
+/// Strictly, the worst status begins just *past* this value -- a reading equal
+/// to the last breakpoint is still the second-worst band, because [`classify`]
+/// matches on `value <= band_ends_at`. It is the right place for a gauge to
+/// read full all the same: past it the bar has nothing left to say that the
+/// colour is not already saying.
 const fn worst_status_begins_at(breakpoints: &'static [(f64, Status)]) -> f64 {
     breakpoints[breakpoints.len() - 1].0
 }
@@ -184,71 +225,9 @@ const AQI_SCALE_MAX: f64 = 500.0;
 /// 40C is readable, one that fills at the sensor's -40..85 range is not.
 const TEMPERATURE_SCALE_MAX: f64 = 40.0;
 
-pub const AQI: Scale = Scale {
-    classify: classify_aqi,
-    max: AQI_SCALE_MAX,
-    breakpoints: &AQI_BREAKPOINTS,
-};
-pub const CO2: Scale = Scale {
-    classify: classify_co2,
-    max: worst_status_begins_at(&CO2_BREAKPOINTS),
-    breakpoints: &CO2_BREAKPOINTS,
-};
-pub const PM25: Scale = Scale {
-    classify: classify_pm25,
-    max: worst_status_begins_at(&PM25_BREAKPOINTS),
-    breakpoints: &PM25_BREAKPOINTS,
-};
-pub const PM1: Scale = Scale {
-    classify: classify_pm1,
-    max: worst_status_begins_at(&PM25_BREAKPOINTS),
-    breakpoints: &PM25_BREAKPOINTS,
-};
-pub const PM10: Scale = Scale {
-    classify: classify_pm10,
-    max: worst_status_begins_at(&PM10_BREAKPOINTS),
-    breakpoints: &PM10_BREAKPOINTS,
-};
-pub const PARTICLE_COUNT: Scale = Scale {
-    classify: classify_particles,
-    max: worst_status_begins_at(&PARTICLE_COUNT_BREAKPOINTS),
-    breakpoints: &PARTICLE_COUNT_BREAKPOINTS,
-};
-pub const TVOC: Scale = Scale {
-    classify: classify_tvoc,
-    max: worst_status_begins_at(&TVOC_BREAKPOINTS),
-    breakpoints: &TVOC_BREAKPOINTS,
-};
-pub const NOX: Scale = Scale {
-    classify: classify_nox,
-    max: worst_status_begins_at(&NOX_BREAKPOINTS),
-    breakpoints: &NOX_BREAKPOINTS,
-};
-pub const TEMPERATURE: Scale = Scale {
-    classify: classify_temperature,
-    max: TEMPERATURE_SCALE_MAX,
-    breakpoints: &COMFORT_BREAKPOINTS,
-};
-pub const HUMIDITY: Scale = Scale {
-    classify: classify_humidity,
-    max: MAX_HUMIDITY_PERCENT,
-    breakpoints: &COMFORT_BREAKPOINTS,
-};
-
-/// Relative humidity is a percentage; its gauge is the whole of it.
-const MAX_HUMIDITY_PERCENT: f64 = 100.0;
-
-fn classify_aqi(value: Option<f64>) -> Status {
-    classify(value, &AQI_BREAKPOINTS)
-}
-
-fn classify_co2(value: Option<f64>) -> Status {
-    classify(value, &CO2_BREAKPOINTS)
-}
-
-fn classify_pm25(value: Option<f64>) -> Status {
-    classify(value, &PM25_BREAKPOINTS)
-}
+pub const AQI: Scale = Scale::banded_to(AQI_SCALE_MAX, &AQI_BREAKPOINTS);
+pub const CO2: Scale = Scale::banded(&CO2_BREAKPOINTS);
+pub const PM25: Scale = Scale::banded(&PM25_BREAKPOINTS);
 
 /// PM1.0 shares the PM2.5 breakpoints, deliberately.
 ///
@@ -259,28 +238,18 @@ fn classify_pm25(value: Option<f64>) -> Status {
 /// conservative stand-in: it can under-state a PM1.0 reading's severity but
 /// never over-state it.
 ///
-/// Kept as its own function rather than pointing the metric table at
-/// [`classify_pm25`] so that the choice is visible where the numbers are, and
-/// so a future published PM1.0 scale is a one-line change here.
-fn classify_pm1(value: Option<f64>) -> Status {
-    classify_pm25(value)
-}
+/// A future published PM1.0 scale is a one-line change here.
+pub const PM1: Scale = Scale::banded(&PM25_BREAKPOINTS);
 
-fn classify_pm10(value: Option<f64>) -> Status {
-    classify(value, &PM10_BREAKPOINTS)
-}
+pub const PM10: Scale = Scale::banded(&PM10_BREAKPOINTS);
+pub const PARTICLE_COUNT: Scale = Scale::banded(&PARTICLE_COUNT_BREAKPOINTS);
+pub const TVOC: Scale = Scale::banded(&TVOC_BREAKPOINTS);
+pub const NOX: Scale = Scale::banded(&NOX_BREAKPOINTS);
+pub const TEMPERATURE: Scale = Scale::comfort(TEMPERATURE_SCALE_MAX, classify_temperature);
+pub const HUMIDITY: Scale = Scale::comfort(MAX_HUMIDITY_PERCENT, classify_humidity);
 
-fn classify_particles(value: Option<f64>) -> Status {
-    classify(value, &PARTICLE_COUNT_BREAKPOINTS)
-}
-
-fn classify_tvoc(value: Option<f64>) -> Status {
-    classify(value, &TVOC_BREAKPOINTS)
-}
-
-fn classify_nox(value: Option<f64>) -> Status {
-    classify(value, &NOX_BREAKPOINTS)
-}
+/// Relative humidity is a percentage; its gauge is the whole of it.
+const MAX_HUMIDITY_PERCENT: f64 = 100.0;
 
 fn classify_temperature(value: Option<f64>) -> Status {
     let Some(value) = value.filter(|value| value.is_finite()) else {
@@ -349,22 +318,22 @@ mod tests {
 
     #[test]
     fn classifies_aqi_boundaries() {
-        assert_eq!(classify_aqi(None), Status::Unknown);
-        assert_eq!(classify_aqi(Some(50.0)), Status::Good);
-        assert_eq!(classify_aqi(Some(51.0)), Status::Moderate);
-        assert_eq!(classify_aqi(Some(101.0)), Status::Elevated);
-        assert_eq!(classify_aqi(Some(151.0)), Status::Unhealthy);
-        assert_eq!(classify_aqi(Some(201.0)), Status::VeryUnhealthy);
+        assert_eq!(AQI.classify(None), Status::Unknown);
+        assert_eq!(AQI.classify(Some(50.0)), Status::Good);
+        assert_eq!(AQI.classify(Some(51.0)), Status::Moderate);
+        assert_eq!(AQI.classify(Some(101.0)), Status::Elevated);
+        assert_eq!(AQI.classify(Some(151.0)), Status::Unhealthy);
+        assert_eq!(AQI.classify(Some(201.0)), Status::VeryUnhealthy);
     }
 
     #[test]
     fn classifies_humidity_and_temperature_boundaries() {
-        assert_eq!(classify_temperature(Some(22.0)), Status::Good);
-        assert_eq!(classify_temperature(Some(17.0)), Status::Moderate);
-        assert_eq!(classify_temperature(Some(31.0)), Status::Elevated);
-        assert_eq!(classify_humidity(Some(45.0)), Status::Good);
-        assert_eq!(classify_humidity(Some(25.0)), Status::Moderate);
-        assert_eq!(classify_humidity(Some(85.0)), Status::Unhealthy);
+        assert_eq!(TEMPERATURE.classify(Some(22.0)), Status::Good);
+        assert_eq!(TEMPERATURE.classify(Some(17.0)), Status::Moderate);
+        assert_eq!(TEMPERATURE.classify(Some(31.0)), Status::Elevated);
+        assert_eq!(HUMIDITY.classify(Some(45.0)), Status::Good);
+        assert_eq!(HUMIDITY.classify(Some(25.0)), Status::Moderate);
+        assert_eq!(HUMIDITY.classify(Some(85.0)), Status::Unhealthy);
     }
 
     #[test]
@@ -397,23 +366,52 @@ mod tests {
     }
 
     #[test]
-    fn every_scale_classifies_the_same_way_as_its_classifier() {
-        assert_eq!(AQI.classify(Some(42.0)), classify_aqi(Some(42.0)));
-        assert_eq!(PM1.classify(Some(42.0)), classify_pm1(Some(42.0)));
-        assert_eq!(
-            TEMPERATURE.classify(Some(22.0)),
-            classify_temperature(Some(22.0))
-        );
+    fn every_banded_scale_changes_band_exactly_at_its_own_breakpoints() {
+        // The gauge marks ticks at `breakpoints()` and colours cells by
+        // `classify()`. This is the assertion that those two agree, for every
+        // banded scale rather than a sampled few: a scale whose classifier
+        // switched anywhere other than its own table would draw a colour
+        // change away from the tick marking it.
+        for scale in [
+            AQI,
+            CO2,
+            PM25,
+            PM1,
+            PM10,
+            PARTICLE_COUNT,
+            TVOC,
+            NOX,
+        ] {
+            for (band_ends_at, status) in scale.breakpoints() {
+                assert_eq!(
+                    scale.classify(Some(*band_ends_at)),
+                    *status,
+                    "the band ending at {band_ends_at} should still be {status:?}"
+                );
+
+                let just_past = band_ends_at + f64::EPSILON.max(band_ends_at.abs() * 1e-9);
+                assert!(
+                    scale.classify(Some(just_past)).rank() > status.rank(),
+                    "just past {band_ends_at} should be worse than {status:?}"
+                );
+            }
+        }
+
+        // The comfort scales carry no table for a gauge to draw ticks from.
+        assert!(TEMPERATURE.breakpoints().is_empty());
+        assert!(HUMIDITY.breakpoints().is_empty());
         assert_eq!(HUMIDITY.classify(None), Status::Unknown);
     }
 
     #[test]
     fn classifies_all_metric_families() {
-        assert_eq!(classify_co2(Some(801.0)), Status::Moderate);
-        assert_eq!(classify_pm25(Some(55.5)), Status::Unhealthy);
-        assert_eq!(classify_pm10(Some(355.0)), Status::VeryUnhealthy);
-        assert_eq!(classify_particles(Some(1001.0)), Status::Elevated);
-        assert_eq!(classify_tvoc(Some(401.0)), Status::VeryUnhealthy);
-        assert_eq!(classify_nox(Some(21.0)), Status::Elevated);
+        assert_eq!(CO2.classify(Some(801.0)), Status::Moderate);
+        assert_eq!(PM25.classify(Some(55.5)), Status::Unhealthy);
+        assert_eq!(PM10.classify(Some(355.0)), Status::VeryUnhealthy);
+        assert_eq!(PARTICLE_COUNT.classify(Some(1001.0)), Status::Elevated);
+        assert_eq!(TVOC.classify(Some(401.0)), Status::VeryUnhealthy);
+        assert_eq!(NOX.classify(Some(21.0)), Status::Elevated);
+        assert_eq!(PM1.classify(Some(55.5)), Status::Unhealthy);
     }
 }
+
