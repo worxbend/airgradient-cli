@@ -1133,3 +1133,16 @@ fn the_wordmark_is_a_gradient_rather_than_one_flat_colour() {
         "expected the wordmark to be coloured along a ramp, got {colours:?}"
     );
 }
+
+#[test]
+fn first_fetch_failure_does_not_claim_to_retain_measurements() {
+    let mut app = app(Some(device_url()));
+    app.finish_fetch_failure("connection refused", Duration::from_millis(75));
+    for fetching in [false, true] {
+        app.is_fetching = fetching;
+        let rendered = render_at(&app, 120, 40);
+        assert!(rendered.output.contains("No successful measurements yet."));
+        assert!(!rendered.output.contains("measurements retained"));
+        assert!(!rendered.output.contains("Latest measurements loaded"));
+    }
+}

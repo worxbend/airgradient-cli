@@ -3,10 +3,11 @@
 //! Both variants lead with a powerline dot colored by the current AQI status,
 //! mirroring the physical AirGradient device's LED.
 
+use std::time::SystemTime;
+
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
 };
@@ -17,7 +18,7 @@ use crate::{
     tui::{
         app::TuiApp,
         ui::{
-            ADVANCED_LAYOUT_WIDTH,
+            ADVANCED_LAYOUT_WIDTH, components,
             format::{
                 configured_url_text, fetch_status, format_duration, format_system_time_delta,
             },
@@ -37,24 +38,20 @@ const POWERLINE_SEPARATOR: Icons = Icons {
     plain: "\u{25b6}",
 };
 
-/// Columns the showcase bar's dot, separator, and home glyph take, before the
-/// cell reserved for the spinner.
-const SHOWCASE_LEAD_WIDTH: u16 = 11;
-
-pub(super) fn render_status_line(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
+pub(super) fn render_status_line(frame: &mut Frame<'_>, area: Rect, app: &TuiApp, now: SystemTime) {
     if area.width >= ADVANCED_LAYOUT_WIDTH {
-        render_showcase_status_line(frame, area, app);
+        render_showcase_status_line(frame, area, app, now);
         return;
     }
 
-    render_compact_status_line(frame, area, app);
+    render_compact_status_line(frame, area, app, now);
 }
 
 /// A leading powerline-style dot, colored by AQI status (mirroring the
 /// physical AirGradient device's LED — green/yellow/orange/red/purple via
 /// `Theme::status_color`), followed by the original compact top-bar
 /// content: app name, device URL, refresh interval, fetch status.
-fn render_compact_status_line(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
+fn render_compact_status_line(frame: &mut Frame<'_>, area: Rect, app: &TuiApp, now: SystemTime) {
     let theme = app.theme;
     let refresh = format_duration(app.refresh_interval.as_duration());
     let block = widget_block(theme);
@@ -85,7 +82,7 @@ fn render_compact_status_line(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
         Span::raw("  |  refresh "),
         Span::styled(refresh, theme.value_style()),
         Span::raw("  |  "),
-        fetch_status(app),
+        fetch_status(app, now),
     ]);
 
     frame.render_widget(
@@ -126,98 +123,65 @@ pub(super) fn render_fetch_spinner(frame: &mut Frame<'_>, area: Rect, app: &TuiA
     );
 }
 
-/// Wide-terminal top bar: unchanged icon/"Air Monitor" showcase layout,
-/// with an AQI-colored powerline dot added as the leading element.
-fn render_showcase_status_line(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
+/// Wide-screen identity, navigation hints, and acquisition telemetry.
+fn render_showcase_status_line(frame: &mut Frame<'_>, area: Rect, app: &TuiApp, now: SystemTime) {
     let theme = app.theme;
-    let updated = app
-        .last_success_at
-        .map(format_system_time_delta)
-        .unwrap_or_else(|| "not yet".to_string());
-    let block = widget_block(theme).style(theme.panel_style());
+    let tabs = Line::from(vec![
+        components::tab(theme, "Air Monitor", true),
+        components::tab(theme, "h History", false),
+        components::tab(theme, "t Themes", false),
+        components::tab(theme, "c Config", false),
+    ])
+    .right_aligned();
+    let block = widget_block(theme)
+        .border_style(theme.active_border_style())
+        .title_top(tabs);
     let inner = block.inner(area);
     frame.render_widget(block, area);
-
-    let chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(40),
-            Constraint::Percentage(20),
-            Constraint::Percentage(40),
-        ])
-        .split(inner);
-
-    // The refresh glyph's cell is handed to the spinner while a fetch is in
-    // flight, so the bar's width does not change as one starts and finishes.
-    let [lead_area, spinner_area, updated_area] = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Length(SHOWCASE_LEAD_WIDTH),
-            Constraint::Length(1),
-            Constraint::Min(0),
-        ])
-        .areas(chunks[0]);
-
+    let [brand, state, timing] = Layout::horizontal([
+        Constraint::Length(24),
+        Constraint::Min(15),
+        Constraint::Length(46),
+    ])
+    .areas(inner);
+    let mut name = vec![aqi_indicator_dot(app), Span::raw(" ")];
+    name.extend(wordmark(app));
+    frame.render_widget(Paragraph::new(Line::from(name)), brand);
+    let status = Line::from(vec![fetch_status(app, now)]);
+    frame.render_widget(Paragraph::new(status), state);
+    let updated = app
+        .last_success_at
+        .map(|time| format_system_time_delta(time, now))
+        .unwrap_or_else(|| "not yet".to_string());
     frame.render_widget(
         Paragraph::new(Line::from(vec![
-            aqi_indicator_dot(app),
-            aqi_indicator_separator(app),
-            Span::raw("   "),
-            Span::styled("⌂", theme.value_style()),
-            Span::raw("   "),
-        ]))
-        .alignment(Alignment::Left),
-        lead_area,
-    );
-
-    if app.is_fetching {
-        render_fetch_spinner(frame, spinner_area, app);
-    } else {
-        frame.render_widget(
-            Paragraph::new(Span::styled("↻", theme.value_style())),
-            spinner_area,
-        );
-    }
-
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::raw("   "),
-            Span::styled("Last updated: ", theme.label_style()),
+            Span::styled("Last updated: ", theme.muted_style()),
             Span::styled(updated, theme.value_style()),
-        ]))
-        .alignment(Alignment::Left),
-        updated_area,
-    );
-    frame.render_widget(
-        Paragraph::new(Span::styled("Air Monitor", theme.value_style()))
-            .alignment(Alignment::Center),
-        chunks[1],
-    );
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled("⚙", theme.value_style()),
-            Span::raw("   "),
-            Span::styled("ⓘ", theme.value_style()),
+            Span::styled(
+                format!(
+                    "  /  refresh {}",
+                    format_duration(app.refresh_interval.as_duration())
+                ),
+                theme.muted_style(),
+            ),
         ]))
         .alignment(Alignment::Right),
-        chunks[2],
+        timing,
     );
 }
 
 fn aqi_indicator_dot(app: &TuiApp) -> Span<'static> {
     Span::styled(
         " ● ",
-        Style::default()
-            .fg(app.theme.highlight_fg)
-            .bg(app.theme.status_color(aqi_status(app)))
-            .add_modifier(Modifier::BOLD),
+        app.theme
+            .badge_style(app.theme.status_color(aqi_status(app))),
     )
 }
 
 fn aqi_indicator_separator(app: &TuiApp) -> Span<'static> {
     Span::styled(
         app.theme.icon(POWERLINE_SEPARATOR),
-        Style::default().fg(app.theme.status_color(aqi_status(app))),
+        app.theme.status_style(aqi_status(app)),
     )
 }
 

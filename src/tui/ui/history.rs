@@ -122,7 +122,8 @@ pub(super) fn render_metric_history(
             window.len(),
             low,
             peak,
-        ))),
+        )))
+        .style(theme.raised_style()),
         caption_area,
     );
 

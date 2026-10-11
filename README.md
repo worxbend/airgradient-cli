@@ -132,7 +132,8 @@ there is nothing to compare against.
 |  | |
 | --- | --- |
 | 📟 **One-shot readings** | Run it bare, get an AQI headline plus the full metric table. Non-zero exit when the device is unreachable — drops straight into scripts. |
-| 📊 **Live TUI dashboard** | `-t` opens an auto-refreshing Ratatui dashboard with gauges, trend arrows, and status colors mirroring the device's own LED. |
+| 📊 **Live TUI dashboard** | `-t` opens a layered telemetry cockpit: oversized AQI readouts, semantic status badges, banded gauges, trend arrows, and responsive metric cards. |
+| 🛠️ **Unified visual system** | A floating command dialog, live theme gallery, draft settings with field guides, and recorded-history summaries share the same panels, keycaps, and semantic colours. [Design and previews](docs/tui-design.md). |
 | 🧾 **JSON for pipelines** | `--json` emits every metric with raw value, formatted value, unit, status, and trend. Pipe it to `jq`, Prometheus, or cron. |
 | 🎯 **Banded gauges** | Every card carries a bar coloured green→yellow→orange→red *along its whole length*, with tick marks at the band boundaries — so you can see how much headroom is left, not just where you are. |
 | 🔣 **Nerd Font icons** | A distinct glyph per reading type. Terminals without a patched font are covered: the TTY-safe `mono` theme swaps in plain-Unicode stand-ins. |

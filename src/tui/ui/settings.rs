@@ -1,35 +1,26 @@
-//! The two full-screen views: the theme picker and the config editor.
-//!
-//! Both take over the whole frame (no dashboard behind them) and both edit a
-//! draft that is only written back to disk on confirm — see
-//! [`crate::tui::app::TuiApp`] for the draft state and Esc/Enter semantics.
+//! Full-screen draft settings. Rendering never commits a theme or config.
 
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
+    style::Style,
     text::{Line, Span},
     widgets::{Padding, Paragraph, Wrap},
 };
 
-use crate::{
-    sensors::Status,
-    tui::{
-        app::{ConfigField, TuiApp},
-        theme::{self, Theme},
-        ui::{
-            hit::{HitMap, HitTarget},
-            screen_inset, widget_block, widget_gap,
-        },
+use crate::tui::{
+    app::{ConfigField, TuiApp},
+    theme::{self, Theme, VisualState},
+    ui::{
+        components::{badge, key_hint, meter, panel, render_input, section},
+        hit::{HitMap, HitTarget},
+        screen_inset, widget_gap,
     },
 };
 
 /// Column width reserved for config field labels, so values line up.
 const CONFIG_LABEL_WIDTH: usize = 22;
 
-/// Full-screen theme picker, styled after obsctl-rs/twi's settings view:
-/// arrow keys live-preview a theme across the whole UI, Enter confirms and
-/// persists it, Esc reverts to whatever was active before opening this view.
 pub(super) fn render_theme_settings(
     frame: &mut Frame<'_>,
     area: Rect,
@@ -38,111 +29,177 @@ pub(super) fn render_theme_settings(
 ) {
     let theme = app.theme;
     let area = screen_inset(area);
-
-    let outer = widget_block(theme)
-        .padding(Padding::horizontal(1))
-        .border_style(theme.active_border_style())
-        .title(
-            " Themes — j/k preview \u{00b7} gg/G ends \u{00b7} Enter apply \u{00b7} Esc cancel ",
-        );
+    let outer = panel(theme, "Themes", VisualState::Focused).padding(Padding::horizontal(1));
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
+    let [heading, content, controls] = settings_regions(inner);
+    frame.render_widget(
+        Paragraph::new(section(theme, "APPEARANCE", "Live preview")),
+        heading,
+    );
+    render_controls(frame, controls, theme, "preview", "apply");
 
-    let sections = Layout::default()
-        .direction(Direction::Horizontal)
-        .spacing(widget_gap(inner))
-        // `Fill` rather than `Percentage`: percentages adding up to 100 leave
-        // the solver no room for the gutter between the two panels.
-        .constraints([Constraint::Fill(45), Constraint::Fill(55)])
-        .split(inner);
+    // Keep the names readable before spending columns on a second panel.
+    if content.width < 72 {
+        render_theme_list(frame, content, app, hits);
+    } else {
+        let [list, preview] = Layout::default()
+            .direction(Direction::Horizontal)
+            .spacing(widget_gap(content))
+            .constraints([Constraint::Length(38), Constraint::Min(30)])
+            .areas(content);
+        render_theme_list(frame, list, app, hits);
+        render_theme_preview(frame, preview, theme);
+    }
+}
 
-    render_theme_list(frame, sections[0], app, hits);
-    render_theme_preview(frame, sections[1], theme);
+fn settings_regions(inner: Rect) -> [Rect; 3] {
+    // At very short sizes the list wins over explanatory copy.
+    let heading = if inner.height >= 8 { 2 } else { 0 };
+    let controls = if inner.height >= 5 { 2 } else { 0 };
+    Layout::vertical([
+        Constraint::Length(heading),
+        Constraint::Min(1),
+        Constraint::Length(controls),
+    ])
+    .areas(inner)
+}
+
+fn render_controls(frame: &mut Frame<'_>, area: Rect, theme: Theme, nav: &str, enter: &str) {
+    let mut first = key_hint(theme, "j/k", nav);
+    first.push(Span::raw("   "));
+    first.extend(key_hint(theme, "Enter", enter));
+    let mut second = key_hint(theme, "gg/G", "ends");
+    second.push(Span::raw("   "));
+    second.extend(key_hint(theme, "Esc", "cancel"));
+    if area.width >= 64 {
+        first.push(Span::raw("   "));
+        first.extend(second);
+        second = Vec::new();
+    }
+    frame.render_widget(
+        Paragraph::new(vec![Line::from(first), Line::from(second)]).style(theme.surface_style()),
+        area,
+    );
+}
+
+/// A deterministic scroll window, including when a resize hides the selection.
+/// The model's cursor remains absolute; only the visible rows are rebased.
+fn visible_start(selected: usize, count: usize, height: u16) -> usize {
+    let visible = usize::from(height);
+    selected
+        .saturating_add(1)
+        .saturating_sub(visible)
+        .min(count.saturating_sub(visible))
 }
 
 fn render_theme_list(frame: &mut Frame<'_>, area: Rect, app: &TuiApp, hits: &mut HitMap) {
     let theme = app.theme;
-    let lines: Vec<Line> = theme::ALL
-        .iter()
-        .enumerate()
-        .map(|(index, candidate)| {
-            let swatch = vec![
-                Span::styled("██", Style::default().fg(candidate.accent)),
-                Span::styled("██", Style::default().fg(candidate.success)),
-                Span::styled("██", Style::default().fg(candidate.warning)),
-                Span::styled("██", Style::default().fg(candidate.danger)),
-                Span::raw("  "),
-                Span::raw(candidate.label),
-            ];
-            let style = if index == app.theme_cursor() {
-                selected_row_style(theme)
-            } else {
-                Style::default()
-            };
-            Line::from(swatch).style(style)
-        })
-        .collect();
-
-    let block = widget_block(theme)
+    let selected = app.theme_cursor();
+    let block = panel(theme, "Themes", VisualState::Focused)
         .padding(Padding::horizontal(1))
-        .title(" Themes ");
-    let inner = block.inner(area);
-
-    frame.render_widget(
-        Paragraph::new(lines)
-            .style(theme.panel_style())
-            .block(block),
-        area,
-    );
-
-    hits.push_rows(inner, theme::ALL.len(), HitTarget::ThemeRow);
-}
-
-/// Sample of the currently highlighted theme, covering every role the
-/// dashboard uses (statuses, muted/label/value text, selection) so a theme
-/// can be judged without applying it.
-fn render_theme_preview(frame: &mut Frame<'_>, area: Rect, theme: Theme) {
-    let block = widget_block(theme)
-        .padding(Padding::horizontal(1))
-        .border_style(theme.active_border_style())
-        .title(format!(" Preview: {} ", theme.label));
+        .title_bottom(Line::from(Span::styled(
+            format!(" {} / {} ", selected + 1, theme::ALL.len()),
+            theme.muted_style(),
+        )));
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    let start = visible_start(selected, theme::ALL.len(), inner.height);
 
-    let lines = vec![
-        Line::from(Span::styled("AirGradient", theme.title_style())),
-        Line::raw(""),
-        Line::from(Span::styled(
-            "● AQI 42 Good",
-            Style::default().fg(theme.status_color(Status::Good)),
-        )),
-        Line::from(Span::styled(
-            "● AQI 120 Moderate",
-            Style::default().fg(theme.status_color(Status::Moderate)),
-        )),
-        Line::from(Span::styled(
-            "● AQI 250 Unhealthy",
-            Style::default().fg(theme.status_color(Status::Unhealthy)),
-        )),
-        Line::raw(""),
-        Line::from(Span::styled("muted text", theme.muted_style())),
-        Line::from(Span::styled("label text", theme.label_style())),
-        Line::from(Span::styled("value text", theme.value_style())),
-        Line::raw(""),
-        Line::from(Span::styled(
-            " selected row ",
-            Style::default()
-                .bg(theme.highlight_bg)
-                .fg(theme.highlight_fg),
-        )),
-    ];
-
-    frame.render_widget(Paragraph::new(lines).style(theme.panel_style()), inner);
+    for (row, (index, candidate)) in theme::ALL
+        .iter()
+        .enumerate()
+        .skip(start)
+        .take(usize::from(inner.height))
+        .enumerate()
+    {
+        let is_selected = index == selected;
+        let style = if is_selected {
+            theme.selected_style()
+        } else {
+            theme.surface_style()
+        };
+        let swatch = if theme.nerd_icons { "█" } else { "#" };
+        let mut spans = vec![Span::styled(if is_selected { "> " } else { "  " }, style)];
+        // Never sacrifice a name for decoration on tiny terminals.
+        if inner.width >= 24 {
+            for color in [
+                candidate.accent,
+                candidate.success,
+                candidate.warning,
+                candidate.danger,
+            ] {
+                spans.push(Span::styled(swatch, Style::default().fg(color)));
+            }
+            spans.push(Span::raw("  "));
+        }
+        spans.push(Span::styled(candidate.label, style));
+        let rect = Rect::new(inner.x, inner.y + row as u16, inner.width, 1);
+        frame.render_widget(Paragraph::new(Line::from(spans)).style(style), rect);
+    }
+    // push_rows indexes the visible window; translate back to the model index.
+    hits.push_rows(inner, theme::ALL.len().saturating_sub(start), |row| {
+        HitTarget::ThemeRow(start + row)
+    });
 }
 
-/// Full-screen config editor: navigate fields with arrows, Enter edits a
-/// text field / toggles a boolean / opens the theme picker / saves, Esc
-/// cancels the current field edit (or discards the whole draft and closes).
+/// A small dashboard specimen rather than a palette of unexplained colours.
+fn render_theme_preview(frame: &mut Frame<'_>, area: Rect, theme: Theme) {
+    let block = panel(
+        theme,
+        &format!("Preview: {}", theme.label),
+        VisualState::Normal,
+    )
+    .padding(Padding::horizontal(1));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let lines = vec![
+        section(theme, "AirGradient", "AIR MONITOR"),
+        Line::raw(""),
+        Line::from(vec![
+            Span::styled("AQI 42  ", theme.value_style()),
+            badge(theme, "Good", VisualState::Success),
+        ]),
+        meter(
+            theme,
+            42.0 / 500.0,
+            inner.width.min(32),
+            VisualState::Success,
+        ),
+        Line::from(Span::styled(
+            "Latest air quality reading.",
+            theme.muted_style(),
+        )),
+        Line::raw(""),
+        section(theme, "STATUS", "Colour with meaning"),
+        Line::from(vec![
+            badge(theme, "Good", VisualState::Success),
+            Span::raw(" "),
+            badge(theme, "Moderate", VisualState::Warning),
+        ]),
+        Line::from(vec![
+            badge(theme, "Unhealthy", VisualState::Error),
+            Span::raw(" "),
+            badge(theme, "Unknown", VisualState::Disabled),
+        ]),
+        Line::raw(""),
+        section(theme, "INTERACTION", "Focus and selection"),
+        Line::from(Span::styled(" > selected row ", theme.selected_style())),
+        Line::from(vec![
+            Span::styled("label text  ", theme.label_style()),
+            Span::styled("value text", theme.value_style()),
+        ]),
+        Line::from(Span::styled("muted text", theme.muted_style())),
+        Line::raw(""),
+        Line::from(key_hint(theme, "Enter", "apply this theme")),
+        Line::from(Span::styled(
+            "Esc restores your previous theme.",
+            theme.muted_style(),
+        )),
+    ];
+    frame.render_widget(Paragraph::new(lines).style(theme.surface_style()), inner);
+}
+
 pub(super) fn render_config_editor(
     frame: &mut Frame<'_>,
     area: Rect,
@@ -151,78 +208,181 @@ pub(super) fn render_config_editor(
 ) {
     let theme = app.theme;
     let area = screen_inset(area);
-    let outer = widget_block(theme)
-        .padding(Padding::horizontal(1))
-        .border_style(theme.active_border_style())
-        .title(" Config — j/k navigate \u{00b7} Enter edit/toggle \u{00b7} Esc cancel ");
+    let outer = panel(theme, "Config", VisualState::Focused).padding(Padding::horizontal(1));
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
-
-    let rows: Vec<Line> = ConfigField::ALL
-        .iter()
-        .enumerate()
-        .map(|(index, field)| config_field_row(app, *field, index == app.config_field_cursor()))
-        .collect();
-
-    // The field list and the error message are rendered separately, and only
-    // the error message wraps. `HitMap::push_rows` records one click zone per
-    // field, one terminal row apart, so a field that wrapped onto a second
-    // visual line would push every field below it out of step with its own
-    // click zone: clicking "Refresh interval" would select "Server URL", and
-    // clicking "[ Save & Close ]" would open the theme picker. A long value is
-    // clipped at the panel edge instead.
-    let [field_area, error_area] = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(rows.len() as u16), Constraint::Min(0)])
-        .areas(inner);
-
-    frame.render_widget(Paragraph::new(rows).style(theme.panel_style()), field_area);
-
-    if let Some(error) = &app.config_editor_error {
-        frame.render_widget(
-            Paragraph::new(vec![
-                Line::raw(""),
-                Line::from(Span::styled(format!("error: {error}"), theme.error_style())),
-            ])
-            .style(theme.panel_style())
-            .wrap(Wrap { trim: true }),
-            error_area,
-        );
+    let [heading, content, controls] = settings_regions(inner);
+    frame.render_widget(
+        Paragraph::new(section(theme, "PREFERENCES", "Unsaved draft")),
+        heading,
+    );
+    if app.config_editor_editing.is_some() {
+        let mut keys = key_hint(theme, "Enter", "confirm");
+        keys.push(Span::raw("   "));
+        keys.extend(key_hint(theme, "Esc", "cancel edit"));
+        frame.render_widget(Paragraph::new(Line::from(keys)), controls);
+    } else {
+        render_controls(frame, controls, theme, "navigate", "edit/toggle");
     }
 
-    hits.push_rows(field_area, ConfigField::ALL.len(), HitTarget::ConfigRow);
-}
-
-fn config_field_row(app: &TuiApp, field: ConfigField, selected: bool) -> Line<'static> {
-    let theme = app.theme;
-    let editing = selected && app.config_editor_editing.is_some();
-    let style = if selected {
-        selected_row_style(theme)
+    let form = if content.width >= 90 {
+        let [form, help] = Layout::horizontal([Constraint::Min(54), Constraint::Length(32)])
+            .spacing(1)
+            .areas(content);
+        render_config_help(frame, help, app);
+        form
     } else {
-        theme.value_style()
+        content
     };
-
-    Line::from(vec![
-        Span::styled(
-            format!(
-                "{:<width$}",
-                config_field_label(field),
-                width = CONFIG_LABEL_WIDTH
-            ),
-            style,
-        ),
-        Span::styled(
-            config_field_display_value(app, field, editing),
-            if selected { style } else { theme.muted_style() },
-        ),
-    ])
+    let error_height = if app.config_editor_error.is_some() && form.height >= 5 {
+        3
+    } else {
+        0
+    };
+    let [fields, error] =
+        Layout::vertical([Constraint::Min(1), Constraint::Length(error_height)]).areas(form);
+    render_config_fields(frame, fields, app, hits);
+    if let Some(message) = &app.config_editor_error {
+        frame.render_widget(
+            Paragraph::new(format!("error: {message}"))
+                .style(theme.state_style(VisualState::Error))
+                .wrap(Wrap { trim: true }),
+            error,
+        );
+    }
 }
 
-fn selected_row_style(theme: Theme) -> Style {
-    Style::default()
-        .bg(theme.highlight_bg)
-        .fg(theme.highlight_fg)
-        .add_modifier(Modifier::BOLD)
+fn render_config_fields(frame: &mut Frame<'_>, area: Rect, app: &TuiApp, hits: &mut HitMap) {
+    let stacked = area.width < 48;
+    let row_height = if stacked || area.height >= (ConfigField::ALL.len() * 2) as u16 {
+        2
+    } else {
+        1
+    };
+    let visible = area.height / row_height;
+    let start = visible_start(app.config_field_cursor(), ConfigField::ALL.len(), visible);
+    for (row, (index, field)) in ConfigField::ALL
+        .iter()
+        .enumerate()
+        .skip(start)
+        .take(usize::from(visible))
+        .enumerate()
+    {
+        let selected = index == app.config_field_cursor();
+        let editing = selected && app.config_editor_editing.is_some();
+        let style = if selected {
+            app.theme.selected_style()
+        } else {
+            app.theme.raised_style()
+        };
+        let label_style = if selected {
+            style
+        } else {
+            app.theme.label_style()
+        };
+        let value_style = if selected {
+            style
+        } else {
+            app.theme.value_style()
+        };
+        let label = config_field_label(*field);
+        let value = config_field_display_value(app, *field, editing);
+        let cursor = Span::styled(if selected { "> " } else { "  " }, style);
+        let lines = if stacked {
+            vec![
+                Line::from(vec![cursor, Span::styled(label, label_style)]),
+                Line::from(Span::styled(value, value_style)),
+            ]
+        } else {
+            vec![Line::from(vec![
+                cursor,
+                Span::styled(format!("{label:<CONFIG_LABEL_WIDTH$}"), label_style),
+                Span::styled(value, value_style),
+            ])]
+        };
+        let rect = Rect::new(
+            area.x,
+            area.y + row as u16 * row_height,
+            area.width,
+            row_height,
+        );
+        // Values never wrap: click rectangles are exactly the rendered rows.
+        let painted = Rect {
+            height: if stacked { row_height } else { 1 },
+            ..rect
+        };
+        frame.render_widget(Paragraph::new(lines).style(style), painted);
+        if editing {
+            let offset = if stacked {
+                0
+            } else {
+                CONFIG_LABEL_WIDTH as u16 + 2
+            };
+            let value_area = Rect::new(
+                painted.x + offset,
+                painted.y + u16::from(stacked),
+                painted.width.saturating_sub(offset),
+                1,
+            );
+            render_input(
+                frame,
+                value_area,
+                Line::from(config_field_display_value(app, *field, true)),
+                value_style,
+            );
+        }
+        hits.push(painted, HitTarget::ConfigRow(index));
+    }
+}
+
+fn render_config_help(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
+    let theme = app.theme;
+    let block = panel(theme, "Field guide", VisualState::Normal).padding(Padding::horizontal(1));
+    let text = match app.config_editor_field() {
+        ConfigField::ServerUrl => "Device address on your network. Include http:// or https://.",
+        ConfigField::RefreshInterval => {
+            "Seconds between automatic readings. The current draft does not change the running monitor until saved."
+        }
+        ConfigField::NotificationsEnabled => {
+            "Enable or disable desktop notifications in the saved configuration."
+        }
+        ConfigField::StartMinimized => "Choose whether the desktop app starts minimized.",
+        ConfigField::Theme => {
+            "Open the theme gallery. Preview colours live, then confirm your choice."
+        }
+        ConfigField::SaveAndClose => {
+            "Validate and save this draft, then return to the monitor. Esc discards unsaved changes."
+        }
+    };
+    frame.render_widget(
+        Paragraph::new(vec![
+            Line::from(badge(
+                theme,
+                if app.config_editor_editing.is_some() {
+                    "EDITING"
+                } else {
+                    "DRAFT"
+                },
+                VisualState::Info,
+            )),
+            Line::raw(""),
+            Line::from(Span::styled(
+                config_field_label(app.config_editor_field()),
+                theme.value_style(),
+            )),
+            Line::raw(""),
+            Line::from(text),
+            Line::raw(""),
+            Line::from(Span::styled(
+                "Changes stay local until Save & Close.",
+                theme.muted_style(),
+            )),
+        ])
+        .style(theme.surface_style())
+        .wrap(Wrap { trim: true })
+        .block(block),
+        area,
+    );
 }
 
 fn config_field_label(field: ConfigField) -> &'static str {
@@ -236,14 +396,13 @@ fn config_field_label(field: ConfigField) -> &'static str {
     }
 }
 
-/// The value column for one field. While a field is being edited the live
-/// input buffer replaces the saved value, with a block cursor appended.
+/// Editing values remain model-owned; the appended cursor is presentation only.
 fn config_field_display_value(app: &TuiApp, field: ConfigField, editing: bool) -> String {
     if editing {
         let buffer = app.config_editor_editing.as_deref().unwrap_or("");
-        return format!("{buffer}█");
+        let cursor = if app.theme.nerd_icons { "█" } else { "_" };
+        return format!("{buffer}{cursor}");
     }
-
     match field {
         ConfigField::ServerUrl => app
             .config_draft
@@ -255,8 +414,6 @@ fn config_field_display_value(app: &TuiApp, field: ConfigField, editing: bool) -
             bool_label(app.config_draft.notifications_enabled).to_string()
         }
         ConfigField::StartMinimized => bool_label(app.config_draft.start_minimized).to_string(),
-        // The draft, not the live theme: the picker previews live, so showing
-        // `app.theme` here would report a theme this form is not going to save.
         ConfigField::Theme => Theme::by_id(&app.config_draft.theme).label.to_string(),
         ConfigField::SaveAndClose => String::new(),
     }

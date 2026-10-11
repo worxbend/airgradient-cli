@@ -15,6 +15,8 @@ mod air_monitor;
 mod air_monitor_card;
 mod chart;
 mod chrome;
+mod command_palette;
+mod components;
 mod dashboard;
 mod format;
 mod gauge;
@@ -28,6 +30,8 @@ mod status_line;
 mod toast;
 
 pub use hit::{HitMap, HitTarget};
+
+use std::time::SystemTime;
 
 use ratatui::{
     Frame,
@@ -155,6 +159,12 @@ pub fn draw(frame: &mut Frame<'_>, app: &TuiApp) {
 /// the frame the user is actually looking at; callers that do not handle mouse
 /// input can use [`draw`] and ignore the map.
 pub fn draw_with_hits(frame: &mut Frame<'_>, app: &TuiApp, hits: &mut HitMap) {
+    draw_with_hits_at(frame, app, hits, SystemTime::now());
+}
+
+/// Render with one explicit clock instant, for reproducible previews and tests.
+/// Production callers use draw_with_hits; no model or scheduling state changes.
+pub fn draw_with_hits_at(frame: &mut Frame<'_>, app: &TuiApp, hits: &mut HitMap, now: SystemTime) {
     hits.clear();
 
     let area = frame.area();
@@ -171,7 +181,7 @@ pub fn draw_with_hits(frame: &mut Frame<'_>, app: &TuiApp, hits: &mut HitMap) {
 
     // Every screen paints an opaque, theme-colored backdrop first so
     // nothing is ever terminal-transparent.
-    frame.render_widget(Paragraph::new("").style(theme.panel_style()), area);
+    frame.render_widget(Paragraph::new("").style(theme.page_style()), area);
 
     if let Some(frame_no) = app.splash_frame {
         splash::render_splash(frame, area, theme, frame_no);
@@ -193,7 +203,7 @@ pub fn draw_with_hits(frame: &mut Frame<'_>, app: &TuiApp, hits: &mut HitMap) {
             return;
         }
         View::History => {
-            chart::render_history(frame, area, app, hits);
+            chart::render_history(frame, area, app, hits, now);
             toast::render_alert(frame, area, app);
             return;
         }
@@ -205,7 +215,7 @@ pub fn draw_with_hits(frame: &mut Frame<'_>, app: &TuiApp, hits: &mut HitMap) {
         return;
     }
 
-    render_dashboard_screen(frame, area, app);
+    render_dashboard_screen(frame, area, app, now);
 
     // Drawn last so the which-key popup sits above the dashboard.
     if app.leader_pending {
@@ -215,33 +225,15 @@ pub fn draw_with_hits(frame: &mut Frame<'_>, app: &TuiApp, hits: &mut HitMap) {
     toast::render_alert(frame, area, app);
 }
 
-/// Splits the dashboard screen into its five vertical bands and fills them.
-/// The error and palette bands collapse to zero height when inactive, so the
-/// dashboard reclaims that space instead of leaving a gap.
-fn render_dashboard_screen(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
+/// Dashboard bands keep their geometry while dialogs float above the readings.
+fn render_dashboard_screen(frame: &mut Frame<'_>, area: Rect, app: &TuiApp, now: SystemTime) {
     let has_error = app.current_error.is_some();
-    let has_palette = app.view == View::CommandPalette;
-    let error_height = if has_error { ERROR_PANEL_HEIGHT } else { 0 };
-    let palette_height = if has_palette { 1 } else { 0 };
-
-    // Side margins whenever the terminal can spare a column; gaps between the
-    // bands only on a terminal tall enough that four rows are not missed.
     let side_gap = widget_gap(area);
     let band_gap = if area.height >= VERTICAL_GAP_MIN_HEIGHT {
         side_gap
     } else {
         0
     };
-
-    // A band that is not showing contributes no gap either, so the footer does
-    // not float away from the dashboard when there is no error to separate it
-    // from.
-    let gap_before = |shown: bool| Constraint::Length(if shown { band_gap } else { 0 });
-
-    // Named rather than indexed: four of the nine constraints are gaps, so
-    // `chunks[6]` meant counting spacers to find the footer, and inserting a
-    // band silently shifted every index after it. The arity is checked at
-    // compile time here.
     let [
         status_area,
         _,
@@ -250,8 +242,6 @@ fn render_dashboard_screen(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
         error_area,
         _,
         footer_area,
-        _,
-        palette_area,
     ] = Layout::default()
         .direction(Direction::Vertical)
         .horizontal_margin(side_gap)
@@ -260,26 +250,21 @@ fn render_dashboard_screen(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
             Constraint::Length(STATUS_LINE_HEIGHT),
             Constraint::Length(band_gap),
             Constraint::Min(MIN_DASHBOARD_HEIGHT),
-            gap_before(has_error),
-            Constraint::Length(error_height),
+            Constraint::Length(if has_error { band_gap } else { 0 }),
+            Constraint::Length(if has_error { ERROR_PANEL_HEIGHT } else { 0 }),
             Constraint::Length(band_gap),
             Constraint::Length(FOOTER_HEIGHT),
-            gap_before(has_palette),
-            Constraint::Length(palette_height),
         ])
         .areas(area);
 
-    status_line::render_status_line(frame, status_area, app);
+    status_line::render_status_line(frame, status_area, app, now);
     dashboard::render_dashboard(frame, dashboard_area, app);
-
     if has_error {
         chrome::render_error(frame, error_area, app);
     }
-
-    chrome::render_footer(frame, footer_area, app.theme);
-
-    if has_palette {
-        chrome::render_command_palette(frame, palette_area, app);
+    chrome::render_footer(frame, footer_area, app);
+    if app.view == View::CommandPalette {
+        command_palette::render(frame, area, app);
     }
 }
 

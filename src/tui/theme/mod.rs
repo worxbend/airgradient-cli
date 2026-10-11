@@ -6,6 +6,9 @@
 //! [`Theme::find`].
 
 mod palette;
+mod tokens;
+
+pub use tokens::VisualState;
 
 pub use palette::ALL;
 
@@ -68,7 +71,7 @@ pub struct Theme {
 /// for `Rgb` colors; any named/reset color passes `base` through unchanged so
 /// the TTY-safe `Mono` theme is never tinted away from the user's terminal
 /// palette.
-fn blend(base: Color, tint: Color, t: f32) -> Color {
+pub(crate) fn blend(base: Color, tint: Color, t: f32) -> Color {
     match (base, tint) {
         (Color::Rgb(br, bg, bb), Color::Rgb(tr, tg, tb)) => {
             let mix = |b: u8, t_channel: u8| -> u8 {
@@ -112,12 +115,6 @@ impl Theme {
             .unwrap_or(0)
     }
 
-    fn card_style(&self, tint: Color) -> Style {
-        Style::default()
-            .fg(blend(self.fg, tint, 0.12))
-            .bg(blend(self.bg, tint, 0.16))
-    }
-
     /// Centralizes the AQI/metric status → color mapping shared by card
     /// borders, status text, status badges, and the powerline status line's
     /// AQI dot — the "green/yellow/orange/red" scale mirrored from the
@@ -152,32 +149,27 @@ impl Theme {
     }
 
     pub fn good_card_style(&self) -> Style {
-        self.card_style(self.success)
+        self.card_surface(Status::Good)
     }
 
     pub fn neutral_card_style(&self) -> Style {
-        self.card_style(self.info)
+        self.card_surface(Status::Unknown)
     }
 
     pub fn warning_card_style(&self) -> Style {
-        self.card_style(self.warning)
+        self.card_surface(Status::Moderate)
     }
 
     pub fn panel_style(&self) -> Style {
-        Style::default().fg(self.fg).bg(self.bg)
+        self.surface_style()
     }
 
     pub fn command_style(&self) -> Style {
-        Style::default()
-            .fg(self.highlight_fg)
-            .bg(self.warning)
-            .add_modifier(Modifier::BOLD)
+        self.key_style()
     }
 
     pub fn footer_style(&self) -> Style {
-        Style::default()
-            .fg(self.muted)
-            .bg(blend(self.bg, self.border, 0.5))
+        self.surface_style().fg(self.muted)
     }
 
     pub fn label_style(&self) -> Style {

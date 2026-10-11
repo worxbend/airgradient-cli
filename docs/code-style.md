@@ -193,11 +193,18 @@ config, and follows different rules:
   repainted. Anything animated reads `animation_frame` rather than a wall
   clock, which is also what keeps rendering a pure function of state and the
   render tests deterministic.
-- **Widgets from crates, decisions from us.** `tui-slider`, `tui-spinner`, and
-  `ratatui-toaster` draw; what to say, which band a value is in, and when an
-  alert stops showing are ours. `ui::toast` builds its engine per frame from
-  app state rather than holding one between frames, so no widget owns state the
-  model should.
+- **Shared components, model-owned decisions.** Ratatui primitives and
+  `tui-spinner` draw; `ui::components` supplies consistent panels, badges,
+  keycaps, progress, dialogs, and log-style feedback. Sensor thresholds and
+  alert lifetimes stay in the model. No renderer stores a second copy of state.
+- **Semantic surfaces, not widget-local colours.** `theme::tokens` derives page,
+  panel, raised, selection, and card fills from each palette. Overlays must
+  repaint after `Clear`, and chart Canvas backgrounds must match their panel.
+  Use `Theme::is_background` in buffer tests to catch unthemed cells.
+- **Geometry is shared with hit testing.** Scroll windows translate visible rows
+  back to absolute model indices. Reserve controls first, drop decorative
+  content before measurements, and keep the active selection visible after a
+  resize. See [the TUI design system](tui-design.md) for preview tooling.
 
 ## Testing
 

@@ -51,24 +51,7 @@ pub(super) fn gradient_spans(
         .collect()
 }
 
-/// Blends `base` toward `tint` by `t` (0.0 = `base`, 1.0 = `tint`).
-///
-/// Only defined for `Rgb` colours. A named or indexed terminal colour has no
-/// channel values to mix, so those pass `base` through unchanged — which is
-/// what keeps the TTY-safe `mono` theme from flickering between palette slots
-/// instead of shimmering.
-pub(super) fn blend(base: Color, tint: Color, t: f32) -> Color {
-    let (Color::Rgb(br, bg, bb), Color::Rgb(tr, tg, tb)) = (base, tint) else {
-        return base;
-    };
-    let mix = |from: u8, to: u8| -> u8 {
-        let from = f32::from(from);
-        let to = f32::from(to);
-        (from + (to - from) * t).round().clamp(0.0, 255.0) as u8
-    };
-
-    Color::Rgb(mix(br, tr), mix(bg, tg), mix(bb, tb))
-}
+pub(super) use crate::tui::theme::blend;
 
 #[cfg(test)]
 mod tests {

@@ -79,3 +79,35 @@ fn status_color_covers_every_status_distinctly_for_default_theme() {
         }
     }
 }
+
+#[test]
+fn semantic_states_and_surfaces_are_complete_for_every_palette() {
+    let states = [
+        VisualState::Normal,
+        VisualState::Focused,
+        VisualState::Selected,
+        VisualState::Active,
+        VisualState::Disabled,
+        VisualState::Success,
+        VisualState::Warning,
+        VisualState::Error,
+        VisualState::Info,
+    ];
+    for theme in ALL {
+        for state in states {
+            let style = theme.state_style(state);
+            assert_eq!(style.fg, Some(theme.state_color(state)));
+            if let Some(bg) = style.bg {
+                assert!(theme.is_background(bg));
+            }
+        }
+        if theme.bg == Color::Reset {
+            assert_eq!(theme.surface(), Color::Reset);
+            assert_eq!(theme.surface_hi(), Color::Reset);
+            assert_eq!(theme.track(), theme.border);
+        } else {
+            assert_ne!(theme.bg, theme.surface());
+            assert_ne!(theme.surface(), theme.surface_hi());
+        }
+    }
+}

@@ -2,9 +2,8 @@
 //! compact one.
 //!
 //! The compact layout is the fallback for any terminal too small for the
-//! showcase in [`super::air_monitor`]. It is deliberately plain — a headline
-//! AQI panel over a bordered metric grid — because it has to stay readable
-//! down to the 36x20 minimum.
+//! showcase in [`super::air_monitor`]. Layered surfaces and semantic badges
+//! retain the cockpit's hierarchy without sacrificing the 36x20 contract.
 
 use ratatui::{
     Frame,
@@ -18,10 +17,10 @@ use crate::{
     sensors::{Metric, Metrics},
     tui::{
         app::TuiApp,
-        theme::Theme,
+        theme::{Theme, VisualState},
         ui::{
-            ADVANCED_LAYOUT_HEIGHT, ADVANCED_LAYOUT_WIDTH, air_monitor, format::aqi_message,
-            history, vertical_gap, widget_block, widget_gap,
+            ADVANCED_LAYOUT_HEIGHT, ADVANCED_LAYOUT_WIDTH, air_monitor, components,
+            format::aqi_message, gauge, history, vertical_gap, widget_block, widget_gap,
         },
     },
 };
@@ -139,7 +138,14 @@ fn render_aqi(
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw("  "),
-            Span::styled(metric.status.label(), theme.status_style(metric.status)),
+            Span::styled(
+                if theme.nerd_icons {
+                    format!(" {} ", metric.status.label())
+                } else {
+                    format!("[{}]", metric.status.label())
+                },
+                theme.badge_style(theme.status_color(metric.status)),
+            ),
         ]),
         Line::from(Span::styled(aqi_message(app), theme.muted_style())),
         Line::from(vec![
@@ -151,9 +157,9 @@ fn render_aqi(
         ]),
     ];
 
-    let block = widget_block(theme)
+    let block = components::panel(theme, "Air Quality", VisualState::Normal)
         .padding(Padding::horizontal(1))
-        .title(Span::styled(" Air Quality ", theme.title_style()));
+        .style(theme.card_surface(metric.status));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -168,7 +174,17 @@ fn render_aqi(
         ])
         .areas(inner);
 
+    let [text_area, meter_area] = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(AQI_TEXT_ROWS_WRAPPED),
+            Constraint::Length(
+                gauge::SINGLE_ROW.min(text_area.height.saturating_sub(AQI_TEXT_ROWS_WRAPPED)),
+            ),
+        ])
+        .areas(text_area);
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), text_area);
+    gauge::render_band_gauge(frame, meter_area, theme, metric);
     history::render_metric_history(frame, history_area, theme, metric, history);
 }
 
@@ -242,7 +258,14 @@ fn render_metric_cell(frame: &mut Frame<'_>, area: Rect, theme: Theme, metric: &
             Span::raw(" "),
             Span::styled(metric.label, theme.label_style()),
             Span::raw("  "),
-            Span::styled(metric.status.label(), theme.status_style(metric.status)),
+            Span::styled(
+                if theme.nerd_icons {
+                    format!(" {} ", metric.status.label())
+                } else {
+                    format!("[{}]", metric.status.label())
+                },
+                theme.badge_style(theme.status_color(metric.status)),
+            ),
         ]),
         Line::from(vec![
             Span::styled(metric.display_value(), theme.value_style()),
@@ -256,7 +279,11 @@ fn render_metric_cell(frame: &mut Frame<'_>, area: Rect, theme: Theme, metric: &
     ];
 
     frame.render_widget(
-        Paragraph::new(lines).block(widget_block(theme).padding(Padding::horizontal(1))),
+        Paragraph::new(lines).block(
+            widget_block(theme)
+                .style(theme.card_surface(metric.status))
+                .padding(Padding::horizontal(1)),
+        ),
         area,
     );
 }

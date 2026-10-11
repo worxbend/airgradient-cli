@@ -36,6 +36,15 @@ fn tui_exits_after_opening_and_closing_theme_settings_in_pty() {
     assert_pty_run_exited_cleanly(result);
 }
 
+#[test]
+fn redesigned_views_preserve_keyboard_navigation_and_return_to_dashboard_in_pty() {
+    // End selection/scroll, history motions, draft cancellation, and leader
+    // routing must all return ownership of q to the dashboard.
+    for input in [b"tGkqq".as_slice(), b"hjkGqq", b"cjkqq", b" hqq"] {
+        assert_pty_run_exited_cleanly(run_tui_in_pty(input));
+    }
+}
+
 fn assert_pty_run_exited_cleanly(result: PtyRunResult) {
     match result {
         PtyRunResult::Skipped(reason) => {

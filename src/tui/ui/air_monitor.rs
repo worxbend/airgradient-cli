@@ -1,14 +1,11 @@
-//! The wide "Air Monitor" showcase dashboard.
-//!
-//! This module owns row composition only — which metric goes where, and how
-//! each band is sized. Drawing an individual card lives in
-//! [`super::air_monitor_card`].
+//! Wide cockpit composition. The height budget reserves every telemetry row
+//! before giving extra room to the AQI hero; no card is sacrificed to chrome.
 
 use ratatui::{
     Frame,
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, Layout, Rect},
     text::{Line, Span},
-    widgets::{Padding, Paragraph, Wrap},
+    widgets::Paragraph,
 };
 
 use crate::{
@@ -21,66 +18,109 @@ use crate::{
             air_monitor_card::{
                 CardSpec, render_air_monitor_aqi_card, render_air_monitor_metric_card,
             },
+            components,
             format::configured_url_text,
-            vertical_gap, widget_block,
         },
     },
 };
 
-pub(super) fn render_advanced_dashboard(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
-    let theme = app.theme;
-    render_showcase_backdrop(frame, area, theme);
-
-    // Fixed row heights with 1-cell spacers between them; the trailing
-    // `Min(8)` lets the PM row absorb any extra terminal height.
-    let rows = Layout::default()
+/// Reserve the small cards first. Even the 28-row wide-layout threshold fits
+/// a complete particulate row, unlike an overconstrained stack of fixed rows.
+fn dashboard_rows(area: Rect) -> [Rect; 7] {
+    Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),
             Constraint::Length(1),
-            Constraint::Length(13),
+            Constraint::Length(1),
+            Constraint::Min(11),
+            Constraint::Length(1),
+            Constraint::Length(6),
             Constraint::Length(1),
             Constraint::Length(7),
-            Constraint::Length(1),
-            Constraint::Min(8),
         ])
-        .split(area);
-
-    let metrics = app.metrics();
-
-    render_server_url_line(frame, rows[0], app);
-    let aqi_history = app.metric_history(metrics.aqi().key);
-    render_air_monitor_hero_row(frame, rows[2], app, metrics.aqi(), &metrics, &aqi_history);
-    render_air_monitor_gas_row(frame, rows[4], theme, &metrics);
-    render_air_monitor_pm_row(frame, rows[6], theme, &metrics);
+        .areas(area)
 }
 
-fn render_showcase_backdrop(frame: &mut Frame<'_>, area: Rect, theme: Theme) {
+pub(super) fn render_advanced_dashboard(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
+    let theme = app.theme;
+    frame.render_widget(Paragraph::new("").style(theme.page_style()), area);
+    let [
+        source,
+        overview,
+        hero,
+        gases,
+        gas_cards,
+        particles,
+        pm_cards,
+    ] = dashboard_rows(area);
+    let metrics = app.metrics();
+
+    render_server_url_line(frame, source, app);
+    render_section(
+        frame,
+        overview,
+        theme,
+        "OVERVIEW",
+        "Air quality / indoor comfort",
+    );
+    let aqi_history = app.metric_history(metrics.aqi().key);
+    render_air_monitor_hero_row(frame, hero, app, metrics.aqi(), &metrics, &aqi_history);
+    render_section(
+        frame,
+        gases,
+        theme,
+        "GASES",
+        "Ventilation / volatile compounds",
+    );
+    render_card_row(
+        frame,
+        gas_cards,
+        theme,
+        &metrics,
+        &[("co2", "CO₂"), ("tvoc", "TVOC"), ("nox", "NOx")],
+    );
+    render_section(
+        frame,
+        particles,
+        theme,
+        "PARTICULATES",
+        "Particle count / mass concentration",
+    );
+    render_card_row(
+        frame,
+        pm_cards,
+        theme,
+        &metrics,
+        &[
+            ("pm03_count", "PM₀․₃ Count"),
+            ("pm1", "PM₁․₀"),
+            ("pm25", "PM₂․₅"),
+            ("pm10", "PM₁₀"),
+        ],
+    );
+}
+
+fn render_section(frame: &mut Frame<'_>, area: Rect, theme: Theme, label: &str, detail: &str) {
     frame.render_widget(
-        Paragraph::new("")
-            .style(theme.panel_style())
-            .wrap(Wrap { trim: false }),
+        Paragraph::new(components::section(theme, label, detail)).style(theme.page_style()),
         area,
     );
 }
 
 fn render_server_url_line(frame: &mut Frame<'_>, area: Rect, app: &TuiApp) {
     let theme = app.theme;
-    let line = Line::from(vec![
-        Span::styled("Server URL: ", theme.label_style()),
-        Span::styled(configured_url_text(app), theme.muted_style()),
-    ]);
-
     frame.render_widget(
-        Paragraph::new(line)
-            .style(theme.panel_style())
-            .alignment(Alignment::Left)
-            .block(widget_block(theme).padding(Padding::horizontal(1))),
+        Paragraph::new(Line::from(vec![
+            Span::styled(" Server URL: ", theme.label_style()),
+            Span::styled(configured_url_text(app), theme.muted_style()),
+        ]))
+        .style(theme.page_style()),
         area,
     );
 }
 
-/// AQI on the left half, with temperature and humidity stacked on the right.
+/// AQI receives the strongest hierarchy; comfort readings stay stacked beside
+/// it without paying for separate, mostly empty icon columns.
 fn render_air_monitor_hero_row(
     frame: &mut Frame<'_>,
     area: Rect,
@@ -89,147 +129,112 @@ fn render_air_monitor_hero_row(
     metrics: &Metrics,
     aqi_history: &[Option<f64>],
 ) {
-    let theme = app.theme;
-    let columns = Layout::default()
+    let [hero, comfort] = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(50),
-            Constraint::Length(1),
-            Constraint::Min(40),
-        ])
-        .split(area);
+        .spacing(WIDGET_GAP)
+        .constraints([Constraint::Fill(3), Constraint::Fill(2)])
+        .areas(area);
     let comfort = Layout::default()
         .direction(Direction::Vertical)
-        .spacing(vertical_gap(area))
-        .constraints([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)])
-        .split(columns[2]);
+        .spacing(WIDGET_GAP)
+        .constraints([Constraint::Fill(1), Constraint::Fill(1)])
+        .split(comfort);
 
-    render_air_monitor_aqi_card(frame, columns[0], app, aqi, aqi_history);
-
-    if let Some(metric) = metrics.by_key("temperature_c") {
-        render_air_monitor_metric_card(
-            frame,
-            comfort[0],
-            theme,
-            metric,
-            CardSpec {
-                title: "Temperature",
-                style: theme.neutral_card_style(),
-            },
-        );
-    }
-
-    if let Some(metric) = metrics.by_key("humidity") {
-        render_air_monitor_metric_card(
-            frame,
-            comfort[1],
-            theme,
-            metric,
-            CardSpec {
-                title: "Humidity",
-                style: theme.good_card_style(),
-            },
-        );
+    render_air_monitor_aqi_card(frame, hero, app, aqi, aqi_history);
+    for ((key, title), area) in [("temperature_c", "Temperature"), ("humidity", "Humidity")]
+        .into_iter()
+        .zip(comfort.iter())
+    {
+        if let Some(metric) = metrics.by_key(key) {
+            render_air_monitor_metric_card(frame, *area, app.theme, metric, CardSpec { title });
+        }
     }
 }
 
-fn render_air_monitor_gas_row(frame: &mut Frame<'_>, area: Rect, theme: Theme, metrics: &Metrics) {
-    render_card_row(
-        frame,
-        area,
-        theme,
-        metrics,
-        &[
-            (
-                "co2",
-                CardSpec {
-                    title: "CO₂",
-                    style: theme.good_card_style(),
-                },
-            ),
-            (
-                "tvoc",
-                CardSpec {
-                    title: "TVOC",
-                    style: theme.warning_card_style(),
-                },
-            ),
-            (
-                "nox",
-                CardSpec {
-                    title: "NOx",
-                    style: theme.good_card_style(),
-                },
-            ),
-        ],
-    );
-}
-
-fn render_air_monitor_pm_row(frame: &mut Frame<'_>, area: Rect, theme: Theme, metrics: &Metrics) {
-    render_card_row(
-        frame,
-        area,
-        theme,
-        metrics,
-        &[
-            (
-                "pm03_count",
-                CardSpec {
-                    title: "PM₀․₃ Count",
-                    style: theme.neutral_card_style(),
-                },
-            ),
-            (
-                "pm1",
-                CardSpec {
-                    title: "PM₁․₀",
-                    style: theme.neutral_card_style(),
-                },
-            ),
-            (
-                "pm25",
-                CardSpec {
-                    title: "PM₂․₅",
-                    style: theme.good_card_style(),
-                },
-            ),
-            (
-                "pm10",
-                CardSpec {
-                    title: "PM₁₀",
-                    style: theme.warning_card_style(),
-                },
-            ),
-        ],
-    );
-}
-
-/// Lays `cards` out as equal-width columns separated by 1-cell gutters.
-///
-/// The columns are the same every frame: a metric the device did not report
-/// still gets its column, drawn with a placeholder value. Nothing shifts
-/// sideways when a sensor drops out, so a card stays where the eye left it.
+/// Keep every metric's column, including missing readings. A sensor dropout
+/// changes its value and status, never the spatial map of the dashboard.
 fn render_card_row(
     frame: &mut Frame<'_>,
     area: Rect,
     theme: Theme,
     metrics: &Metrics,
-    cards: &[(&str, CardSpec)],
+    cards: &[(&str, &'static str)],
 ) {
-    // `Fill` plus `spacing`, not `Ratio` plus interleaved spacer columns:
-    // ratios that already account for the whole width leave the solver no room
-    // for the gutters, and the interleaving made every card's column index
-    // `index * 2`. The compact grid and the settings view express it this way
-    // too.
     let columns = Layout::default()
         .direction(Direction::Horizontal)
         .spacing(WIDGET_GAP)
         .constraints(vec![Constraint::Fill(1); cards.len()])
         .split(area);
-
-    for ((key, spec), column) in cards.iter().zip(columns.iter()) {
+    for ((key, title), column) in cards.iter().zip(columns.iter()) {
         if let Some(metric) = metrics.by_key(key) {
-            render_air_monitor_metric_card(frame, *column, theme, metric, *spec);
+            render_air_monitor_metric_card(frame, *column, theme, metric, CardSpec { title });
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{refresh_interval::RefreshInterval, sensors::SensorSnapshot, tui::ui};
+    use ratatui::{Terminal, backend::TestBackend};
+    use std::time::Duration;
+
+    #[test]
+    fn wide_height_budget_keeps_every_card_at_the_layout_threshold() {
+        for height in [28, 29, 32, 34, 44, 60] {
+            let rows = dashboard_rows(Rect::new(1, 3, 118, height));
+            assert!(rows[2].height >= 11);
+            assert_eq!(rows[4].height, 6);
+            assert_eq!(rows[6].height, 7);
+            assert_eq!(rows[6].bottom(), 3 + height);
+            assert_eq!(rows.iter().map(|row| row.height).sum::<u16>(), height);
+        }
+    }
+
+    #[test]
+    fn all_wide_readings_and_units_survive_a_120_by_40_frame() {
+        let mut app = TuiApp::new(None, RefreshInterval::clamping(Duration::from_secs(30)));
+        app.current_snapshot = Some(SensorSnapshot {
+            aqi: Some(42.0),
+            co2: Some(612.0),
+            tvoc: Some(82.0),
+            nox: Some(3.0),
+            pm03_count: Some(1_000_000.0),
+            pm1: Some(4.1),
+            pm25: Some(7.4),
+            pm10: Some(9.8),
+            temperature_c: Some(22.6),
+            humidity: Some(48.1),
+        });
+        let mut terminal = Terminal::new(TestBackend::new(120, 40)).expect("terminal");
+        terminal
+            .draw(|frame| ui::draw(frame, &app))
+            .expect("render");
+        let buffer = terminal.backend().buffer();
+        let output = (0..40)
+            .map(|y| {
+                (0..120)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        for reading in [
+            "42",
+            "612 ppm",
+            "82 index",
+            "3 index",
+            "1000000 count/dL",
+            "4.1 ug/m3",
+            "7.4 ug/m3",
+            "9.8 ug/m3",
+            "22.6 C",
+            "48.1 %",
+        ] {
+            assert!(output.contains(reading), "missing {reading:?}\n{output}");
+        }
+        for heading in ["OVERVIEW", "GASES", "PARTICULATES"] {
+            assert!(output.contains(heading), "missing {heading}\n{output}");
         }
     }
 }

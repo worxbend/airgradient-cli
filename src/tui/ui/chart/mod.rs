@@ -14,7 +14,6 @@ use std::time::{Duration, SystemTime};
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
     symbols,
     text::{Line, Span},
     widgets::{Axis, Chart, Dataset, GraphType, Padding, Paragraph},
@@ -25,22 +24,23 @@ use crate::{
     sensors::{MISSING_VALUE, Metric, Status},
     tui::{
         app::TuiApp,
-        theme::Theme,
+        theme::{Theme, VisualState},
         ui::{
+            components::{badge, key_hint, panel, section},
             format::format_duration,
             hit::{HitMap, HitTarget},
-            screen_inset, widget_block, widget_gap,
+            screen_inset, widget_gap,
         },
     },
 };
 
 /// Width the metric list takes, leaving the rest to the plot.
 ///
-/// Sized to its contents: a status dot, a space, the longest label
+/// Sized to its contents: a selection marker, a space, the longest label
 /// ("PM0.3 count", 11), and six columns for a value wide enough for a
 /// five-figure particle count — plus the block's border and padding. Too
 /// narrow and the values clip, which is worse than not showing them.
-const METRIC_LIST_WIDTH: u16 = 24;
+const METRIC_LIST_WIDTH: u16 = 26;
 
 /// Columns the label and value get inside the list.
 const METRIC_LABEL_WIDTH: usize = 12;
@@ -54,108 +54,147 @@ const MIN_PLOTTABLE_READINGS: usize = 2;
 /// it never runs along the frame.
 const AXIS_PADDING: f64 = 0.08;
 
-pub(super) fn render_history(frame: &mut Frame<'_>, area: Rect, app: &TuiApp, hits: &mut HitMap) {
+pub(super) fn render_history(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    app: &TuiApp,
+    hits: &mut HitMap,
+    now: SystemTime,
+) {
     let theme = app.theme;
     let area = screen_inset(area);
     let metric = app.history_metric();
 
-    let outer = widget_block(theme)
-        .padding(Padding::horizontal(1))
-        .border_style(theme.active_border_style())
-        .title(Span::styled(
-            " History — j/k metric \u{00b7} gg/G ends \u{00b7} h/Esc close ",
-            theme.title_style(),
-        ));
+    let outer = panel(theme, "History", VisualState::Focused).padding(Padding::horizontal(1));
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
+    let [heading, content, controls] = Layout::vertical([
+        Constraint::Length(if inner.height >= 10 { 2 } else { 0 }),
+        Constraint::Min(1),
+        Constraint::Length(if inner.height >= 6 { 2 } else { 0 }),
+    ])
+    .areas(inner);
+    frame.render_widget(
+        Paragraph::new(section(theme, "TELEMETRY", "Recorded readings")),
+        heading,
+    );
+    let mut keys = key_hint(theme, "j/k", "metric");
+    if controls.width >= 56 {
+        keys.push(Span::raw("   "));
+        keys.extend(key_hint(theme, "gg/G", "ends"));
+    }
+    keys.push(Span::raw("   "));
+    keys.extend(key_hint(theme, "h/Esc", "close"));
+    frame.render_widget(Paragraph::new(Line::from(keys)), controls);
 
     // On a narrow terminal the plot is worth more than the list: the title bar
     // already names the metric, and j/k still change it.
-    if inner.width < METRIC_LIST_WIDTH * 2 {
-        render_plot(frame, inner, app, &metric);
+    if content.width < METRIC_LIST_WIDTH * 2 {
+        render_plot(frame, content, app, &metric, now);
         return;
     }
 
     let [list_area, plot_area] = Layout::default()
         .direction(Direction::Horizontal)
-        .spacing(widget_gap(inner))
+        .spacing(widget_gap(content))
         .constraints([
             Constraint::Length(METRIC_LIST_WIDTH),
             Constraint::Min(METRIC_LIST_WIDTH),
         ])
-        .areas(inner);
+        .areas(content);
 
     render_metric_list(frame, list_area, app, hits);
-    render_plot(frame, plot_area, app, &metric);
+    render_plot(frame, plot_area, app, &metric, now);
 }
 
-/// The metric picker: every metric, its live value, and a dot in its own
-/// status colour so the list doubles as an at-a-glance summary.
+/// The metric picker: status-coloured live values and, when height allows,
+/// explicit status labels so colour is not the only source of meaning.
 fn render_metric_list(frame: &mut Frame<'_>, area: Rect, app: &TuiApp, hits: &mut HitMap) {
     let theme = app.theme;
     let metrics = app.metrics();
     let selected = app.history_cursor.index(metrics.len());
 
-    let rows: Vec<Line> = metrics
+    let block = panel(theme, "Metric", VisualState::Focused).padding(Padding::horizontal(1));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let row_height = if usize::from(inner.height) >= metrics.len() * 2 {
+        2
+    } else {
+        1
+    };
+    let visible = usize::from(inner.height / row_height);
+    let start = selected
+        .saturating_add(1)
+        .saturating_sub(visible)
+        .min(metrics.len().saturating_sub(visible));
+    for (row, (index, metric)) in metrics
         .iter()
         .enumerate()
-        .map(|(index, metric)| {
-            let row_style = if index == selected {
-                Style::default()
-                    .bg(theme.highlight_bg)
-                    .fg(theme.highlight_fg)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
-            };
+        .skip(start)
+        .take(visible)
+        .enumerate()
+    {
+        let row_style = if index == selected {
+            theme.selected_style()
+        } else {
+            theme.surface_style()
+        };
 
-            Line::from(vec![
-                Span::styled(theme.icon(metric.icon), theme.status_style(metric.status)),
-                Span::raw(" "),
-                Span::styled(format!("{:<METRIC_LABEL_WIDTH$}", metric.label), row_style),
-                Span::styled(
-                    format!(
-                        "{:>METRIC_VALUE_WIDTH$}",
-                        metric.formatted_value.as_deref().unwrap_or(MISSING_VALUE)
-                    ),
-                    if index == selected {
-                        row_style
-                    } else {
-                        theme.muted_style()
-                    },
+        let line = Line::from(vec![
+            Span::styled(if index == selected { "> " } else { "  " }, row_style),
+            Span::styled(format!("{:<METRIC_LABEL_WIDTH$}", metric.label), row_style),
+            Span::styled(
+                format!(
+                    "{:>METRIC_VALUE_WIDTH$}",
+                    metric.formatted_value.as_deref().unwrap_or(MISSING_VALUE)
                 ),
-            ])
-            .style(row_style)
-        })
-        .collect();
-
-    let block = widget_block(theme)
-        .padding(Padding::horizontal(1))
-        .title(Span::styled(" Metric ", theme.title_style()));
-    let list_inner = block.inner(area);
-    frame.render_widget(
-        Paragraph::new(rows).style(theme.panel_style()).block(block),
-        area,
-    );
-
-    hits.push_rows(list_inner, metrics.len(), HitTarget::HistoryRow);
+                if index == selected {
+                    row_style
+                } else {
+                    theme.status_style(metric.status)
+                },
+            ),
+        ])
+        .style(row_style);
+        let mut lines = vec![line];
+        if row_height == 2 {
+            lines.push(Line::from(Span::styled(
+                format!("  {}  {}", metric.status.label(), metric.unit),
+                if index == selected {
+                    row_style
+                } else {
+                    theme.muted_style()
+                },
+            )));
+        }
+        let rect = Rect::new(
+            inner.x,
+            inner.y + row as u16 * row_height,
+            inner.width,
+            row_height,
+        );
+        frame.render_widget(Paragraph::new(lines).style(row_style), rect);
+        hits.push(rect, HitTarget::HistoryRow(index));
+    }
 }
 
-fn render_plot(frame: &mut Frame<'_>, area: Rect, app: &TuiApp, metric: &Metric) {
+fn render_plot(frame: &mut Frame<'_>, area: Rect, app: &TuiApp, metric: &Metric, now: SystemTime) {
     let theme = app.theme;
-    let block = widget_block(theme)
+    let block = panel(theme, &plot_title(metric), VisualState::Normal)
         .padding(Padding::horizontal(1))
-        .border_style(theme.status_style(metric.status))
-        .title(Span::styled(
-            format!(" {} ", plot_title(metric)),
-            theme.title_style(),
-        ));
+        .border_style(theme.status_style(metric.status));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let points = plot_points(app, metric);
+    let points = plot_points(app, metric, now);
+    let [summary, graph] = Layout::vertical([
+        Constraint::Length(if inner.height >= 7 { 3 } else { 0 }),
+        Constraint::Min(1),
+    ])
+    .areas(inner);
+    render_summary(frame, summary, theme, metric, &points);
     if points.len() < MIN_PLOTTABLE_READINGS {
-        render_waiting_for_readings(frame, inner, theme, points.len());
+        render_waiting_for_readings(frame, graph, theme, points.len());
         return;
     }
 
@@ -173,7 +212,11 @@ fn render_plot(frame: &mut Frame<'_>, area: Rect, app: &TuiApp, metric: &Metric)
         .iter()
         .map(|(status, band_points)| {
             Dataset::default()
-                .marker(symbols::Marker::Braille)
+                .marker(if theme.nerd_icons {
+                    symbols::Marker::Braille
+                } else {
+                    symbols::Marker::Dot
+                })
                 .graph_type(GraphType::Line)
                 .style(theme.status_style(*status))
                 .data(band_points)
@@ -182,7 +225,9 @@ fn render_plot(frame: &mut Frame<'_>, area: Rect, app: &TuiApp, metric: &Metric)
 
     frame.render_widget(
         Chart::new(datasets)
-            .style(theme.panel_style())
+            // Chart forwards this explicit fill to its internal Canvas.
+            // It must match the surrounding panel, not the page background.
+            .style(theme.surface_style().bg(theme.surface()))
             .x_axis(
                 Axis::default()
                     .style(theme.border_style())
@@ -200,8 +245,65 @@ fn render_plot(frame: &mut Frame<'_>, area: Rect, app: &TuiApp, metric: &Metric)
             // nothing a legend could usefully list. Saying so explicitly keeps
             // that true if a band is ever given a name of its own.
             .legend_position(None),
-        inner,
+        graph,
     );
+}
+
+fn render_summary(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    theme: Theme,
+    metric: &Metric,
+    points: &[(f64, f64)],
+) {
+    let state = match metric.status {
+        Status::Good => VisualState::Success,
+        Status::Moderate | Status::Elevated => VisualState::Warning,
+        Status::Unhealthy | Status::VeryUnhealthy => VisualState::Error,
+        Status::Unknown => VisualState::Disabled,
+    };
+    let mut lines = vec![Line::from(vec![
+        Span::styled("Now  ", theme.muted_style()),
+        Span::styled(
+            format!(
+                "{} {}  ",
+                metric.formatted_value.as_deref().unwrap_or(MISSING_VALUE),
+                metric.unit
+            ),
+            theme.value_style(),
+        ),
+        badge(theme, metric.status.label(), state),
+    ])];
+    let range = points
+        .iter()
+        .map(|point| point.1)
+        .fold(None, |range, value| {
+            Some(match range {
+                None => (value, value),
+                Some((low, high)) => (f64::min(low, value), f64::max(high, value)),
+            })
+        });
+    if let Some((low, high)) = range {
+        let count = if area.width >= 40 {
+            format!("   {} readings", points.len())
+        } else {
+            String::new()
+        };
+        lines.push(Line::from(Span::styled(
+            format!(
+                "Low {}   High {}{count}",
+                metric.format_reading(low),
+                metric.format_reading(high)
+            ),
+            theme.muted_style(),
+        )));
+    } else {
+        lines.push(Line::from(Span::styled(
+            "Waiting for recorded telemetry",
+            theme.muted_style(),
+        )));
+    }
+    frame.render_widget(Paragraph::new(lines).style(theme.surface_style()), area);
 }
 
 /// Splits a run of points into consecutive segments of one status band each.
@@ -251,8 +353,7 @@ fn plot_title(metric: &Metric) -> String {
 /// report are dropped rather than plotted as zero — the line then joins across
 /// the gap, which is honest about there being no measurement rather than
 /// inventing a plunge to the floor.
-fn plot_points(app: &TuiApp, metric: &Metric) -> Vec<(f64, f64)> {
-    let now = SystemTime::now();
+fn plot_points(app: &TuiApp, metric: &Metric, now: SystemTime) -> Vec<(f64, f64)> {
     let values = app.metric_history(metric.key);
 
     app.reading_history()
@@ -363,12 +464,17 @@ fn render_waiting_for_readings(frame: &mut Frame<'_>, area: Rect, theme: Theme, 
             Line::from(Span::styled(message, theme.muted_style())),
             Line::raw(""),
             Line::from(Span::styled(
-                "Readings are recorded as they arrive, and kept between sessions.",
+                "Readings are recorded as they arrive.",
                 theme.label_style(),
+            )),
+            Line::from(Span::styled(
+                "History is kept between sessions.",
+                theme.muted_style(),
             )),
         ])
         .alignment(Alignment::Center)
-        .style(theme.panel_style()),
+        .style(theme.surface_style())
+        .wrap(ratatui::widgets::Wrap { trim: true }),
         area,
     );
 }

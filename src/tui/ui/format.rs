@@ -40,7 +40,7 @@ pub(super) fn aqi_message(app: &TuiApp) -> &'static str {
     }
 }
 
-pub(super) fn fetch_status(app: &TuiApp) -> Span<'static> {
+pub(super) fn fetch_status(app: &TuiApp, now: SystemTime) -> Span<'static> {
     let theme = app.theme;
     if app.configured_url.is_none() {
         return Span::styled("missing config", theme.error_style());
@@ -63,7 +63,7 @@ pub(super) fn fetch_status(app: &TuiApp) -> Span<'static> {
     }
 
     if let Some(last_success_at) = app.last_success_at {
-        let mut text = format!("updated {}", format_system_time_delta(last_success_at));
+        let mut text = format!("updated {}", format_system_time_delta(last_success_at, now));
         if let Some(fetch_duration) = app.last_fetch_duration {
             text.push_str(&format!(" in {}", format_duration(fetch_duration)));
         }
@@ -76,8 +76,8 @@ pub(super) fn fetch_status(app: &TuiApp) -> Span<'static> {
 /// How long ago `time` was, in human units. A `time` in the future (clock
 /// skew, or a reading stamped between frames) reads as "just now" rather than
 /// producing a negative duration.
-pub(super) fn format_system_time_delta(time: SystemTime) -> String {
-    match SystemTime::now().duration_since(time) {
+pub(super) fn format_system_time_delta(time: SystemTime, now: SystemTime) -> String {
+    match now.duration_since(time) {
         Ok(elapsed) => format!("{} ago", format_duration(elapsed)),
         Err(_) => "just now".to_string(),
     }

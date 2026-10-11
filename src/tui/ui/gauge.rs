@@ -102,7 +102,7 @@ fn render_bar(frame: &mut Frame<'_>, area: Rect, theme: Theme, metric: &Metric) 
                     // One neutral colour, deliberately not this cell's band:
                     // colouring the empty run would read as a reading that is
                     // already there. The ticks below carry the headroom.
-                    theme.muted_style()
+                    theme.border_style().fg(theme.track())
                 },
             )
         })
@@ -273,7 +273,7 @@ mod tests {
 
         // Past the reading every cell is the one muted colour, deliberately
         // not the band it sits in — this is what the module header promises.
-        let muted = theme.muted_style().fg.expect("muted has a colour");
+        let muted = theme.track();
         assert!(
             hollow.iter().all(|(_, fg)| *fg == muted),
             "cells past the reading must all be muted"
