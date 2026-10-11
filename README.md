@@ -1,652 +1,175 @@
 <div align="center">
 
-<img src="site/assets/logo.svg" width="104" alt="airgradient-cli logo" />
+<img src="site/assets/logo.svg" width="80" alt="airgradient-cli logo" />
 
-# `airgradient-cli`
+# airgradient-cli
 
-### 🌬️ Your air quality. In your terminal. No cloud, no browser, no nonsense.
+**Your air. Your terminal. No cloud account.**
 
-A blazing-small **Rust** CLI + live **TUI dashboard** for your local AirGradient monitor.
-Talks straight to the device on your LAN, shares the desktop app's config, and never phones home.
+Local AirGradient readings, a live dashboard, and JSON for scripts. Written in Rust.
 
-[![Release](https://img.shields.io/github/v/release/worxbend/airgradient-cli?style=for-the-badge&labelColor=0B1220&color=5AD6FF)](https://github.com/worxbend/airgradient-cli/releases/latest)
-[![CI](https://img.shields.io/github/actions/workflow/status/worxbend/airgradient-cli/ci.yml?branch=main&style=for-the-badge&labelColor=0B1220&color=50FFA6&label=CI)](https://github.com/worxbend/airgradient-cli/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-MIT-D36EFF?style=for-the-badge&labelColor=0B1220)](LICENSE)
-[![Rust](https://img.shields.io/badge/rust-1.96.0-FFC75F?style=for-the-badge&labelColor=0B1220)](rust-toolchain.toml)
-[![Platform](https://img.shields.io/badge/linux-amd64%20%C2%B7%20arm64-5AD6FF?style=for-the-badge&labelColor=0B1220)](#-install)
+[![Release](https://img.shields.io/github/v/release/worxbend/airgradient-cli?labelColor=0B1220&color=5AD6FF)](https://github.com/worxbend/airgradient-cli/releases/latest)
+[![CI](https://img.shields.io/github/actions/workflow/status/worxbend/airgradient-cli/ci.yml?branch=main&labelColor=0B1220&color=50FFA6)](https://github.com/worxbend/airgradient-cli/actions/workflows/ci.yml)
+[![MIT](https://img.shields.io/badge/license-MIT-D36EFF?labelColor=0B1220)](LICENSE)
 
-**[🌐 Website](https://worxbend.github.io/airgradient-cli/)** ·
-**[📦 Releases](https://github.com/worxbend/airgradient-cli/releases)** ·
-**[🎨 Themes](#-themes)** ·
-**[⚙️ Config](#%EF%B8%8F-config)**
+[Website](https://worxbend.github.io/airgradient-cli/) · [Install](#install) · [Usage guide](docs/usage.md) · [v0.4.1 notes](docs/releases/v0.4.1.md)
 
 </div>
 
----
+![AirGradient terminal dashboard: AQI overview, metric cards, and banded gauges](site/assets/screenshots/tui-dashboard.png)
 
-## ⚡ Install
+*Actual Ratatui renderer, captured with synthetic demo data. Not live hardware readings.*
 
-```sh
-curl --proto '=https' --tlsv1.2 -sSf \
-  https://worxbend.github.io/airgradient-cli/install.sh | sh
-```
+## Install
 
-That's it. The installer resolves the latest release, downloads the archive for
-your architecture, **verifies its SHA256 checksum**, drops the binary in
-`~/.local/bin`, and adds that directory to your `PATH` if it's missing.
-
-<details>
-<summary><b>Other ways to install</b></summary>
-
-<br />
-
-**Pin a specific version**
+**Linux amd64 or arm64.** Download the installer, inspect it, then install v0.4.1:
 
 ```sh
-curl --proto '=https' --tlsv1.2 -sSf \
-  https://github.com/worxbend/airgradient-cli/releases/download/v0.2.0/install.sh | sh -s -- --version v0.2.0
-```
-
-**Install somewhere else**
-
-```sh
-curl --proto '=https' --tlsv1.2 -sSf \
-  https://worxbend.github.io/airgradient-cli/install.sh | sh -s -- --dir /usr/local/bin
-```
-
-**Read it before you run it** (always a good idea for a piped installer)
-
-```sh
-curl -fsSLO https://worxbend.github.io/airgradient-cli/install.sh
+curl --proto '=https' --tlsv1.2 -fsSL \
+  https://github.com/worxbend/airgradient-cli/releases/download/v0.4.1/install.sh \
+  -o install.sh
 less install.sh
-sh install.sh --help
+sh install.sh --version v0.4.1
 ```
 
-**From source**
+The installer checks the archive's SHA256 checksum and installs to `~/.local/bin`.
+If needed, it adds that path to `~/.bashrc` and `~/.zshrc`. Restart your shell afterward.
+Archives are unsigned. No service or package-manager registration is installed.
+
+Prefer the latest release, a custom directory, or a source build?
+See [installation options](docs/usage.md#installation).
+
+## Start here
+
+You need an AirGradient monitor reachable on your LAN. Replace the example IP with your device's address.
 
 ```sh
-cargo install --path .
+# Save the address once.
+airgradient-cli config set-url 192.168.1.201
+
+# Read once.
+airgradient-cli
+
+# Open the live dashboard.
+airgradient-cli --tui
 ```
 
-This installs the expected binary name, `airgradient-cli`, into Cargo's binary
-directory.
+Press **`q` to quit**. Press **`Space` for key hints**.
+The dashboard refreshes every 30 seconds by default.
 
-| Installer option | Environment variable | Default |
-| --- | --- | --- |
-| `--version TAG` | `AIRGRADIENT_CLI_INSTALL_VERSION` | `latest` |
-| `--dir DIR` | `AIRGRADIENT_CLI_INSTALL_DIR` | `$HOME/.local/bin` |
-
-The same script is attached to every release as `install.sh` and served from the
-website, so both URLs above fetch the identical file. It is a
-download-and-verify convenience script, **not** a system package: it does not
-register with a package manager, create a desktop entry, or install a service.
-It refuses to run on any OS other than Linux, since only Linux binaries are
-published.
-
-</details>
-
-> [!IMPORTANT]
-> **Linux only.** Published binaries cover `x86_64-unknown-linux-gnu` (amd64) and
-> `aarch64-unknown-linux-gnu` (arm64). On anything else, build from source.
-
----
-
-## 🚀 60-Second Start
-
-```sh
-airgradient-cli config set-url 192.168.1.201   # 1. point it at your device
-airgradient-cli                                # 2. read the air
-airgradient-cli -t                             # 3. live dashboard
-```
-
-```text
-Device: http://192.168.1.201/ | Fetch: 2ms
-AQI 41 - Good
-
-+-------------+-------+----------+----------+-------+
-| Metric      | Value | Unit     | Status   | Trend |
-+===================================================+
-| AQI         | 41    |          | Good     | -     |
-|-------------+-------+----------+----------+-------|
-| CO2         | 612   | ppm      | Good     | up    |
-|-------------+-------+----------+----------+-------|
-| PM2.5       | 7.4   | ug/m3    | Good     | -     |
-|-------------+-------+----------+----------+-------|
-| PM0.3 count | 1234  | count/dL | Elevated | down  |
-|-------------+-------+----------+----------+-------|
-| TVOC        | 83    | index    | Good     | -     |
-|-------------+-------+----------+----------+-------|
-| Temperature | 22.6  | C        | Good     | up    |
-+-------------+-------+----------+----------+-------+
-```
-
-The Trend column compares each value against the previously recorded reading,
-so it fills in from the second fetch onward. It shows `--` on the very first
-run, and whenever `AIRGRADIENT_CLI_NO_HISTORY` is set — with nothing recorded,
-there is nothing to compare against.
-
----
-
-## ✨ Features
-
-|  | |
-| --- | --- |
-| 📟 **One-shot readings** | Run it bare, get an AQI headline plus the full metric table. Non-zero exit when the device is unreachable — drops straight into scripts. |
-| 📊 **Live TUI dashboard** | `-t` opens a layered telemetry cockpit: oversized AQI readouts, semantic status badges, banded gauges, trend arrows, and responsive metric cards. |
-| 🛠️ **Unified visual system** | A floating command dialog, live theme gallery, draft settings with field guides, and recorded-history summaries share the same panels, keycaps, and semantic colours. [Design and previews](docs/tui-design.md). |
-| 🧾 **JSON for pipelines** | `--json` emits every metric with raw value, formatted value, unit, status, and trend. Pipe it to `jq`, Prometheus, or cron. |
-| 🎯 **Banded gauges** | Every card carries a bar coloured green→yellow→orange→red *along its whole length*, with tick marks at the band boundaries — so you can see how much headroom is left, not just where you are. |
-| 🔣 **Nerd Font icons** | A distinct glyph per reading type. Terminals without a patched font are covered: the TTY-safe `mono` theme swaps in plain-Unicode stand-ins. |
-| ✨ **Animated, only when it matters** | A braille spinner while a fetch is in flight, a gradient wordmark, a shimmering splash — and a completely still screen when nothing is happening, so an idle dashboard costs no redraws. |
-| 🎨 **20 built-in themes** | Nord, Dracula, Gruvbox, Catppuccin, Tokyo Night… plus a TTY-safe `mono` that leaves your terminal palette alone. |
-| ⌨️ **Vim / AstroNvim keys** | `j`/`k`, `gg`/`G`, `<C-d>`/`<C-u>`, `:` for the command line, and `<Space>` as a which-key leader. |
-| 📈 **History chart** | `h` opens a full-screen line chart of any metric over time. Readings are recorded to disk as they arrive, so the chart has a shape the moment you open it — including across restarts. |
-| 🖱️ **Mouse navigation** | Scroll to move through lists, click to select a row. |
-| 🎯 **Matches your monitor** | Reads the corrected (`…Compensated`) values the AirGradient display and dashboard show, and follows the firmware's own `monitorDisplayCompensatedValues` switch, so the numbers agree with the device on your shelf. |
-| 🔒 **Local-only, tolerant** | LAN only, nothing else. A malformed config warns per field instead of failing, so a bad value never locks you out of the tool that fixes it. |
-| 🤝 **Shares desktop config** | Same JSON file as `airgradient-desktop`. Unknown fields are preserved on write. |
-
----
-
-## 📖 Usage
-
-### Commands
-
-| Command | What it does |
-| --- | --- |
-| `airgradient-cli` | Fetch once and render the metric table |
-| `airgradient-cli -t` / `--tui` | Open the live TUI dashboard |
-| `airgradient-cli fetch` | Same one-shot request, explicitly |
-| `airgradient-cli fetch --json` | Emit one JSON document of all metrics |
-| `airgradient-cli themes` | List built-in theme ids and labels |
-| `airgradient-cli config path` | Print the resolved config file path |
-| `airgradient-cli config show` | Print the effective config as JSON |
-| `airgradient-cli config set-url <URL>` | Save a device URL (bare hosts become `http://`) |
-| `airgradient-cli config set-refresh <S>` | Save a refresh interval, `5`–`3600` seconds |
-| `airgradient-cli config set-theme <ID>` | Save a TUI theme id |
-
-### Flags
-
-| Flag | Effect |
-| --- | --- |
-| `--url <URL>` | Override the device URL for this run only; never written to config |
-| `--refresh <SECONDS>` | Override the TUI refresh interval for this run (`--tui` only) |
-| `--theme <ID>` | Override the theme for this run |
-| `--config <PATH>` | Use a different config file |
-| `--json` | JSON instead of the table |
-| `--no-color` | Strip ANSI color |
-| `-v`, `-vv` | Add the error source chain; `-vv` adds debug + trace detail |
-
-`--json` does not apply to config commands. `airgradient-cli --json config show`
-exits with an error instead of silently changing the command output contract.
-
-### Dashboard keys
-
-Bindings follow vim, and [AstroNvim](https://astronvim.com) where it has a
-convention. `<Space>` is the leader and opens a which-key popup listing what
-the next key does.
-
-| Key | Action |
-| --- | --- |
-| `<Space>` | Which-key popup (leader) |
-| `<Space>` `r` / `t` / `c` / `h` / `:` / `q` | Refresh · themes · config · history · palette · quit |
-| `r` | Refresh now |
-| `+` / `-` | Lengthen / shorten the refresh interval |
-| `:` | Command palette |
-| `t` / `F2` | Theme picker with live preview |
-| `c` | Config editor |
-| `h` | History chart |
-| `q` / `Esc` / `<C-c>` | Quit |
-
-### Motions (theme picker, config editor, history chart)
-
-| Key | Action |
-| --- | --- |
-| `j` / `k`, `↓` / `↑` | Move down / up |
-| `gg` / `G` | Jump to first / last |
-| `<C-d>` / `<C-u>` | Half-page down / up |
-| `Enter` / `l` / `→` | Apply, edit, or toggle |
-| `Esc` / `q` / `h` / `<C-c>` | Close without applying |
-
-In the history chart the same motions move between metrics, so `j`/`k` change
-which series is plotted.
-
-### Text entry (palette, config fields)
-
-| Key | Action |
-| --- | --- |
-| `<C-w>` | Delete the word before the cursor |
-| `<C-u>` | Clear the line |
-| `Backspace` | Delete a character |
-| `Enter` | Submit |
-| `Esc` / `<C-c>` | Cancel |
-
-### Mouse
-
-The dashboard enables mouse reporting, so the terminal's own text selection is
-replaced by the app's own handling (hold `Shift` in most terminals to select
-text as usual).
-
-| Action | Effect |
-| --- | --- |
-| Scroll wheel | Move the cursor in the theme picker / config editor |
-| Left click | Select the row you clicked |
-
-Mouse capture is best-effort: a terminal that refuses it still gets a fully
-keyboard-driven TUI.
-
-<details>
-<summary><b>TUI behavior in detail</b></summary>
-
-<br />
-
-The TUI opens a Ratatui dashboard using the same AirGradient config file as the
-desktop app. It fetches `<server_url>/measures/current` on startup when a device
-URL is configured, then refreshes on the configured interval. If a later refresh
-fails after a successful reading, the dashboard keeps showing the last successful
-snapshot alongside the error.
-
-The TUI requires an interactive terminal. Running `--tui` with captured or
-piped terminal streams exits with `TUI requires an interactive terminal`.
-The dashboard supports terminals at least 36 columns by 20 rows. Smaller
-terminal windows show a compact resize message instead of the dashboard panels.
-At the minimum supported 36x20 size, the layout preserves coherent panels,
-status text, keyboard controls, and the priority AQI reading, but lower metric
-rows may be clipped by design; the TUI does not add scrolling or pagination for
-that compact layout.
-
-On exit and runtime error paths after terminal setup starts, the TUI restores
-terminal state by leaving the alternate screen, showing the cursor, and
-disabling raw mode.
-
-On startup, the TUI shows a brief theme-colored splash screen before the
-dashboard; any keypress skips it immediately (and, if that key was `q`/`Esc`,
-also quits — no double keypress needed).
-
-The status line at the top is a powerline-style bar with a colored dot for
-the current AQI status (green/yellow/orange/red/purple, mirroring the
-physical AirGradient device's LED), the app name, the device URL, and the
-refresh interval. The powerline segment separators are drawn with a
-Nerd-Font/powerline-patched glyph; other terminal fonts still render the
-dashboard correctly, just without the smooth triangular joins. Metric cards
-also show a thin gauge bar under each reading, filled relative to that
-metric's typical scale and colored by its status.
-
-Every panel — the status bar, each metric card, the error panel, the footer —
-is drawn inside its own rounded border, with a cell of background between
-neighbouring panels and around the edge of the screen so they read as separate
-widgets. A card's border is tinted by that reading's status, so the
-good/elevated/unhealthy signal is visible at a glance. Those gaps are given up
-as the terminal gets smaller: below 60 columns the dashboard uses the full
-width, so the documented 36x20 minimum spends every cell on readings.
-
-If no device URL is configured, `--tui` still opens the dashboard and shows the
-missing-URL state instead of fetching. Set a URL with `config set-url`, or pass a
-one-run URL override with `--url`:
+Nothing to configure yet? Try a device without saving its address:
 
 ```sh
 airgradient-cli --tui --url 192.168.1.201
 ```
 
-In TUI mode, `--url` takes precedence over the config-file `server_url` for that
-run and the dashboard fetches only the override URL's `/measures/current`
-endpoint. The override is not written to the config file.
+## What you get
 
-`--refresh <SECONDS>` applies only to `--tui` and is rejected for one-shot
-fetches and config commands. Like `config set-refresh`, it accepts values from
-`5` to `3600` seconds. It changes only the current dashboard run and does not
-write the config file. In TUI mode, this CLI override takes precedence over the
-refresh interval stored in the config file.
+- **One-shot readings.** AQI headline, metric table, status, and trend. Non-zero exit when a fetch fails.
+- **Live dashboard.** Large AQI readout, metric cards, banded gauges, and sparklines.
+- **Saved history.** Press `h` for charts. Readings survive restarts; the latest 2000 are retained.
+- **JSON output.** Raw and formatted values, units, status, and trend for scripts.
+- **20 themes.** Live preview, plus `mono` for terminals without a Nerd Font.
+- **Quiet alerts.** TUI toasts for worsening air and recovery, not repeated warnings for an unchanged reading.
+- **Shared settings.** Uses the desktop app's config. Preserves unknown JSON fields when updating settings.
 
-The app model's refresh interval is always clamped to the documented production
-bounds: minimum `5` seconds, maximum `3600` seconds, default `30` seconds.
-Binary-level TUI interval-refresh tests use the diagnostic-only
-`AIRGRADIENT_CLI_TUI_TEST_REFRESH_INTERVAL_MS` hook as a runtime scheduling
-override inside the test process. The hook can only shorten the event loop's
-next-refresh timer below the already-clamped production interval; it cannot
-lengthen the refresh interval, disable refreshes, or change the refresh interval
-shown by the TUI/app model. Values below `100` milliseconds, zero, invalid
-values, values equal to the production interval, and values longer than the
-production-clamped interval are ignored. It is not a supported user-facing
-configuration option.
+Reads the device's `/measures/current` endpoint directly. No cloud service required.
+Missing sensor values stay missing: `--` in text, `null` in JSON.
 
-When the TUI exits while a background fetch is pending, the runtime aborts the
-fetch task and awaits the task handle before returning. Stale completions after
-cancellation are ignored, and a fetch task panic is surfaced as a runtime error
-when the task completion is observed.
+**New in v0.4.0:** redesigned dashboard and matching history, settings, theme picker, and command dialogs.
+[Read the release notes](docs/releases/v0.4.0.md).
+
+<details>
+<summary><strong>See the history view</strong></summary>
+
+![Terminal history chart with metric selection](site/assets/screenshots/tui-history.png)
+
+*Actual renderer with synthetic demo data, not live hardware readings.*
 
 </details>
 
----
-
-## 🎨 Themes
+## Commands worth knowing
 
 ```sh
-airgradient-cli themes                  # list all 20
-airgradient-cli config set-theme nord   # persist one
-airgradient-cli --tui --theme nord      # just this run
+# JSON for a script or jq.
+airgradient-cli fetch --json
+
+# Refresh every 10 seconds; use Nord for this session.
+airgradient-cli --tui --refresh 10 --theme nord
+
+# List themes, then save one.
+airgradient-cli themes
+airgradient-cli config set-theme nord
+
+# Find or inspect your settings.
+airgradient-cli config path
+airgradient-cli config show
 ```
 
-`default` · `claude` · `codex` · `btop` · `nord` · `dracula` · `gruvbox` ·
-`solarized-dark` · `monokai` · `one-dark` · `tokyo-night` · `catppuccin-mocha` ·
-`rose-pine` · `ayu-dark` · `everforest-dark` · `kanagawa` · `synthwave-84` ·
-`github-dark` · `nightfox` · `mono`
+`--url`, `--refresh`, and `--theme` override this run; they do not save settings.
+`--refresh` works only with `--tui` and accepts 5–3600 seconds.
+Use `config set-refresh 10` to save an interval.
 
-An unrecognized theme id never errors — it silently falls back to the `default`
-theme, both when reading the config file and with `--theme`.
+[All commands and flags](docs/usage.md#commands-and-flags)
 
-Inside the TUI, press `t` (or `F2`) to open the theme picker: `↑`/`↓` (or
-`j`/`k`) live-preview a theme across the whole dashboard, `Enter` applies and
-persists it to the config file, and `Esc` (or `q`/`F2`) reverts to whatever
-was active before the picker opened.
+## Dashboard keys
 
-### Command palette
-
-Press `:` to open the command palette, a single-line prompt at the bottom of
-the dashboard. It accepts:
-
-| Command | Effect |
+| Key | Action |
 | --- | --- |
-| `url <URL>` | Sets the device URL, applied immediately and persisted |
-| `refresh <SECONDS>` | Sets the refresh interval (`5`-`3600`), applied and persisted |
-| `theme <ID>` | Sets the theme, applied and persisted |
-| `config` / `settings` | Opens the full config editor |
-| `themes` | Opens the theme picker |
-| `save` | Confirms the current in-memory config is persisted |
-| `quit` / `q` | Quits the TUI |
+| `Space` | Show key hints |
+| `r` | Refresh now |
+| `h` | History chart |
+| `t` / `F2` | Preview and choose a theme |
+| `c` | Edit settings |
+| `:` | Command palette |
+| `q` / `Esc` / `Ctrl-c` | Quit from the dashboard |
 
-`Esc` cancels the palette; `Backspace` edits the typed line.
+Use `j`/`k` or arrow keys in lists. `Enter` applies; `Esc` cancels.
+The history chart uses `j`/`k` to switch metrics.
+[Full keyboard and mouse reference](docs/usage.md#keyboard-and-mouse)
 
-Press `c` to open the full config editor: a page listing every config field
-(server URL, refresh interval, notifications, start-minimized, theme).
-`↑`/`↓` navigate, `Enter` starts editing a text field (or toggles a boolean,
-or opens the theme picker for the theme row), and a trailing "Save & Close"
-row writes every field to the config file at once. `Esc` cancels the field
-currently being edited, or discards the whole draft and returns to the
-dashboard if pressed while just navigating.
+## Keep it local
 
----
+**Config:** shared with `airgradient-desktop` at
+`$XDG_CONFIG_HOME/airgradient-desktop/config.json`, or `~/.config/airgradient-desktop/config.json`.
+Use `--config <PATH>` for a separate file.
 
-## ⚙️ Config
+**History:** stored at `$XDG_DATA_HOME/airgradient-cli/history.jsonl`, or
+`~/.local/share/airgradient-cli/history.jsonl`. Both one-shot reads and the dashboard record successful fetches.
 
-The CLI reads and writes the same JSON config file as `airgradient-desktop`:
+Disable new history writes for a run:
 
-```text
-$XDG_CONFIG_HOME/airgradient-desktop/config.json
+```sh
+AIRGRADIENT_CLI_NO_HISTORY=1 airgradient-cli --json
 ```
 
-If `XDG_CONFIG_HOME` is not set, it falls back to:
+Existing history remains readable in the dashboard. This does not disable explicit config edits.
+[Config rules](docs/usage.md#configuration) · [History format](docs/usage.md#history)
 
-```text
-$HOME/.config/airgradient-desktop/config.json
-```
+## If something looks wrong
 
-```json
-{
-  "server_url": "http://192.168.1.201/",
-  "refresh_interval_secs": 30,
-  "notifications_enabled": true,
-  "start_minimized": false,
-  "theme": "default"
-}
-```
+- **Empty boxes instead of icons?** Run `airgradient-cli --tui --theme mono`, or use a [Nerd Font](https://www.nerdfonts.com/).
+- **Device unreachable?** Check the saved address and LAN connection. Add `-v` for the error chain; `-vv` for trace detail.
+- **Piping output?** Use `--json` or the one-shot table. The TUI needs an interactive terminal.
+- **Small terminal?** Minimum dashboard size is 36×20. Lower metric rows may be clipped at that size.
+- **Refresh failed?** The dashboard keeps the last successful reading and shows the error. It is not a fresh reading.
+
+The v0.4.1 release was tested with synthetic fixtures, mock devices, and real pseudo-terminals.
+**No live AirGradient hardware validation was performed for this release.**
+
+## Go deeper
+
+- [Usage guide](docs/usage.md): install options, flags, keys, config, history, alerts, and sensor parsing.
+- [TUI design and preview gallery](docs/tui-design.md): renderer details and reproducible synthetic previews.
+- [Screenshot capture](docs/screenshot-capture.md): regenerate the images with synthetic data.
+- [Microsite design and browser checks](docs/site-design.md).
+- [Code style](docs/code-style.md): contributor conventions.
+- [Release checklist](docs/release-checklist.md) and [distribution boundary](docs/release-boundary.md).
 
 <details>
-<summary><b>Config rules and repair behavior</b></summary>
+<summary><strong>Maintainers: build, test, and release contract</strong></summary>
 
-<br />
-
-`config set-url`, `config set-refresh`, and `config set-theme` update only the
-known field they own and preserve unknown top-level sibling fields in the JSON
-file. This keeps the shared config compatible with future `airgradient-desktop`
-fields. `theme` accepts any string; see `airgradient-cli themes` for the list
-of built-in ids, and note that an unrecognized id resolves to the `default`
-theme rather than erroring.
-
-The repair boundary is a top-level JSON object. If the config file contains a
-top-level array, string, number, boolean, or `null`, the CLI reports an error
-instead of trying to rewrite it. Preserving unknown sibling fields requires an
-object to merge into, so non-object config JSON is not automatically repairable.
-
-`config set-url` normalizes saved URLs:
-
-- Bare hosts are accepted and saved as HTTP URLs, for example
-  `192.168.1.201` becomes `http://192.168.1.201/`.
-- `http` and `https` are the only supported schemes.
-- Paths, queries, and fragments are stripped before saving the base URL.
-
-`config set-refresh` accepts values from `5` to `3600` seconds. The default is
-`30` seconds.
-
-`config show` does not rewrite the config file. If a stored `server_url` is
-missing or empty, it prints the rest of the effective config normally. If the
-stored URL is malformed or uses an unsupported scheme, it prints the raw stored
-value and writes a warning to stderr.
-
-</details>
-
----
-
-## 🎨 Look and Feel
-
-**Colour follows the reading.** Every status maps to one colour scale —
-green (Good) → yellow (Moderate) → orange (Elevated) → red (Unhealthy) →
-magenta (Very unhealthy) — and it is used consistently: the card border, its
-icon, the gauge, the chart line, and the LED-style dot in the top bar all take
-it from the same place, mirroring the AirGradient device's own LED.
-
-**Gauges are banded, not filled.** The bar is not one colour up to a point; each
-cell is coloured by the band *that position on the scale* falls in, with the
-reading shown as the solid portion:
-
-```text
- ██████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
- ▲        ▲       ▲                   ▲
- 0       100     200                500
-```
-
-You can read how far the current value is from the next band without knowing
-any of the numbers. Where a card has the rows, it gets the ticks and scale too;
-where it does not, it falls back to a bar alone.
-
-**Icons need a Nerd Font.** Reading-type glyphs come from
-[Nerd Fonts](https://www.nerdfonts.com/) (Material Design range). If your
-terminal font is not patched they render as empty boxes — switch to the
-`mono` theme, which uses plain-Unicode stand-ins throughout, including for the
-powerline separator in the status bar. Every icon sits next to its own label, so
-no meaning is ever carried by the glyph alone.
-
-**Animation is gated.** Spinners and gradients advance only while something is
-happening — a fetch in flight, an alert showing, the startup splash. A
-dashboard sitting idle is a still picture and is never repainted, which is what
-makes it reasonable to leave open all day on battery.
-
----
-
-## 🚨 Alerts
-
-When a reading crosses into a concerning band, a toast says so:
-
-```text
-                                    ▌ CO2 is Unhealthy — 1800 ppm  ▐
-```
-
-The rules are deliberately quiet, because an alert that fires often is one
-nobody reads:
-
-| | |
-| --- | --- |
-| **Fires on the crossing** | Entering "Elevated" alerts; sitting there does not. Getting *worse* while already concerning alerts again. |
-| **"Moderate" is below the line** | It is the band an ordinary room sits in for much of the day. |
-| **Never on the first reading** | With nothing to compare against, every concerning metric would alert at once, on every launch. |
-| **A dead sensor is not bad air** | A metric going `Unknown` — or coming back — is ignored in both directions. |
-| **Recovery is announced too** | "Did opening the window help?" is the next question, and answering it is what makes the first alert worth acting on. |
-
-Several metrics turning at once queue up worst-first, six seconds each.
-
----
-
-## 📈 History
-
-Every successful reading is appended to a history file, and the dashboard's
-chart (`h`) draws from it. Because it is on disk rather than only in memory,
-the chart shows a trend the moment you open the dashboard instead of filling in
-over the next quarter of an hour.
-
-| | |
-| --- | --- |
-| **Where** | `$XDG_DATA_HOME/airgradient-cli/history.jsonl`, else `~/.local/share/airgradient-cli/history.jsonl` |
-| **Format** | [JSON Lines](https://jsonlines.org/) — one `{"at_unix_secs":…,"snapshot":{…}}` object per line, oldest first |
-| **Size** | Trimmed to the most recent 2000 readings; a few hundred kilobytes at most |
-| **Written by** | Both the dashboard and one-shot fetches, so a `watch` or cron loop builds history too |
-| **Opting out** | Set `AIRGRADIENT_CLI_NO_HISTORY=1` for a genuinely read-only run — it silences both the dashboard and one-shot fetches |
-
-It is deliberately *not* in the config directory shared with the desktop app:
-this is data, nothing else reads it, and a settings file you might hand-edit
-should not have thousands of readings appended to it.
-
-Because it is one JSON object per line, it is directly usable elsewhere:
-
-```sh
-# The last 20 CO2 readings, as a plain series
-tail -20 ~/.local/share/airgradient-cli/history.jsonl \
-  | jq -r '[.at_unix_secs, .snapshot.co2] | @tsv'
-```
-
-Recording is best-effort: a history file that cannot be written never turns a
-successful reading into a failed command.
-
----
-
-## 🔌 Fetch Contract
-
-One-shot fetches target the current measurements endpoint under the normalized
-base URL:
-
-```text
-<server_url>/measures/current
-```
-
-For example, `http://192.168.1.201/` is fetched as:
-
-```text
-http://192.168.1.201/measures/current
-```
-
-Each one-shot fetch uses a 5 second HTTP timeout by default.
-`AIRGRADIENT_CLI_FETCH_TIMEOUT_MS` can override that timeout in milliseconds,
-but it is a diagnostic and test hook rather than a supported user-facing
-configuration option. Normal users should rely on the default timeout.
-
-Normal command stdout is reserved for command output. Text fetch output is
-colored only when stdout is a terminal; captured or piped stdout has no ANSI
-escapes by default. `--no-color` disables text color explicitly.
-
-Default diagnostics are concise and uncolored:
-
-```text
-error: failed to request AirGradient measurements from http://192.168.1.201/measures/current
-```
-
-Use `-v` to include the error source chain, and `-vv` to add debug details and
-trace-level diagnostics:
-
-```sh
-airgradient-cli -v --url 192.168.1.201
-airgradient-cli -vv --url 192.168.1.201
-```
-
----
-
-## 🔬 Sensor Parsing
-
-The parser accepts current and alternate AirGradient field names, numeric JSON
-values, numeric strings, and nested sensor payloads. Missing or invalid sensor
-values stay missing, rendering as `--` in text output and `null` in JSON.
-
-Sensor values are domain-checked before they reach presentation. The current
-upper bounds are practical transport and firmware-glitch guardrails, not
-calibrated hardware maximums:
-
-| Metric | Bounds |
-| --- | --- |
-| AQI | `500` |
-| CO2 | `40000 ppm` |
-| TVOC / NOx index | `500` |
-| PM mass | `1000 ug/m3` |
-| PM0.3 count | `1000000 / dL` |
-| Temperature | `-40` to `85 C` |
-| Humidity | `0` to `100%` |
-
----
-
-## 🛠️ Development
-
-```sh
-cargo test                                            # 238 tests
-cargo clippy --all-targets --all-features -- -D warnings
-cargo fmt
-```
-
-Code conventions are written down in **[`docs/code-style.md`](docs/code-style.md)**.
-The microsite lives in [`site/`](site/) and deploys to GitHub Pages on push to
-`main`.
-
----
-
-## 📦 Releases
-
-Releases are tag-driven. Pushing a `vX.Y.Z` tag that matches the `Cargo.toml`
-version triggers `.github/workflows/release.yml`, which builds the Linux amd64
-and arm64 artifacts, creates or reuses the GitHub release, and uploads the
-archives, `SHA256SUMS`, and `install.sh`. It does not tag commits, sign
-artifacts, publish crates.io packages, or create package-manager recipes.
-`Cargo.toml` intentionally keeps `publish = false`, so the package is not
-intended for crates.io publishing yet.
-
-The repository license is MIT. Every release artifact bundle or release
-attachment set must include the checked-in `LICENSE` file.
-
-<details>
-<summary><b>Release rehearsal and validation gate</b></summary>
-
-<br />
-
-Rehearse the Linux release artifact locally before publishing anything:
-
-```sh
-scripts/release-dry-run.sh --target x86_64-unknown-linux-gnu --output-dir dist
-scripts/release-dry-run.sh --target aarch64-unknown-linux-gnu --output-dir dist-arm64
-```
-
-The supported release dry-run targets are `x86_64-unknown-linux-gnu` (amd64)
-and `aarch64-unknown-linux-gnu` (arm64). The dry run rejects every other target
-before building, staging, or writing artifacts, including when `--skip-build` is
-used. Use a new or empty staging directory for local rehearsal so stale files
-cannot be mistaken for the current release. CI may use a temporary output
-directory for the same validation-only check. The dry run reads the crate
-version from `Cargo.toml`, builds with Cargo, and stages outputs without
-tagging, creating a GitHub release, uploading, signing, publishing, generating
-shell completions, or producing package-manager recipes, macOS binaries, or
-Windows binaries. Expected outputs are:
-
-- `dist/airgradient-cli-v<version>-x86_64-unknown-linux-gnu.tar.gz`
-- `dist-arm64/airgradient-cli-v<version>-aarch64-unknown-linux-gnu.tar.gz`
-- `dist/SHA256SUMS`
-
-The `.tar.gz` bundle must contain the built `airgradient-cli` executable and
-the checked-in `LICENSE`. `SHA256SUMS` is generated over the staged release
-artifact file. Detached cryptographic signatures are intentionally out of scope;
-releases must not describe artifacts as signed.
-
-The repository does not currently generate or package shell completions, so
-release artifacts and release notes should not list completions unless
-completion generation support is added and tested first. The maintainer release
-checklist is in `docs/release-checklist.md`, and the release boundary audit is
-in `docs/release-boundary.md`.
-
-**Validation gate.** Release validation is pinned to Rust 1.96.0 and cargo-deny
-0.19.9. Maintainers should run the local checks in the same order as CI:
+From a checkout, run the release gate in this order. Pins: **Rust 1.96.0**, **cargo-deny 0.19.9**.
 
 ```sh
 cargo deny check
@@ -657,65 +180,32 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test
 ```
 
-After `cargo test`, record the PTY coverage summary: real pseudo-terminal
-coverage exercised, PTY unavailable and conditionally skipped, or infrastructure
-failure. Also record real-device validation status; if no real AirGradient
-hardware run was performed, release notes must explicitly waive that validation
-gap.
+Use a **new or empty** staging directory. The dry run is **validation-only**:
+it does not tag, upload, sign, or publish. It rejects **every other target**, even with `--skip-build`.
 
-</details>
+Local dry-run outputs:
 
-<details>
-<summary><b>Dependency policy</b></summary>
+- `dist/airgradient-cli-v<version>-x86_64-unknown-linux-gnu.tar.gz`
+- `dist-arm64/airgradient-cli-v<version>-aarch64-unknown-linux-gnu.tar.gz`
+- `SHA256SUMS` in each output directory, covering its staged archive.
 
-<br />
+Each archive includes `airgradient-cli` and the checked-in `LICENSE`.
+Published release assets use `linux-amd64` / `linux-arm64` filenames instead of target triples.
+A matching `vX.Y.Z` tag triggers `.github/workflows/release.yml` to upload archives, checksums, and `install.sh`.
+Artifacts are unsigned. `publish = false`: no crates.io package, package-manager recipe, or shell completions.
+Only Linux binaries are published; there are no macOS or Windows release binaries.
 
-This project uses `cargo-deny` as a dependency and supply-chain release gate.
-Maintainers should triage `cargo deny check` failures before cutting a release:
+After testing, record **PTY coverage**: real pseudo-terminal coverage exercised,
+PTY unavailable and conditionally skipped, or infrastructure failure.
+A green run with conditional PTY skips is not full terminal coverage.
+Record real-device validation separately; explicitly waive it when hardware was not tested.
 
-- Known vulnerabilities and yanked crates are release blockers unless they are
-  consciously patched, replaced, or otherwise handled with a documented reason.
-- Duplicate dependency versions should be collapsed when reasonable. If a
-  transitive duplicate cannot be removed in the current change, exempt only the
-  specific package/version case and include the rationale in the policy.
-- License failures require confirming that the license is compatible with the
-  project before extending the allowlist.
-- Unknown registries or git sources require explicit review before they are
-  allowed.
-
-Tool pins are part of the release contract. Keep `README.md`,
-`rust-toolchain.toml`, `.github/workflows/ci.yml`, and release notes
-synchronized when changing Rust 1.96.0 or cargo-deny 0.19.9, and run the full
-release validation suite after a pin update because rustfmt, Clippy, and
-cargo-deny behavior can change. Periodically rerun
-`cargo tree -d --target all` and prune exact duplicate-version exceptions from
-`deny.toml` when upstream dependencies converge.
-
-</details>
-
-<details>
-<summary><b>Terminal test coverage</b></summary>
-
-<br />
-
-PTY integration tests exercise the real `--tui` binary inside a pseudo-terminal
-when the host platform can create one. On platforms or CI workers without usable
-PTY support, those tests print a conditional-coverage skip reason and pass
-without claiming full end-to-end terminal coverage. The runtime harness tests in
-`src/tui/runtime/tests/` still cover TUI event-loop, fetch, shutdown, and cleanup
-behavior in non-PTY environments. GitHub Actions also writes a test summary that
-reports whether the PTY-backed coverage actually ran or was conditionally
-skipped, so a green CI run does not hide the terminal coverage state. Expected
-closed-PTY read errors are classified only through platform-provided
-`libc::EIO` on supported Unix-like targets; raw OS error values from non-Unix or
-unsupported targets are not treated as normal PTY closure.
+Keep tool pins synchronized across this README, `rust-toolchain.toml`, CI, and release notes.
+Triage dependency-policy failures before release; do not hide vulnerabilities or broaden exceptions without review.
+See the [detailed maintainer notes](docs/usage.md#development-and-release-policy) for policy and runtime-test boundaries.
 
 </details>
 
 ---
 
-<div align="center">
-
-**MIT licensed** · Built with 🦀 in Rust · [worxbend/airgradient-cli](https://github.com/worxbend/airgradient-cli)
-
-</div>
+[MIT license](LICENSE) · [worxbend/airgradient-cli](https://github.com/worxbend/airgradient-cli)

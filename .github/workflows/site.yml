@@ -1,0 +1,39 @@
+name: Site checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "scripts/test-site.py"
+      - "scripts/install.sh"
+      - "Cargo.toml"
+      - ".github/workflows/site.yml"
+  pull_request:
+    paths:
+      - "site/**"
+      - "scripts/test-site.py"
+      - "scripts/install.sh"
+      - "Cargo.toml"
+      - ".github/workflows/site.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install browser test tooling
+        run: |
+          python3 -m venv "$RUNNER_TEMP/site-tests"
+          "$RUNNER_TEMP/site-tests/bin/pip" install playwright==1.63.0
+          "$RUNNER_TEMP/site-tests/bin/playwright" install --with-deps chromium
+          npm install --prefix "$RUNNER_TEMP/site-a11y" --ignore-scripts --no-audit --no-fund axe-core@4.14.0
+      - name: Check responsive layout, accessibility and interactions
+        run: >-
+          "$RUNNER_TEMP/site-tests/bin/python" scripts/test-site.py
+          --axe "$RUNNER_TEMP/site-a11y/node_modules/axe-core/axe.min.js"

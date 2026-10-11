@@ -1,156 +1,100 @@
-/* Small, dependency-free behaviors: scheme toggle, copy buttons, output tabs,
- * scroll state, and reveal-on-scroll. Everything degrades to a working static
- * page if this file fails to load. */
-(function () {
+/* Progressive enhancement: the screenshots, commands and FAQs need no JS. */
+(() => {
   "use strict";
+  const toast = document.getElementById("toast");
+  let toastTimer;
 
-  var root = document.documentElement;
-
-  /* ---------- Color scheme ---------- */
-
-  var STORAGE_KEY = "agc-scheme";
-  var stored = null;
-  try {
-    stored = localStorage.getItem(STORAGE_KEY);
-  } catch (e) {
-    /* private mode — fall back to the OS preference */
-  }
-  if (stored === "light" || stored === "dark") {
-    root.setAttribute("data-scheme", stored);
+  function announce(message) {
+    clearTimeout(toastTimer);
+    toast.textContent = message;
+    toastTimer = setTimeout(() => { toast.textContent = ""; }, 5000);
   }
 
-  var toggle = document.getElementById("schemeToggle");
-  if (toggle) {
-    toggle.addEventListener("click", function () {
-      var prefersDark =
-        window.matchMedia &&
-        window.matchMedia("(prefers-color-scheme: dark)").matches;
-      var current = root.getAttribute("data-scheme");
-      if (!current) current = prefersDark ? "dark" : "light";
-      var next = current === "dark" ? "light" : "dark";
-      root.setAttribute("data-scheme", next);
+  function selectCommand(target) {
+    const range = document.createRange();
+    range.selectNodeContents(target);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+
+  document.querySelectorAll("[data-copy]").forEach((button) => {
+    const target = document.getElementById(button.dataset.copy);
+    if (!target) return;
+    button.hidden = false;
+    button.addEventListener("click", async () => {
       try {
-        localStorage.setItem(STORAGE_KEY, next);
-      } catch (e) {
-        /* not fatal */
+        if (!navigator.clipboard) throw new Error("Clipboard unavailable");
+        await navigator.clipboard.writeText(target.textContent.trim());
+        announce("Command copied. Ready for your terminal.");
+      } catch {
+        selectCommand(target);
+        announce("Copy unavailable. Command selected: press Ctrl+C or ⌘C, or long-press to copy.");
       }
     });
-  }
+  });
 
-  /* ---------- Snackbar ---------- */
-
-  var snackbar = document.getElementById("snackbar");
-  var snackTimer = null;
-  function toast(message) {
-    if (!snackbar) return;
-    snackbar.textContent = message;
-    snackbar.setAttribute("data-open", "true");
-    clearTimeout(snackTimer);
-    snackTimer = setTimeout(function () {
-      snackbar.setAttribute("data-open", "false");
-    }, 2200);
-  }
-
-  /* ---------- Copy buttons ---------- */
-
-  function copyText(text) {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      return navigator.clipboard.writeText(text);
-    }
-    // execCommand path for browsers without the async clipboard API.
-    return new Promise(function (resolve, reject) {
-      var area = document.createElement("textarea");
-      area.value = text;
-      area.setAttribute("readonly", "");
-      area.style.position = "fixed";
-      area.style.opacity = "0";
-      document.body.appendChild(area);
-      area.select();
-      try {
-        document.execCommand("copy") ? resolve() : reject();
-      } catch (e) {
-        reject(e);
-      }
-      document.body.removeChild(area);
+  const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
+  function activateTab(selected) {
+    tabs.forEach((tab) => {
+      const active = tab === selected;
+      tab.setAttribute("aria-selected", String(active));
+      tab.tabIndex = active ? 0 : -1;
+      document.getElementById(tab.getAttribute("aria-controls")).hidden = !active;
     });
   }
-
-  Array.prototype.forEach.call(
-    document.querySelectorAll("[data-copy]"),
-    function (button) {
-      button.addEventListener("click", function () {
-        var target = document.querySelector(button.getAttribute("data-copy"));
-        if (!target) return;
-        copyText(target.textContent.trim()).then(
-          function () {
-            toast("Copied to clipboard");
-          },
-          function () {
-            toast("Press Ctrl+C to copy");
-          },
-        );
-      });
-    },
-  );
-
-  /* ---------- Output tabs ---------- */
-
-  var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
-  tabs.forEach(function (tab, index) {
-    tab.addEventListener("click", function () {
-      tabs.forEach(function (other) {
-        var panel = document.getElementById(
-          other.getAttribute("aria-controls"),
-        );
-        var selected = other === tab;
-        other.setAttribute("aria-selected", selected ? "true" : "false");
-        if (panel) panel.hidden = !selected;
-      });
-    });
-    // Left/right arrows move between tabs, per the ARIA tabs pattern.
-    tab.addEventListener("keydown", function (event) {
-      var delta =
-        event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
-      if (!delta) return;
+  tabs.forEach((tab, index) => {
+    tab.addEventListener("click", () => activateTab(tab));
+    tab.addEventListener("keydown", (event) => {
+      const destinations = {
+        ArrowRight: (index + 1) % tabs.length,
+        ArrowLeft: (index + tabs.length - 1) % tabs.length,
+        Home: 0,
+        End: tabs.length - 1,
+      };
+      if (!(event.key in destinations)) return;
       event.preventDefault();
-      var next = tabs[(index + delta + tabs.length) % tabs.length];
+      const next = tabs[destinations[event.key]];
+      activateTab(next);
       next.focus();
-      next.click();
     });
   });
+  activateTab(tabs[0]);
+  document.getElementById("view-tabs").hidden = false;
 
-  /* ---------- App bar scroll state ---------- */
+  const themes = {
+    default: { file: "tui-dashboard.png", label: "Default" },
+    nord: { file: "tui-nord.png", label: "Nord" },
+    catppuccin: { file: "tui-catppuccin.png", label: "Catppuccin Mocha" },
+  };
+  const dashboard = document.getElementById("dashboard-image");
+  const fullSize = document.getElementById("dashboard-full");
+  const themeButtons = document.querySelectorAll("[data-theme]");
+  let requestedTheme = "default";
 
-  var appBar = document.getElementById("appBar");
-  function syncBar() {
-    if (appBar) {
-      appBar.setAttribute("data-scrolled", window.scrollY > 8 ? "true" : "false");
-    }
-  }
-  syncBar();
-  window.addEventListener("scroll", syncBar, { passive: true });
-
-  /* ---------- Reveal on scroll ---------- */
-
-  var revealables = document.querySelectorAll(".reveal");
-  if (!("IntersectionObserver" in window)) {
-    Array.prototype.forEach.call(revealables, function (el) {
-      el.classList.add("is-visible");
+  function applyTheme(id, preview) {
+    // A late image load must not overwrite a more recent selection.
+    if (requestedTheme !== id) return;
+    const theme = themes[id];
+    dashboard.src = preview.src;
+    fullSize.href = preview.src;
+    dashboard.alt = `${theme.label} theme: air-quality dashboard with AQI, metric cards, banded gauges and trends. Synthetic demo readings.`;
+    themeButtons.forEach((button) => {
+      button.setAttribute("aria-pressed", String(button.dataset.theme === id));
     });
-    return;
+    announce(`${theme.label} dashboard preview.`);
   }
-  var observer = new IntersectionObserver(
-    function (entries) {
-      entries.forEach(function (entry) {
-        if (entry.isIntersecting) {
-          entry.target.classList.add("is-visible");
-          observer.unobserve(entry.target);
-        }
-      });
-    },
-    { rootMargin: "0px 0px -10% 0px", threshold: 0.05 },
-  );
-  Array.prototype.forEach.call(revealables, function (el) {
-    observer.observe(el);
+  themeButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const id = button.dataset.theme;
+      requestedTheme = id;
+      const preview = new Image();
+      preview.onload = () => applyTheme(id, preview);
+      preview.onerror = () => {
+        if (requestedTheme === id) announce("Preview could not load. Showing the previous theme.");
+      };
+      preview.src = `assets/screenshots/${themes[id].file}`;
+    });
   });
+  document.getElementById("palette-bar").hidden = false;
 })();
