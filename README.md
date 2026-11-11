@@ -110,6 +110,22 @@ airgradient-cli config show
 `--refresh` works only with `--tui` and accepts 5–3600 seconds.
 Use `config set-refresh 10` to save an interval.
 
+## Waybar
+
+```json
+"custom/airgradient": {
+  "exec": "airgradient-cli --waybar",
+  "return-type": "json",
+  "interval": 30,
+  "format": "{}",
+  "tooltip": true
+}
+```
+
+`class` is the worst hazard status: `good`, `moderate`, `elevated`, `unhealthy`, `very_unhealthy`, or `unknown`. Temperature and humidity do not set it. `percentage` is the AQI when the device sent one. After a failed fetch that still has a previous reading, `class` is that status plus `stale`. With no previous reading, or with no device URL configured, `class` is `error` and `text` is `offline`.
+
+A failed `--waybar` fetch still prints one JSON object and exits 0. Text output and `--json` do not: those exit 1.
+
 [All commands and flags](docs/usage.md#commands-and-flags)
 
 ## Dashboard keys

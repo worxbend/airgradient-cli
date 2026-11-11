@@ -102,6 +102,7 @@ Replace the example IP with your LAN device address.
 | `airgradient-cli -t` / `--tui` | Open the live dashboard |
 | `airgradient-cli fetch` | Explicit one-shot fetch |
 | `airgradient-cli fetch --json` | Emit one JSON document of all metrics |
+| `airgradient-cli --waybar` | One Waybar JSON object for the bar |
 | `airgradient-cli themes` | List built-in theme ids and labels |
 | `airgradient-cli config path` | Print the resolved config path |
 | `airgradient-cli config show` | Print effective config as JSON |
@@ -116,6 +117,7 @@ Replace the example IP with your LAN device address.
 | `--theme <ID>` | TUI theme for this run; does not save it |
 | `--config <PATH>` | Use a different config file |
 | `--json` | JSON instead of the one-shot table |
+| `--waybar` | Waybar JSON instead of the one-shot table |
 | `--no-color` | Disable one-shot text color |
 | `-v`, `-vv` | Error source chain; debug and trace detail at `-vv` |
 | `--help`, `--version` | Print help or version |
@@ -123,9 +125,17 @@ Replace the example IP with your LAN device address.
 Put top-level options before subcommands, for example:
 `airgradient-cli --url 192.168.1.201 fetch --json`.
 
-`--tui` cannot be combined with a subcommand or `--json`.
-`--refresh` is rejected outside TUI mode. `--json` is rejected for `config` and
-`themes`; `config show` already emits JSON without that flag.
+`--tui` cannot be combined with a subcommand, `--json`, or `--waybar`.
+`--refresh` is rejected outside TUI mode. `--json` and `--waybar` are rejected
+for `config` and `themes`, and they cannot be combined. `config show` already
+emits JSON without `--json`.
+
+`--waybar` prints one compact object: `text` (every reading), `tooltip`,
+`class` (worst hazard status; temperature and humidity do not set it), and
+`percentage` (the AQI, omitted when missing). A failed fetch still prints that
+object and exits 0. A saved reading is shown with class `stale`. No saved
+reading, or no configured device URL, uses text `offline` and class `error`.
+The module snippet is in the README.
 
 One-shot trends compare against the previously recorded reading. The first run,
 recording opt-out, or an unavailable previous reading leaves the trend unknown
@@ -358,7 +368,8 @@ Requests use the normalized device base URL plus `/measures/current`:
 http://192.168.1.201/measures/current
 ```
 
-The default HTTP timeout is 5 seconds. Failed fetches return a non-zero exit.
+The default HTTP timeout is 5 seconds. Failed fetches return a non-zero exit,
+except `--waybar`, which prints JSON and exits 0.
 Normal stdout is reserved for command output. One-shot text is colored only
 when stdout is a terminal; captured or piped text contains no ANSI escapes by
 default. `--no-color` explicitly disables text color.
