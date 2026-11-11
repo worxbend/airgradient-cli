@@ -47,6 +47,10 @@ pub struct Cli {
     #[arg(long)]
     pub waybar: bool,
 
+    /// Fill Waybar `text` from placeholders such as `{aqi}` and `{temp}`.
+    #[arg(long, value_name = "TEMPLATE")]
+    pub waybar_format: Option<String>,
+
     #[arg(long)]
     pub no_color: bool,
 
@@ -87,6 +91,10 @@ pub struct FetchArgs {
 
     #[arg(long)]
     pub waybar: bool,
+
+    /// Fill Waybar `text` from placeholders such as `{aqi}` and `{temp}`.
+    #[arg(long, value_name = "TEMPLATE")]
+    pub waybar_format: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -145,6 +153,15 @@ pub enum CliError {
     #[error("`--waybar` cannot be combined with `--json`.")]
     WaybarConflictsWithJson,
 
+    #[error("`--waybar-format` only applies with `--waybar`.")]
+    WaybarFormatRequiresWaybar,
+
+    #[error("`--waybar-format` was given twice with different templates.")]
+    WaybarFormatConflict,
+
+    #[error(transparent)]
+    WaybarFormat(#[from] crate::output::waybar::WaybarFormatError),
+
     #[error("invalid fetch timeout override `{value}`")]
     InvalidFetchTimeoutOverride {
         value: String,
@@ -161,7 +178,9 @@ pub async fn run(cli: Cli) -> Result<(), CliError> {
     // everything below is a function of its arguments.
     let fetch_settings = match fetch_settings() {
         Ok(settings) => settings,
-        Err(error) if waybar_selected(&cli) => return fetch::waybar_failure(&error),
+        Err(error) if waybar_selected(&cli) => {
+            return fetch::waybar_failure(&error, waybar_format_template(&cli)?);
+        }
         Err(error) => return Err(error),
     };
 
@@ -196,6 +215,10 @@ pub async fn run(cli: Cli) -> Result<(), CliError> {
 /// `airgradient-cli --tui config path` used to open the dashboard and silently
 /// drop the command, hanging any script that expected a path on stdout.
 fn validate_flag_combination(cli: &Cli) -> Result<(), CliError> {
+    if let Some(template) = waybar_format_template(cli)? {
+        crate::output::waybar::parse_format(template)?;
+    }
+
     if cli.tui {
         if cli.command.is_some() {
             return Err(CliError::SubcommandUnsupportedWithTui);
@@ -238,6 +261,20 @@ fn validate_flag_combination(cli: &Cli) -> Result<(), CliError> {
     }
 
     Ok(())
+}
+
+pub(super) fn waybar_format_template(cli: &Cli) -> Result<Option<&str>, CliError> {
+    let top = cli.waybar_format.as_deref();
+    let nested = fetch_args(cli).and_then(|args| args.waybar_format.as_deref());
+    let template = match (top, nested) {
+        (Some(top), Some(nested)) if top != nested => return Err(CliError::WaybarFormatConflict),
+        (Some(template), _) | (_, Some(template)) => template,
+        (None, None) => return Ok(None),
+    };
+    if !waybar_selected(cli) {
+        return Err(CliError::WaybarFormatRequiresWaybar);
+    }
+    Ok(Some(template))
 }
 
 fn json_selected(cli: &Cli) -> bool {

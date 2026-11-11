@@ -122,7 +122,21 @@ Use `config set-refresh 10` to save an interval.
 }
 ```
 
-`class` is the worst hazard status: `good`, `moderate`, `elevated`, `unhealthy`, `very_unhealthy`, or `unknown`. Temperature and humidity do not set it. `percentage` is the AQI when the device sent one. After a failed fetch that still has a previous reading, `class` is that status plus `stale`. With no previous reading, or with no device URL configured, `class` is `error` and `text` is `offline`.
+Waybar 0.16 only substitutes `{text}`, `{alt}`, `{icon}`, and `{percentage}` in its own `format`. Put the metric template in the command so `{aqi}` or `{temp}` becomes `text`:
+
+```json
+"custom/airgradient": {
+  "exec": "airgradient-cli --waybar --waybar-format 'AQI {aqi}'",
+  "return-type": "json",
+  "interval": 30,
+  "format": "{}",
+  "tooltip": true
+}
+```
+
+Placeholders: `{aqi}`, `{co2}`, `{pm25}`, `{pm2p5}`, `{pm1}`, `{pm10}`, `{pm03}`, `{tvoc}`, `{nox}`, `{temp}`, `{humidity}`. A missing sensor stays `--`. `{temp}` includes the unit (`22.0 C`). `class` follows the metrics named in the template, so an AQI-only line is colored by the AQI status. Temperature and humidity set `class` only when the template names no hazard metric. `percentage` is the AQI when the template includes `{aqi}` (and when the template is omitted). Waybar colors the whole module from `class`, so a style rule for `#custom-airgradient.good` colors an AQI-only module.
+
+With no template, `class` is the worst hazard status: `good`, `moderate`, `elevated`, `unhealthy`, `very_unhealthy`, or `unknown`. After a failed fetch that still has a previous reading, `class` is that status plus `stale`. With no previous reading, or with no device URL configured, `class` is `error` and `text` is `offline`.
 
 A failed `--waybar` fetch still prints one JSON object and exits 0. Text output and `--json` do not: those exit 1.
 

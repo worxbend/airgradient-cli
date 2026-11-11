@@ -28,9 +28,10 @@ pub(super) async fn run_fetch(
     format: OneShotFormat,
     fetch_settings: crate::device::FetchSettings,
 ) -> Result<(), CliError> {
+    let waybar_format = super::waybar_format_template(cli)?;
     match fetch_reading(cli, fetch_settings).await {
-        Ok(fetched) => render_fetched(cli, format, &fetched),
-        Err(error) if format == OneShotFormat::Waybar => waybar_failure(&error),
+        Ok(fetched) => render_fetched(cli, format, &fetched, waybar_format),
+        Err(error) if format == OneShotFormat::Waybar => waybar_failure(&error, waybar_format),
         Err(error) => Err(error),
     }
 }
@@ -62,6 +63,7 @@ fn render_fetched(
     cli: &Cli,
     format: OneShotFormat,
     fetched: &FetchedReading,
+    waybar_format: Option<&str>,
 ) -> Result<(), CliError> {
     let metadata = OutputMetadata {
         device_url: Some(fetched.device_url.as_str()),
@@ -87,7 +89,11 @@ fn render_fetched(
         OneShotFormat::Waybar => {
             println!(
                 "{}",
-                crate::output::waybar::render_live(&fetched.snapshot, metadata)
+                crate::output::waybar::render_live_formatted(
+                    &fetched.snapshot,
+                    metadata,
+                    waybar_format,
+                )?
             );
         }
     }
@@ -95,19 +101,23 @@ fn render_fetched(
     Ok(())
 }
 
-pub(super) fn waybar_failure(error: &CliError) -> Result<(), CliError> {
+pub(super) fn waybar_failure(
+    error: &CliError,
+    waybar_format: Option<&str>,
+) -> Result<(), CliError> {
     eprintln!("error: {error}");
     let json = if shows_cached_reading(error) {
         match latest_reading() {
             Some(reading) => {
                 let age =
                     crate::output::waybar::format_reading_age(reading.at(), SystemTime::now());
-                crate::output::waybar::render_stale(
+                crate::output::waybar::render_stale_formatted(
                     &reading.snapshot,
                     OutputMetadata::default(),
                     &error.to_string(),
                     &age,
-                )
+                    waybar_format,
+                )?
             }
             None => crate::output::waybar::render_offline(&error.to_string()),
         }

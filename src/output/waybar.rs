@@ -1,10 +1,13 @@
 //! Waybar `custom` module JSON for one reading.
 //!
 //! The bar asks for `return-type: json`, so stdout is one compact object and
-//! nothing else. Status comes from the metric rows [`crate::sensors::metrics`]
-//! already classified. Comfort scales have no breakpoints, and this module
-//! does not let them choose the CSS class. It does not record history and it
-//! does not decide whether a failed fetch exits 0; the command layer does.
+//! nothing else. Waybar 0.16 fills only `text`, `alt`, `icon`, and
+//! `percentage` in its own `format`. Metric placeholders are expanded here,
+//! into `text`, before Waybar sees them. Status comes from the metric rows
+//! [`crate::sensors::metrics`] already classified. Comfort scales have no
+//! breakpoints, and they choose the CSS class only when the template names no
+//! hazard metric. This module does not record history and it does not decide
+//! whether a failed fetch exits 0; the command layer does.
 
 use std::time::SystemTime;
 
@@ -39,13 +42,24 @@ enum WaybarClass {
 }
 
 pub fn render_live(snapshot: &SensorSnapshot, metadata: OutputMetadata<'_>) -> String {
+    render_live_formatted(snapshot, metadata, None)
+        .expect("the built-in waybar text is not a template")
+}
+
+/// `template` is a `--waybar-format` string. `None` is the full reading line.
+pub fn render_live_formatted(
+    snapshot: &SensorSnapshot,
+    metadata: OutputMetadata<'_>,
+    template: Option<&str>,
+) -> Result<String, WaybarFormatError> {
     let rows = metrics(snapshot, None);
-    encode(&WaybarOutput {
-        text: bar_text(&rows),
+    let view = bar_view(&rows, template)?;
+    Ok(encode(&WaybarOutput {
+        text: view.text,
         tooltip: live_tooltip(metadata.device_url, &rows),
-        class: WaybarClass::Status(hazard_status(&rows)),
-        percentage: aqi_percentage(&rows),
-    })
+        class: WaybarClass::Status(view.class),
+        percentage: view.percentage,
+    }))
 }
 
 pub fn render_offline(error: &str) -> String {
@@ -63,15 +77,210 @@ pub fn render_stale(
     error: &str,
     age: &str,
 ) -> String {
+    render_stale_formatted(snapshot, metadata, error, age, None)
+        .expect("the built-in waybar text is not a template")
+}
+
+pub fn render_stale_formatted(
+    snapshot: &SensorSnapshot,
+    metadata: OutputMetadata<'_>,
+    error: &str,
+    age: &str,
+    template: Option<&str>,
+) -> Result<String, WaybarFormatError> {
     let rows = metrics(snapshot, None);
-    let mut text = bar_text(&rows);
+    let view = bar_view(&rows, template)?;
+    let mut text = view.text;
     text.push_str(STALE_SUFFIX);
-    encode(&WaybarOutput {
+    Ok(encode(&WaybarOutput {
         text,
         tooltip: stale_tooltip(error, age, metadata.device_url, &rows),
-        class: WaybarClass::Stale((hazard_status(&rows), STALE_CLASS)),
-        percentage: aqi_percentage(&rows),
+        class: WaybarClass::Stale((view.class, STALE_CLASS)),
+        percentage: view.percentage,
+    }))
+}
+
+/// Reject a template before a fetch. Rendering parses it again.
+pub fn parse_format(template: &str) -> Result<(), WaybarFormatError> {
+    parse_template(template).map(|_| ())
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum WaybarFormatError {
+    UnknownPlaceholder(String),
+    UnclosedPlaceholder,
+}
+
+impl std::fmt::Display for WaybarFormatError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownPlaceholder(name) => write!(
+                formatter,
+                "unknown waybar placeholder `{{{name}}}`. Known placeholders: {KNOWN_PLACEHOLDERS}"
+            ),
+            Self::UnclosedPlaceholder => {
+                write!(formatter, "waybar format has an unmatched `{{` or `}}`")
+            }
+        }
+    }
+}
+
+impl std::error::Error for WaybarFormatError {}
+
+const KNOWN_PLACEHOLDERS: &str =
+    "aqi, co2, pm25, pm2p5, pm1, pm10, pm03, tvoc, nox, temp, humidity";
+
+/// Alias, then the metric key [`crate::sensors::metrics`] already uses.
+const PLACEHOLDERS: &[(&str, &str)] = &[
+    ("aqi", "aqi"),
+    ("co2", "co2"),
+    ("pm25", "pm25"),
+    ("pm2p5", "pm25"),
+    ("pm2.5", "pm25"),
+    ("pm1", "pm1"),
+    ("pm1.0", "pm1"),
+    ("pm10", "pm10"),
+    ("pm03", "pm03_count"),
+    ("pm03_count", "pm03_count"),
+    ("tvoc", "tvoc"),
+    ("nox", "nox"),
+    ("temp", "temperature_c"),
+    ("temperature", "temperature_c"),
+    ("temperature_c", "temperature_c"),
+    ("humidity", "humidity"),
+];
+
+struct BarView {
+    text: String,
+    class: Status,
+    percentage: Option<i64>,
+}
+
+enum TemplatePart {
+    Literal(String),
+    Metric(&'static str),
+}
+
+struct Template {
+    parts: Vec<TemplatePart>,
+    keys: Vec<&'static str>,
+}
+
+fn bar_view(rows: &Metrics, template: Option<&str>) -> Result<BarView, WaybarFormatError> {
+    let Some(template) = template else {
+        return Ok(BarView {
+            text: bar_text(rows),
+            class: hazard_status(rows),
+            percentage: aqi_percentage(rows),
+        });
+    };
+
+    let parsed = parse_template(template)?;
+    let text = parsed
+        .parts
+        .iter()
+        .map(|part| match part {
+            TemplatePart::Literal(literal) => literal.clone(),
+            TemplatePart::Metric(key) => rows
+                .by_key(key)
+                .expect("placeholder keys come from the metric table")
+                .reading_text(),
+        })
+        .collect();
+    Ok(BarView {
+        text,
+        class: status_for(rows, &parsed.keys),
+        percentage: percentage_for(rows, &parsed.keys),
     })
+}
+
+fn parse_template(template: &str) -> Result<Template, WaybarFormatError> {
+    let mut parts = Vec::new();
+    let mut literal = String::new();
+    let mut keys = Vec::new();
+    let mut chars = template.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '{' if chars.peek() == Some(&'{') => {
+                chars.next();
+                literal.push('{');
+            }
+            '}' if chars.peek() == Some(&'}') => {
+                chars.next();
+                literal.push('}');
+            }
+            '{' => {
+                push_literal(&mut parts, &mut literal);
+                let mut name = String::new();
+                let mut closed = false;
+                for next in chars.by_ref() {
+                    if next == '}' {
+                        closed = true;
+                        break;
+                    }
+                    name.push(next);
+                }
+                if !closed {
+                    return Err(WaybarFormatError::UnclosedPlaceholder);
+                }
+                let key = canonical_key(&name)?;
+                if !keys.contains(&key) {
+                    keys.push(key);
+                }
+                parts.push(TemplatePart::Metric(key));
+            }
+            '}' => return Err(WaybarFormatError::UnclosedPlaceholder),
+            other => literal.push(other),
+        }
+    }
+    push_literal(&mut parts, &mut literal);
+    Ok(Template { parts, keys })
+}
+
+fn push_literal(parts: &mut Vec<TemplatePart>, literal: &mut String) {
+    if !literal.is_empty() {
+        parts.push(TemplatePart::Literal(std::mem::take(literal)));
+    }
+}
+
+fn canonical_key(name: &str) -> Result<&'static str, WaybarFormatError> {
+    PLACEHOLDERS
+        .iter()
+        .find(|(alias, _)| *alias == name)
+        .map(|(_, key)| *key)
+        .ok_or_else(|| WaybarFormatError::UnknownPlaceholder(name.to_owned()))
+}
+
+/// Worst status among the named metrics. A hazard metric in the template keeps
+/// temperature and humidity from painting the bar. A template that names only
+/// those two uses their comfort status, so a temperature-only module can still
+/// be colored.
+fn status_for(rows: &Metrics, keys: &[&str]) -> Status {
+    let referenced: Vec<&crate::sensors::Metric> =
+        keys.iter().filter_map(|key| rows.by_key(key)).collect();
+    let hazards: Vec<&crate::sensors::Metric> = referenced
+        .iter()
+        .copied()
+        .filter(|metric| !metric.scale.breakpoints().is_empty())
+        .collect();
+    let pool = if hazards.is_empty() {
+        referenced
+    } else {
+        hazards
+    };
+    pool.iter()
+        .map(|metric| metric.status)
+        .max_by_key(|status| status.rank())
+        .unwrap_or(Status::Unknown)
+}
+
+fn percentage_for(rows: &Metrics, keys: &[&str]) -> Option<i64> {
+    if keys.contains(&"aqi") {
+        aqi_percentage(rows)
+    } else {
+        None
+    }
 }
 
 /// How old a cached reading is, for the stale tooltip.
@@ -224,6 +433,122 @@ mod tests {
         assert!(text.contains("AQI 10"), "{text}");
         assert!(!text.contains("PM2.5 0"), "{text}");
         assert_eq!(output["percentage"], 10);
+    }
+
+    #[test]
+    fn a_template_prints_only_the_named_metrics_and_colors_from_those() {
+        let output = parse(
+            &render_live_formatted(&full_snapshot(), OutputMetadata::default(), Some("{aqi}"))
+                .expect("aqi is a known placeholder"),
+        );
+
+        assert_eq!(output["text"], "42");
+        assert_eq!(output["class"], "good");
+        assert_eq!(output["percentage"], 42);
+
+        let mixed = parse(
+            &render_live_formatted(
+                &full_snapshot(),
+                OutputMetadata::default(),
+                Some("{temp} {pm2p5}"),
+            )
+            .expect("temp and pm2p5 are known placeholders"),
+        );
+        assert_eq!(mixed["text"], "22.0 C 7.4 ug/m3");
+        assert_eq!(mixed["class"], "good");
+        assert!(mixed.get("percentage").is_none());
+    }
+
+    #[test]
+    fn a_template_keeps_a_missing_sensor_as_the_missing_token() {
+        let output = parse(
+            &render_live_formatted(
+                &SensorSnapshot {
+                    aqi: Some(10.0),
+                    ..SensorSnapshot::default()
+                },
+                OutputMetadata::default(),
+                Some("PM {pm2p5}"),
+            )
+            .expect("pm2p5 is a known placeholder"),
+        );
+
+        assert_eq!(output["text"], "PM -- ug/m3");
+        assert!(output.get("percentage").is_none());
+    }
+
+    #[test]
+    fn a_comfort_only_template_uses_the_comfort_status() {
+        let temperature = parse(
+            &render_live_formatted(
+                &SensorSnapshot {
+                    aqi: Some(42.0),
+                    temperature_c: Some(40.0),
+                    ..SensorSnapshot::default()
+                },
+                OutputMetadata::default(),
+                Some("{temp}"),
+            )
+            .expect("temp is a known placeholder"),
+        );
+        assert_eq!(temperature["text"], "40.0 C");
+        assert_eq!(temperature["class"], "elevated");
+
+        let mixed = parse(
+            &render_live_formatted(
+                &SensorSnapshot {
+                    aqi: Some(42.0),
+                    temperature_c: Some(40.0),
+                    ..SensorSnapshot::default()
+                },
+                OutputMetadata::default(),
+                Some("{aqi} {temp}"),
+            )
+            .expect("aqi and temp are known placeholders"),
+        );
+        assert_eq!(mixed["class"], "good");
+        assert_eq!(mixed["percentage"], 42);
+    }
+
+    #[test]
+    fn a_template_on_a_stale_reading_drops_the_metrics_it_does_not_name() {
+        let output = parse(
+            &render_stale_formatted(
+                &SensorSnapshot {
+                    aqi: Some(80.0),
+                    co2: Some(2100.0),
+                    ..SensorSnapshot::default()
+                },
+                OutputMetadata::default(),
+                "device down",
+                "2m ago",
+                Some("{aqi}"),
+            )
+            .expect("aqi is a known placeholder"),
+        );
+
+        assert_eq!(output["text"], "80 · stale");
+        assert_eq!(output["class"], json!(["moderate", "stale"]));
+        assert_eq!(output["percentage"], 80);
+    }
+
+    #[test]
+    fn an_unknown_or_unclosed_placeholder_is_rejected() {
+        assert!(matches!(
+            parse_format("{nope}"),
+            Err(WaybarFormatError::UnknownPlaceholder(name)) if name == "nope"
+        ));
+        assert_eq!(
+            parse_format("{aqi"),
+            Err(WaybarFormatError::UnclosedPlaceholder)
+        );
+        let escaped =
+            render_live_formatted(&full_snapshot(), OutputMetadata::default(), Some("{{aqi}}"))
+                .expect("escaped braces are literal");
+        assert!(
+            escaped.contains("\"text\":\"{aqi}\""),
+            "escaped braces should stay literal, got {escaped}"
+        );
     }
 
     #[test]

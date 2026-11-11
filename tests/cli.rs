@@ -397,6 +397,70 @@ fn waybar_is_rejected_with_json_tui_config_and_themes() {
 }
 
 #[test]
+fn waybar_format_rejects_a_template_without_waybar_or_an_unknown_placeholder() {
+    cli()
+        .args(["--waybar-format", "{aqi}"])
+        .assert()
+        .failure()
+        .stdout("")
+        .stderr(predicate::str::contains(
+            "`--waybar-format` only applies with `--waybar`",
+        ));
+
+    cli()
+        .args(["--waybar", "--waybar-format", "{nope}"])
+        .assert()
+        .failure()
+        .stdout("")
+        .stderr(predicate::str::contains(
+            "unknown waybar placeholder `{nope}`",
+        ));
+}
+
+#[test]
+fn waybar_format_prints_only_the_named_metric() {
+    let runtime = tokio::runtime::Runtime::new().expect("runtime should start");
+    let server = runtime.block_on(async {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/measures/current"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "rco2": 612,
+                "pm02": 7.4
+            })))
+            .mount(&server)
+            .await;
+        server
+    });
+
+    let uri = server.uri();
+    for args in [
+        vec![
+            "--url",
+            uri.as_str(),
+            "--waybar",
+            "--waybar-format",
+            "{pm2p5}",
+        ],
+        vec![
+            "--url",
+            uri.as_str(),
+            "fetch",
+            "--waybar",
+            "--waybar-format",
+            "AQI {aqi} PM {pm25}",
+        ],
+    ] {
+        let report = cli().args(args).assert().success().stderr("");
+        let stdout = String::from_utf8(report.get_output().stdout.clone()).expect("stdout is utf8");
+        let json: Value = serde_json::from_str(stdout.trim()).expect("stdout should be JSON");
+        let text = json["text"].as_str().expect("text");
+        assert!(text.contains("7.4 ug/m3"), "{text}");
+        assert!(!text.contains("CO2"), "{text}");
+    }
+}
+
+#[test]
 fn waybar_failed_fetch_exits_zero_with_offline_json() {
     let data_home = tempdir().expect("temp dir");
     let dir = tempdir().expect("tempdir should be created");

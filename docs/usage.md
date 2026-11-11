@@ -118,6 +118,7 @@ Replace the example IP with your LAN device address.
 | `--config <PATH>` | Use a different config file |
 | `--json` | JSON instead of the one-shot table |
 | `--waybar` | Waybar JSON instead of the one-shot table |
+| `--waybar-format <TEMPLATE>` | Fill Waybar `text` from `{aqi}`, `{pm2p5}`, `{temp}`, and the other metric placeholders |
 | `--no-color` | Disable one-shot text color |
 | `-v`, `-vv` | Error source chain; debug and trace detail at `-vv` |
 | `--help`, `--version` | Print help or version |
@@ -130,12 +131,24 @@ Put top-level options before subcommands, for example:
 for `config` and `themes`, and they cannot be combined. `config show` already
 emits JSON without `--json`.
 
-`--waybar` prints one compact object: `text` (every reading), `tooltip`,
-`class` (worst hazard status; temperature and humidity do not set it), and
-`percentage` (the AQI, omitted when missing). A failed fetch still prints that
-object and exits 0. A saved reading is shown with class `stale`. No saved
-reading, or no configured device URL, uses text `offline` and class `error`.
-The module snippet is in the README.
+`--waybar` prints one compact object: `text`, `tooltip`, `class`, and
+`percentage`. With no `--waybar-format`, `text` is every reading and `class`
+is the worst hazard status. Temperature and humidity do not set that class.
+`percentage` is the AQI, omitted when it is missing.
+
+`--waybar-format` replaces `text`. Waybar's own `format` only understands
+`{text}`, `{alt}`, `{icon}`, and `{percentage}`, so `{aqi}` and `{temp}` belong
+in this flag. The placeholders are `{aqi}`, `{co2}`, `{pm25}`, `{pm2p5}`,
+`{pm1}`, `{pm10}`, `{pm03}`, `{tvoc}`, `{nox}`, `{temp}`, and `{humidity}`.
+`{{` and `}}` are literal braces. A missing sensor stays `--`. `class` follows
+the named metrics. Comfort status is used only when the template names no
+hazard metric. `percentage` is included when the template names `{aqi}`.
+
+A failed fetch still prints that object and exits 0. A saved reading is shown
+with class `stale`, using the same template. No saved reading, or no configured
+device URL, uses text `offline` and class `error`. The module snippet is in
+the README. `--waybar-format` without `--waybar`, or an unknown placeholder,
+exits 1 and prints no JSON.
 
 One-shot trends compare against the previously recorded reading. The first run,
 recording opt-out, or an unavailable previous reading leaves the trend unknown
