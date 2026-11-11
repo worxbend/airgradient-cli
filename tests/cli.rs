@@ -115,6 +115,55 @@ fn fetch_json_emits_normalized_json() {
 }
 
 #[test]
+fn fetch_waybar_emits_one_compact_json_object() {
+    let runtime = tokio::runtime::Runtime::new().expect("runtime should start");
+    let server = runtime.block_on(async {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/measures/current"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "rco2": 612,
+                "pm02": 7.4
+            })))
+            .mount(&server)
+            .await;
+        server
+    });
+
+    let uri = server.uri();
+    for args in [
+        vec!["--url", uri.as_str(), "fetch", "--waybar"],
+        vec!["--url", uri.as_str(), "--waybar"],
+    ] {
+        let report = cli().args(args).assert().success().stderr("");
+        let stdout = String::from_utf8(report.get_output().stdout.clone()).expect("stdout is utf8");
+        assert_eq!(
+            stdout.trim_end().lines().count(),
+            1,
+            "waybar stdout should be one JSON line, got {stdout}"
+        );
+        assert!(!stdout.contains("error:"), "{stdout}");
+
+        let json: Value = serde_json::from_str(stdout.trim()).expect("stdout should be JSON");
+        let text = json["text"].as_str().expect("text");
+        assert!(text.contains("CO2 612 ppm"), "{text}");
+        assert!(text.contains("PM2.5 7.4 ug/m3"), "{text}");
+        assert!(text.contains("PM1.0 -- ug/m3"), "{text}");
+        assert!(!text.contains("PM1.0 0"), "{text}");
+        assert!(text.contains(" · "), "{text}");
+        assert_eq!(json["class"], "good");
+        assert!(json["percentage"].is_number());
+        assert!(
+            json["tooltip"]
+                .as_str()
+                .expect("tooltip")
+                .starts_with(&format!("{uri}/")),
+            "tooltip should lead with the device URL"
+        );
+    }
+}
+
+#[test]
 fn missing_configured_url_exits_non_zero_with_setup_guidance() {
     let dir = tempdir().expect("tempdir should be created");
     let config_path = dir.path().join("missing.json");
@@ -284,6 +333,127 @@ fn top_level_json_is_rejected_for_config_commands() {
         .stderr(predicate::str::contains(
             "`--json` only applies to one-shot fetch output",
         ));
+}
+
+#[test]
+fn waybar_is_rejected_with_json_tui_config_and_themes() {
+    cli()
+        .args(["--waybar", "--json"])
+        .assert()
+        .failure()
+        .stdout("")
+        .stderr(predicate::str::contains(
+            "`--waybar` cannot be combined with `--json`",
+        ));
+
+    cli()
+        .args(["--json", "fetch", "--waybar"])
+        .assert()
+        .failure()
+        .stdout("")
+        .stderr(predicate::str::contains(
+            "`--waybar` cannot be combined with `--json`",
+        ));
+
+    cli()
+        .args(["fetch", "--json", "--waybar"])
+        .assert()
+        .failure()
+        .stdout("")
+        .stderr(predicate::str::contains(
+            "`--waybar` cannot be combined with `--json`",
+        ));
+
+    let dir = tempdir().expect("tempdir should be created");
+    let config_path = dir.path().join("config.json");
+    cli()
+        .args([
+            "--config",
+            path_str(&config_path),
+            "--waybar",
+            "config",
+            "show",
+        ])
+        .assert()
+        .failure()
+        .stdout("")
+        .stderr(predicate::str::contains(
+            "`--waybar` only applies to one-shot fetch output",
+        ));
+
+    cli()
+        .args(["--waybar", "themes"])
+        .assert()
+        .failure()
+        .stdout("")
+        .stderr(predicate::str::contains("themes"));
+
+    cli()
+        .args(["--tui", "--waybar"])
+        .assert()
+        .failure()
+        .stdout("")
+        .stderr(predicate::str::contains("`--tui` does not support it"));
+}
+
+#[test]
+fn waybar_failed_fetch_exits_zero_with_offline_json() {
+    let data_home = tempdir().expect("temp dir");
+    let dir = tempdir().expect("tempdir should be created");
+    let config_path = dir.path().join("missing.json");
+
+    let mut missing_url = cli();
+    missing_url.env("XDG_DATA_HOME", data_home.path()).args([
+        "--config",
+        path_str(&config_path),
+        "--waybar",
+    ]);
+    assert_waybar_offline(missing_url, "No AirGradient device URL");
+
+    let runtime = tokio::runtime::Runtime::new().expect("runtime should start");
+    let server = runtime.block_on(async {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/measures/current"))
+            .respond_with(ResponseTemplate::new(503))
+            .mount(&server)
+            .await;
+        server
+    });
+    let empty_history = tempdir().expect("temp dir");
+
+    let mut failed = cli();
+    failed.env("XDG_DATA_HOME", empty_history.path()).args([
+        "--url",
+        &server.uri(),
+        "fetch",
+        "--waybar",
+    ]);
+    assert_waybar_offline(failed, "non-success status 503");
+}
+
+fn assert_waybar_offline(mut command: Command, error_text: &str) {
+    let report = command.assert().success();
+    let stdout = String::from_utf8(report.get_output().stdout.clone()).expect("stdout is utf8");
+    let stderr = String::from_utf8(report.get_output().stderr.clone()).expect("stderr is utf8");
+
+    assert!(
+        stderr.starts_with("error:"),
+        "stderr should name the cause, got {stderr}"
+    );
+    assert!(
+        stderr.contains(error_text),
+        "stderr should contain {error_text}, got {stderr}"
+    );
+    assert!(
+        !stdout.contains("error:"),
+        "stdout should stay JSON, got {stdout}"
+    );
+
+    let json: Value = serde_json::from_str(stdout.trim()).expect("stdout should be JSON");
+    assert_eq!(json["text"], "offline");
+    assert_eq!(json["class"], "error");
+    assert!(json.get("percentage").is_none(), "{json}");
 }
 
 #[test]
@@ -932,6 +1102,92 @@ fn a_one_shot_fetch_records_the_reading_it_displayed() {
         recorded.contains("\"co2\":612.0"),
         "the recorded line holds the reading that was displayed, got: {recorded}"
     );
+}
+
+#[test]
+fn waybar_failed_fetch_shows_the_previous_reading_without_recording_the_failure() {
+    let runtime = tokio::runtime::Runtime::new().expect("runtime should start");
+    let data_home = tempdir().expect("temp dir");
+    let server = runtime.block_on(async {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/measures/current"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "rco2": 612,
+                "pm02": 7.4
+            })))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/measures/current"))
+            .respond_with(ResponseTemplate::new(503))
+            .mount(&server)
+            .await;
+        server
+    });
+
+    cli_recording_history(data_home.path())
+        .args(["--url", &server.uri(), "fetch", "--waybar"])
+        .assert()
+        .success();
+
+    let failed = cli_recording_history(data_home.path())
+        .args(["--url", &server.uri(), "--waybar"])
+        .assert()
+        .success();
+    let stdout = String::from_utf8(failed.get_output().stdout.clone()).expect("stdout is utf8");
+    let stderr = String::from_utf8(failed.get_output().stderr.clone()).expect("stderr is utf8");
+    assert!(stderr.starts_with("error:"), "{stderr}");
+    assert!(!stdout.contains("error:"), "{stdout}");
+
+    let json: Value = serde_json::from_str(stdout.trim()).expect("stdout should be JSON");
+    let text = json["text"].as_str().expect("text");
+    assert!(text.contains("CO2 612 ppm"), "{text}");
+    assert!(text.contains("stale"), "{text}");
+    let class = json["class"].as_array().expect("stale class is an array");
+    assert!(
+        class.iter().any(|item| item == "stale"),
+        "class should contain stale, got {class:?}"
+    );
+    assert!(json["percentage"].is_number(), "{json}");
+
+    let history = data_home
+        .path()
+        .join("airgradient-cli")
+        .join("history.jsonl");
+    let recorded = fs::read_to_string(&history).expect("history should still be there");
+    assert_eq!(
+        recorded.lines().filter(|line| !line.is_empty()).count(),
+        1,
+        "the failed fetch must not append a history line, got {recorded}"
+    );
+    assert!(recorded.contains("\"co2\":612.0"), "{recorded}");
+}
+
+#[test]
+fn waybar_missing_url_stays_offline_when_history_exists() {
+    let runtime = tokio::runtime::Runtime::new().expect("runtime should start");
+    let data_home = tempdir().expect("temp dir");
+    let server = mock_device(&runtime);
+
+    cli_recording_history(data_home.path())
+        .args(["--url", &server.uri(), "--waybar"])
+        .assert()
+        .success();
+
+    let dir = tempdir().expect("tempdir should be created");
+    let config_path = dir.path().join("missing.json");
+    let mut missing_url = cli_recording_history(data_home.path());
+    missing_url.args(["--config", path_str(&config_path), "--waybar"]);
+    assert_waybar_offline(missing_url, "No AirGradient device URL");
+
+    let history = data_home
+        .path()
+        .join("airgradient-cli")
+        .join("history.jsonl");
+    let recorded = fs::read_to_string(&history).expect("history should still be there");
+    assert_eq!(recorded.lines().filter(|line| !line.is_empty()).count(), 1);
 }
 
 #[test]

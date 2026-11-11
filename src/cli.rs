@@ -7,9 +7,8 @@
 
 use std::{
     env,
-    io::{self, IsTerminal},
     path::{Path, PathBuf},
-    time::{Duration, Instant, SystemTime},
+    time::{Duration, SystemTime},
 };
 
 use clap::{Args, Parser, Subcommand};
@@ -19,10 +18,10 @@ use crate::{
     config::{self, Config},
     device,
     device_url::{DeviceUrl, DeviceUrlError},
-    history,
-    output::{self, OutputMetadata},
-    sensors, tui,
+    history, sensors, tui,
 };
+
+mod fetch;
 
 /// Set to anything to stop a one-shot fetch recording what it read.
 const NO_HISTORY_ENV: &str = "AIRGRADIENT_CLI_NO_HISTORY";
@@ -44,6 +43,9 @@ pub struct Cli {
 
     #[arg(long)]
     pub json: bool,
+
+    #[arg(long)]
+    pub waybar: bool,
 
     #[arg(long)]
     pub no_color: bool,
@@ -82,6 +84,16 @@ pub enum ConfigCommand {
 pub struct FetchArgs {
     #[arg(long)]
     pub json: bool,
+
+    #[arg(long)]
+    pub waybar: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OneShotFormat {
+    Text,
+    Json,
+    Waybar,
 }
 
 #[derive(Debug, Error)]
@@ -121,6 +133,18 @@ pub enum CliError {
     #[error("`--json` only applies to one-shot fetch output; `themes` does not support it.")]
     JsonUnsupportedForThemes,
 
+    #[error("`--waybar` only applies to one-shot fetch output; `--tui` does not support it.")]
+    WaybarUnsupportedForTui,
+
+    #[error("`--waybar` only applies to one-shot fetch output; config commands do not support it.")]
+    WaybarUnsupportedForConfig,
+
+    #[error("`--waybar` only applies to one-shot fetch output; `themes` does not support it.")]
+    WaybarUnsupportedForThemes,
+
+    #[error("`--waybar` cannot be combined with `--json`.")]
+    WaybarConflictsWithJson,
+
     #[error("invalid fetch timeout override `{value}`")]
     InvalidFetchTimeoutOverride {
         value: String,
@@ -135,7 +159,11 @@ pub async fn run(cli: Cli) -> Result<(), CliError> {
     // Read once, here, rather than separately down each branch: this function
     // and `main` are the only places that touch the process environment, so
     // everything below is a function of its arguments.
-    let fetch_settings = fetch_settings()?;
+    let fetch_settings = match fetch_settings() {
+        Ok(settings) => settings,
+        Err(error) if waybar_selected(&cli) => return fetch::waybar_failure(&error),
+        Err(error) => return Err(error),
+    };
 
     if cli.tui {
         let options = tui::runtime::RuntimeOptions {
@@ -151,13 +179,11 @@ pub async fn run(cli: Cli) -> Result<(), CliError> {
         return tui::runtime::run(options).await.map_err(CliError::from);
     }
 
+    let format = one_shot_format(&cli);
     match &cli.command {
         Some(Command::Config { command }) => run_config_command(command, &cli),
-        Some(Command::Fetch(fetch)) => {
-            run_fetch(&cli, fetch.json || cli.json, fetch_settings).await
-        }
         Some(Command::Themes) => run_themes(),
-        None => run_fetch(&cli, cli.json, fetch_settings).await,
+        Some(Command::Fetch(_)) | None => fetch::run_fetch(&cli, format, fetch_settings).await,
     }
 }
 
@@ -177,6 +203,9 @@ fn validate_flag_combination(cli: &Cli) -> Result<(), CliError> {
         if cli.json {
             return Err(CliError::JsonUnsupportedForTui);
         }
+        if cli.waybar {
+            return Err(CliError::WaybarUnsupportedForTui);
+        }
 
         return Ok(());
     }
@@ -186,9 +215,13 @@ fn validate_flag_combination(cli: &Cli) -> Result<(), CliError> {
         return Err(CliError::RefreshRequiresTui);
     }
 
-    // `--json` is the one-shot fetch's output format; the other subcommands
-    // have no JSON form to switch to.
-    if cli.json {
+    if json_selected(cli) && waybar_selected(cli) {
+        return Err(CliError::WaybarConflictsWithJson);
+    }
+
+    // `--json` and `--waybar` are one-shot fetch formats; the other
+    // subcommands have no form of either to switch to.
+    if json_selected(cli) {
         match cli.command {
             Some(Command::Config { .. }) => return Err(CliError::JsonUnsupportedForConfig),
             Some(Command::Themes) => return Err(CliError::JsonUnsupportedForThemes),
@@ -196,7 +229,39 @@ fn validate_flag_combination(cli: &Cli) -> Result<(), CliError> {
         }
     }
 
+    if waybar_selected(cli) {
+        match cli.command {
+            Some(Command::Config { .. }) => return Err(CliError::WaybarUnsupportedForConfig),
+            Some(Command::Themes) => return Err(CliError::WaybarUnsupportedForThemes),
+            Some(Command::Fetch(_)) | None => {}
+        }
+    }
+
     Ok(())
+}
+
+fn json_selected(cli: &Cli) -> bool {
+    cli.json || fetch_args(cli).is_some_and(|args| args.json)
+}
+
+fn waybar_selected(cli: &Cli) -> bool {
+    cli.waybar || fetch_args(cli).is_some_and(|args| args.waybar)
+}
+
+fn fetch_args(cli: &Cli) -> Option<&FetchArgs> {
+    match &cli.command {
+        Some(Command::Fetch(args)) => Some(args),
+        _ => None,
+    }
+}
+
+fn one_shot_format(cli: &Cli) -> OneShotFormat {
+    match (json_selected(cli), waybar_selected(cli)) {
+        (true, true) => unreachable!("validate_flag_combination rejects --json with --waybar"),
+        (false, true) => OneShotFormat::Waybar,
+        (true, false) => OneShotFormat::Json,
+        (false, false) => OneShotFormat::Text,
+    }
 }
 
 fn run_themes() -> Result<(), CliError> {
@@ -248,44 +313,6 @@ fn run_config_command(command: &ConfigCommand, cli: &Cli) -> Result<(), CliError
     }
 
     println!("{}", serde_json::to_string_pretty(&config)?);
-
-    Ok(())
-}
-
-async fn run_fetch(
-    cli: &Cli,
-    json: bool,
-    fetch_settings: device::FetchSettings,
-) -> Result<(), CliError> {
-    let path = config_path(cli)?;
-    let config = effective_config(&path, cli)?;
-    let base_url = required_server_url(&config)?;
-    let client = fetch_settings.client()?;
-
-    let started = Instant::now();
-    let payload = device::fetch_current_measures_with_client(&client, &base_url).await?;
-    let fetch_duration = started.elapsed();
-    let snapshot = sensors::parse_snapshot(&payload);
-    let previous = record_reading(&snapshot);
-    let previous = previous.as_ref().map(|reading| &reading.snapshot);
-    let metadata = OutputMetadata {
-        device_url: Some(base_url.as_str()),
-        last_update: None,
-        fetch_duration: Some(fetch_duration),
-    };
-
-    if json {
-        println!(
-            "{}",
-            output::json::render_pretty(&snapshot, previous, metadata)?
-        );
-    } else {
-        let no_color = cli.no_color || !io::stdout().is_terminal();
-        print!(
-            "{}",
-            output::text::render(&snapshot, previous, metadata, no_color)
-        );
-    }
 
     Ok(())
 }
