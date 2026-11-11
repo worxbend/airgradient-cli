@@ -12,7 +12,7 @@ Local AirGradient readings, a live dashboard, and JSON for scripts. Written in R
 [![CI](https://img.shields.io/github/actions/workflow/status/worxbend/airgradient-cli/ci.yml?branch=main&labelColor=0B1220&color=50FFA6)](https://github.com/worxbend/airgradient-cli/actions/workflows/ci.yml)
 [![MIT](https://img.shields.io/badge/license-MIT-D36EFF?labelColor=0B1220)](LICENSE)
 
-[Website](https://worxbend.github.io/airgradient-cli/) · [Install](#install) · [Usage guide](docs/usage.md) · [v0.5.0 notes](docs/releases/v0.5.0.md)
+[Website](https://worxbend.github.io/airgradient-cli/) · [Install](#install) · [Usage guide](docs/usage.md) · [v0.6.0 notes](docs/releases/v0.6.0.md)
 
 </div>
 
@@ -22,14 +22,14 @@ Local AirGradient readings, a live dashboard, and JSON for scripts. Written in R
 
 ## Install
 
-**Linux amd64 or arm64.** Download the installer, inspect it, then install v0.5.0:
+**Linux amd64 or arm64.** Download the installer, inspect it, then install v0.6.0:
 
 ```sh
 curl --proto '=https' --tlsv1.2 -fsSL \
-  https://github.com/worxbend/airgradient-cli/releases/download/v0.5.0/install.sh \
+  https://github.com/worxbend/airgradient-cli/releases/download/v0.6.0/install.sh \
   -o install.sh
 less install.sh
-sh install.sh --version v0.5.0
+sh install.sh --version v0.6.0
 ```
 
 The installer checks the archive's SHA256 checksum and installs to `~/.local/bin`.
@@ -184,7 +184,7 @@ Existing history remains readable in the dashboard. This does not disable explic
 - **Small terminal?** Minimum dashboard size is 36×20. Lower metric rows may be clipped at that size.
 - **Refresh failed?** The dashboard keeps the last successful reading and shows the error. It is not a fresh reading.
 
-The v0.5.0 release was tested with synthetic fixtures, mock devices, and real pseudo-terminals.
+The v0.6.0 release was tested with synthetic fixtures, mock devices, and real pseudo-terminals.
 **No live AirGradient hardware validation was performed for this release.**
 
 ## Go deeper

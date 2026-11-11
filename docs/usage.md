@@ -1,6 +1,6 @@
 # Usage guide
 
-Detailed reference for airgradient-cli v0.5.0. [Quick start](../README.md) · [Release notes](releases/v0.5.0.md)
+Detailed reference for airgradient-cli v0.6.0. [Quick start](../README.md) · [Release notes](releases/v0.6.0.md)
 
 - [Installation](#installation)
 - [Commands and flags](#commands-and-flags)
@@ -42,14 +42,14 @@ sh install.sh
 
 ```sh
 curl --proto '=https' --tlsv1.2 -sSfL \
-  https://github.com/worxbend/airgradient-cli/releases/download/v0.5.0/install.sh \
-  | sh -s -- --version v0.5.0
+  https://github.com/worxbend/airgradient-cli/releases/download/v0.6.0/install.sh \
+  | sh -s -- --version v0.6.0
 ```
 
 ### Custom directory
 
 ```sh
-sh install.sh --version v0.5.0 --dir /usr/local/bin
+sh install.sh --version v0.6.0 --dir /usr/local/bin
 ```
 
 The directory must be writable by the current user.
@@ -77,7 +77,7 @@ With Git and the pinned Rust toolchain available:
 ```sh
 git clone https://github.com/worxbend/airgradient-cli.git
 cd airgradient-cli
-git checkout v0.5.0
+git checkout v0.6.0
 cargo install --locked --path .
 ```
 
